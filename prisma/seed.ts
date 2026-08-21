@@ -233,7 +233,6 @@ async function reset() {
     "rfq_vendors", "rfqs",
     "purchase_order_items", "purchase_orders",
     "approval_actions", "approval_instances", "approval_rule_steps", "approval_rules",
-    "workflow_instances", "workflow_rules",
     "purchase_requisition_items", "purchase_requisitions",
     "vendor_scores", "vendor_evaluations", "vendor_performance", "vendor_issues",
     "vendor_blacklist_cases", "vendor_documents", "vendor_contacts", "vendor_entity_links", "vendors",
