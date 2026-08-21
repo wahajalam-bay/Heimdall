@@ -1,0 +1,2503 @@
+// Procurement Operating System — relational data model
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Pooled connection for the application: serverless functions open and close
+  // constantly, and Postgres will not take that directly.
+  url = env("DATABASE_URL")
+  // Unpooled connection for schema pushes and migrations, which the pooler
+  // cannot carry.
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// IDENTITY, RBAC & ORG MODEL
+// ─────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  title        String?
+  phone        String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  primaryEntityId     String?
+  primaryEntity       Entity?     @relation("UserPrimaryEntity", fields: [primaryEntityId], references: [id])
+  primaryDepartmentId String?
+  primaryDepartment   Department? @relation("UserPrimaryDept", fields: [primaryDepartmentId], references: [id])
+
+  notifyInApp  Boolean @default(true)
+  notifyEmail  Boolean @default(false)
+  notifyDigest Boolean @default(true)
+
+  roles         UserRole[]
+  entityAccess  UserEntityAccess[]
+  sessions      Session[]
+  auditLogs     AuditLog[]
+  notifications Notification[]
+  tasks         Task[]             @relation("TaskAssignee")
+
+  requisitions       PurchaseRequisition[] @relation("PRRequester")
+  approvalActions    ApprovalAction[]
+  rfqsCreated        Rfq[]                 @relation("RfqCreatedBy")
+  negotiations       Negotiation[]
+  posCreated         PurchaseOrder[]       @relation("PoCreatedBy")
+  gatePasses         GatePass[]            @relation("GatePassRecordedBy")
+  deliveriesReceived Delivery[]            @relation("DeliveryReceivedBy")
+  inspections        Inspection[]          @relation("InspectionInspector")
+  grns               Grn[]                 @relation("GrnReceivedBy")
+  invoicesVerified   Invoice[]             @relation("InvoiceVerifiedBy")
+  vendorEvaluations  VendorEvaluation[]
+  cpcMemberships     CpcCaseMember[]
+  cpcDecisions       CpcDecision[]
+  documents          Document[]
+  exceptionsOwned    Exception[]           @relation("ExceptionOwner")
+  exceptionsRaised   Exception[]           @relation("ExceptionRaisedBy")
+  pettyCash          PettyCashRequest[]    @relation("PettyCashRequester")
+  storeIssues        StoreIssue[]          @relation("IssueRequestedBy")
+  storeTransfers     StoreTransfer[]       @relation("TransferRequestedBy")
+  assetsHeld         Asset[]               @relation("AssetCustodian")
+  disposalCases      DisposalCase[]        @relation("DisposalRaisedBy")
+  vendorIssues       VendorIssue[]         @relation("VendorIssueRaisedBy")
+  savedViews         SavedView[]
+  stacking           GoodsStacking[]       @relation("StackedBy")
+  paymentHandoffs    PaymentHandoff[]      @relation("HandoffBy")
+  emails             EmailMessage[]
+
+  @@index([email])
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([token])
+  @@map("sessions")
+}
+
+model Role {
+  id          String  @id @default(cuid())
+  code        String  @unique
+  name        String
+  description String?
+  rank        Int     @default(0)
+  isSystem    Boolean @default(false)
+
+  permissions   RolePermission[]
+  users         UserRole[]
+  approvalSteps ApprovalRuleStep[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  code        String           @unique
+  name        String
+  group       String
+  description String?
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId String
+  roleId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model Entity {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  legalName String?
+  currency  String   @default("PKR")
+  address   String?
+  city      String?
+  taxNumber String?
+  logoText  String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  departments    Department[]
+  projects       Project[]
+  sites          Site[]
+  stores         Store[]
+  categories     Category[]
+  users          User[]                @relation("UserPrimaryEntity")
+  userAccess     UserEntityAccess[]
+  requisitions   PurchaseRequisition[]
+  purchaseOrders PurchaseOrder[]
+  approvalRules  ApprovalRule[]
+  configs        ConfigSetting[]
+  vendors        VendorEntityLink[]
+  assets         Asset[]
+  cpcMeetings    CpcMeeting[]
+  disposalCases  DisposalCase[]
+  pettyCash      PettyCashRequest[]
+
+  @@map("entities")
+}
+
+model UserEntityAccess {
+  userId   String
+  entityId String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entity   Entity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@id([userId, entityId])
+  @@map("user_entity_access")
+}
+
+model Department {
+  id         String  @id @default(cuid())
+  code       String
+  name       String
+  entityId   String
+  entity     Entity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  headId     String?
+  costCenter String?
+  active     Boolean @default(true)
+
+  users         User[]                @relation("UserPrimaryDept")
+  requisitions  PurchaseRequisition[]
+  approvalRules ApprovalRule[]
+  assets        Asset[]
+  pettyCash     PettyCashRequest[]
+
+  @@unique([entityId, code])
+  @@map("departments")
+}
+
+model Project {
+  id        String    @id @default(cuid())
+  code      String    @unique
+  name      String
+  entityId  String
+  entity    Entity    @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  city      String?
+  status    String    @default("Active")
+  managerId String?
+  budget    Float?
+  startDate DateTime?
+  endDate   DateTime?
+
+  sites        Site[]
+  requisitions PurchaseRequisition[]
+  stores       Store[]
+  inventory    InventoryItem[]
+
+  @@map("projects")
+}
+
+model Site {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  entityId  String
+  entity    Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id])
+  address   String?
+  city      String?
+  active    Boolean  @default(true)
+
+  stores       Store[]
+  requisitions PurchaseRequisition[]
+
+  @@map("sites")
+}
+
+model Store {
+  id String @id @default(cuid())
+
+  code String @unique
+  name String
+
+  /// CENTRAL_WAREHOUSE | SITE_STORE | OFFICE_STORE | PROJECT_STORE | OTHER
+  kind      String
+  entityId  String
+  entity    Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  siteId    String?
+  site      Site?    @relation(fields: [siteId], references: [id])
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id])
+  address   String?
+  city      String?
+  managerId String?
+  active    Boolean  @default(true)
+
+  locations      StoreLocation[]
+  inventory      InventoryItem[]
+  transactions   InventoryTransaction[]
+  grns           Grn[]
+  gatePasses     GatePass[]
+  deliveries     Delivery[]
+  requisitions   PurchaseRequisition[]
+  purchaseOrders PurchaseOrder[]
+  issues         StoreIssue[]
+  transfersFrom  StoreTransfer[]       @relation("TransferFrom")
+  transfersTo    StoreTransfer[]       @relation("TransferTo")
+  stacking       GoodsStacking[]
+
+  @@map("stores")
+}
+
+model StoreLocation {
+  id      String @id @default(cuid())
+  storeId String
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  zone    String?
+  rack    String?
+  bin     String?
+  label   String
+
+  /// GENERAL | HIGH_VALUE | SENSITIVE | HAZARDOUS | PROJECT_MATERIAL
+  handling String  @default("GENERAL")
+  capacity Float?
+  active   Boolean @default(true)
+
+  inventory InventoryItem[]
+  stacking  GoodsStacking[]
+
+  @@unique([storeId, label])
+  @@map("store_locations")
+}
+
+model Category {
+  id       String     @id @default(cuid())
+  code     String     @unique
+  name     String
+  entityId String?
+  entity   Entity?    @relation(fields: [entityId], references: [id])
+  parentId String?
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryTree")
+
+  /// Does this category require technical inspection on receipt?
+  requiresInspection Boolean @default(false)
+  inspectionTemplate String?
+
+  /// Default disposition: INVENTORY | CONSUMABLE | EXPENSE | ASSET | PROJECT_MATERIAL
+  defaultDisposition String  @default("INVENTORY")
+  assetTagRequired   Boolean @default(false)
+  active             Boolean @default(true)
+
+  items            Item[]
+  requisitionItems PurchaseRequisitionItem[]
+  approvalRules    ApprovalRule[]
+  assets           Asset[]
+
+  @@map("categories")
+}
+
+model Item {
+  id            String   @id @default(cuid())
+  sku           String   @unique
+  name          String
+  description   String?
+  categoryId    String
+  category      Category @relation(fields: [categoryId], references: [id])
+  unit          String   @default("EA")
+  brand         String?
+  model         String?
+  make          String?
+  specification String?
+  hsCode        String?
+
+  /// Standard/last known price for variance analysis
+  standardPrice Float?
+  trackSerial   Boolean @default(false)
+  trackBatch    Boolean @default(false)
+  trackExpiry   Boolean @default(false)
+  reorderLevel  Float?
+  active        Boolean @default(true)
+
+  requisitionItems PurchaseRequisitionItem[]
+  quoteItems       QuoteItem[]
+  poItems          PurchaseOrderItem[]
+  grnItems         GrnItem[]
+  inventory        InventoryItem[]
+  transactions     InventoryTransaction[]
+  priceHistory     PriceHistory[]
+  assets           Asset[]
+  issueItems       StoreIssueItem[]
+  transferItems    StoreTransferItem[]
+  deliveryItems    DeliveryItem[]
+  inspectionItems  InspectionItem[]
+  invoiceItems     InvoiceItem[]
+  pettyCashItems   PettyCashItem[]
+  stacking         GoodsStacking[]
+  disposalItems    DisposalItem[]
+
+  @@index([categoryId])
+  @@map("items")
+}
+
+model PriceHistory {
+  id        String  @id @default(cuid())
+  itemId    String
+  item      Item    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  vendorId  String?
+  vendor    Vendor? @relation(fields: [vendorId], references: [id])
+  unitPrice Float
+  currency  String  @default("PKR")
+  quantity  Float?
+
+  /// PO | QUOTE | MARKET | PETTY_CASH
+  source     String
+  sourceRef  String?
+  recordedAt DateTime @default(now())
+
+  @@index([itemId, recordedAt])
+  @@map("price_history")
+}
+
+// ─────────────────────────────────────────────────────────────
+// CONFIGURATION / BUSINESS RULE ENGINE
+// ─────────────────────────────────────────────────────────────
+
+model ConfigSetting {
+  id  String @id @default(cuid())
+  key String
+
+  /// JSON-encoded value
+  value       String
+  valueType   String   @default("string")
+  label       String
+  description String?
+  group       String   @default("General")
+  entityId    String?
+  entity      Entity?  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  updatedAt   DateTime @updatedAt
+  updatedBy   String?
+
+  @@unique([key, entityId])
+  @@map("config_settings")
+}
+
+model ApprovalRule {
+  id          String  @id @default(cuid())
+  code        String  @unique
+  name        String
+  description String?
+
+  /// PR | PO | INVOICE | PETTY_CASH | DISPOSAL | VENDOR | STORE_TRANSFER | MATERIAL_DEMAND
+  documentType String
+  entityId     String?
+  entity       Entity?     @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  categoryId   String?
+  category     Category?   @relation(fields: [categoryId], references: [id])
+
+  /// MONTHLY_RECURRING | ON_DEMAND | MATERIAL_DEMAND | PETTY_CASH | SERVICE | any
+  procurementType String?
+  minAmount       Float    @default(0)
+  maxAmount       Float?
+  priority        Int      @default(100)
+  requiresCpc     Boolean  @default(false)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  steps     ApprovalRuleStep[]
+  instances ApprovalInstance[]
+
+  @@index([documentType, entityId])
+  @@map("approval_rules")
+}
+
+model ApprovalRuleStep {
+  id       String       @id @default(cuid())
+  ruleId   String
+  rule     ApprovalRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  sequence Int
+  name     String
+  roleId   String?
+  role     Role?        @relation(fields: [roleId], references: [id])
+
+  /// ROLE | DEPARTMENT_HEAD | CPC | SPECIFIC_USER
+  approverType   String  @default("ROLE")
+  specificUserId String?
+
+  /// Hours allowed before the step is flagged overdue
+  slaHours        Int     @default(24)
+  commentRequired Boolean @default(false)
+
+  /// All assignees must approve vs any one
+  requireAll Boolean @default(false)
+  optional   Boolean @default(false)
+
+  actions ApprovalAction[]
+
+  @@unique([ruleId, sequence])
+  @@map("approval_rule_steps")
+}
+
+model ApprovalInstance {
+  id           String        @id @default(cuid())
+  ruleId       String?
+  rule         ApprovalRule? @relation(fields: [ruleId], references: [id])
+  documentType String
+  documentId   String
+  documentRef  String
+  entityId     String?
+  amount       Float         @default(0)
+
+  /// PENDING | APPROVED | REJECTED | RETURNED | CLARIFICATION | CANCELLED
+  status          String    @default("PENDING")
+  currentSequence Int       @default(1)
+  startedAt       DateTime  @default(now())
+  completedAt     DateTime?
+
+  actions ApprovalAction[]
+
+  @@index([documentType, documentId])
+  @@index([status])
+  @@map("approval_instances")
+}
+
+model ApprovalAction {
+  id         String            @id @default(cuid())
+  instanceId String
+  instance   ApprovalInstance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  stepId     String?
+  step       ApprovalRuleStep? @relation(fields: [stepId], references: [id])
+  sequence   Int
+  stepName   String
+  actorId    String?
+  actor      User?             @relation(fields: [actorId], references: [id])
+
+  /// PENDING | APPROVED | REJECTED | RETURNED | CLARIFICATION_REQUESTED | SKIPPED | DELEGATED
+  action           String    @default("PENDING")
+  comment          String?
+  assignedRoleCode String?
+  assignedAt       DateTime  @default(now())
+  dueAt            DateTime?
+  actedAt          DateTime?
+
+  @@index([instanceId, sequence])
+  @@map("approval_actions")
+}
+
+// ─────────────────────────────────────────────────────────────
+// PURCHASE REQUISITIONS / MATERIAL DEMAND
+// ─────────────────────────────────────────────────────────────
+
+model PurchaseRequisition {
+  id           String     @id @default(cuid())
+  number       String     @unique
+  entityId     String
+  entity       Entity     @relation(fields: [entityId], references: [id])
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id])
+  requesterId  String
+  requester    User       @relation("PRRequester", fields: [requesterId], references: [id])
+
+  /// MONTHLY_RECURRING | ON_DEMAND | MATERIAL_DEMAND | SERVICE
+  procurementType      String
+  title                String
+  justification        String?
+  projectId            String?
+  project              Project? @relation(fields: [projectId], references: [id])
+  siteId               String?
+  site                 Site?    @relation(fields: [siteId], references: [id])
+  costCenter           String?
+  deliveryStoreId      String?
+  deliveryStore        Store?   @relation(fields: [deliveryStoreId], references: [id])
+  deliveryLocationNote String?
+  requiredDate         DateTime
+
+  /// LOW | NORMAL | HIGH | URGENT
+  priority       String  @default("NORMAL")
+  budgetAmount   Float?
+  budgetCode     String?
+  estimatedValue Float   @default(0)
+  currency       String  @default("PKR")
+
+  /// ZD MD fields
+  pmOwnerId        String?
+  boqReference     String?
+  drawingReference String?
+  technicalNotes   String?
+
+  status       String    @default("DRAFT")
+  submittedAt  DateTime?
+  approvedAt   DateTime?
+  closedAt     DateTime?
+  cancelledAt  DateTime?
+  holdReason   String?
+  returnReason String?
+  rejectReason String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  items          PurchaseRequisitionItem[]
+  rfqs           Rfq[]
+  purchaseOrders PurchaseOrder[]
+  cpcCases       CpcCase[]
+  comparatives   Comparative[]
+  exceptions     Exception[]
+
+  @@index([entityId, status])
+  @@index([status])
+  @@map("purchase_requisitions")
+}
+
+model PurchaseRequisitionItem {
+  id            String              @id @default(cuid())
+  prId          String
+  pr            PurchaseRequisition @relation(fields: [prId], references: [id], onDelete: Cascade)
+  lineNo        Int
+  itemId        String?
+  item          Item?               @relation(fields: [itemId], references: [id])
+  categoryId    String
+  category      Category            @relation(fields: [categoryId], references: [id])
+  description   String
+  brand         String?
+  model         String?
+  make          String?
+  specification String?
+  quantity      Float
+  unit          String
+
+  estimatedUnitPrice Float?
+  estimatedTotal     Float     @default(0)
+  requiredDate       DateTime?
+
+  /// INVENTORY | CONSUMABLE | EXPENSE | ASSET | PROJECT_MATERIAL
+  disposition String  @default("INVENTORY")
+  notes       String?
+
+  quoteItems QuoteItem[]
+  poItems    PurchaseOrderItem[]
+
+  @@unique([prId, lineNo])
+  @@map("purchase_requisition_items")
+}
+
+// ─────────────────────────────────────────────────────────────
+// RFQ / QUOTATIONS / COMPARATIVE / NEGOTIATION
+// ─────────────────────────────────────────────────────────────
+
+model Rfq {
+  id                  String              @id @default(cuid())
+  number              String              @unique
+  prId                String
+  pr                  PurchaseRequisition @relation(fields: [prId], references: [id], onDelete: Cascade)
+  title               String
+  scope               String?
+  terms               String?
+  deliveryRequirement String?
+  responseDeadline    DateTime
+
+  /// DRAFT | ISSUED | RESPONSES_IN | CLOSED | CANCELLED | AWARDED
+  status      String    @default("DRAFT")
+  createdById String
+  createdBy   User      @relation("RfqCreatedBy", fields: [createdById], references: [id])
+  issuedAt    DateTime?
+  closedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  vendors        RfqVendor[]
+  quotes         VendorQuote[]
+  comparatives   Comparative[]
+  purchaseOrders PurchaseOrder[]
+
+  @@index([prId])
+  @@map("rfqs")
+}
+
+model RfqVendor {
+  id       String @id @default(cuid())
+  rfqId    String
+  rfq      Rfq    @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
+
+  /// INVITED | ACKNOWLEDGED | QUOTED | DECLINED | NO_RESPONSE
+  status       String    @default("INVITED")
+  invitedAt    DateTime  @default(now())
+  respondedAt  DateTime?
+  contactEmail String?
+
+  /// EMAIL | PORTAL | WHATSAPP | PHYSICAL | SKYPE | WALK_IN
+  channel String  @default("EMAIL")
+  notes   String?
+
+  @@unique([rfqId, vendorId])
+  @@map("rfq_vendors")
+}
+
+model VendorQuote {
+  id         String    @id @default(cuid())
+  number     String    @unique
+  rfqId      String
+  rfq        Rfq       @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  vendorId   String
+  vendor     Vendor    @relation(fields: [vendorId], references: [id])
+  quoteRef   String?
+  quoteDate  DateTime  @default(now())
+  validUntil DateTime?
+  currency   String    @default("PKR")
+
+  subtotal        Float @default(0)
+  taxAmount       Float @default(0)
+  deliveryCharges Float @default(0)
+  otherCharges    Float @default(0)
+  discount        Float @default(0)
+  total           Float @default(0)
+
+  taxRegistered  Boolean @default(true)
+  deliveryDays   Int?
+  paymentTerms   String?
+  creditDays     Int?
+  warrantyMonths Int?
+  warrantyTerms  String?
+
+  /// COMPLIANT | PARTIAL | NON_COMPLIANT | NOT_ASSESSED
+  technicalCompliance String  @default("NOT_ASSESSED")
+  complianceNotes     String?
+  exceptions          String?
+  notes               String?
+
+  /// DRAFT | SUBMITTED | UNDER_REVIEW | SHORTLISTED | SELECTED | REJECTED | EXPIRED
+  status String @default("SUBMITTED")
+
+  /// EMAIL | PORTAL | WHATSAPP | PHYSICAL | SKYPE | WALK_IN
+  channel     String   @default("EMAIL")
+  enteredById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items            QuoteItem[]
+  negotiations     Negotiation[]
+  comparativeLines ComparativeLine[]
+  purchaseOrders   PurchaseOrder[]
+
+  @@unique([rfqId, vendorId])
+  @@map("vendor_quotes")
+}
+
+model QuoteItem {
+  id            String                   @id @default(cuid())
+  quoteId       String
+  quote         VendorQuote              @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  prItemId      String?
+  prItem        PurchaseRequisitionItem? @relation(fields: [prItemId], references: [id])
+  itemId        String?
+  item          Item?                    @relation(fields: [itemId], references: [id])
+  lineNo        Int
+  description   String
+  brand         String?
+  model         String?
+  specification String?
+  quantity      Float
+  unit          String
+  unitPrice     Float
+  taxRate       Float                    @default(0)
+  taxAmount     Float                    @default(0)
+  lineTotal     Float                    @default(0)
+  deliveryDays  Int?
+
+  /// COMPLIANT | PARTIAL | NON_COMPLIANT | NOT_ASSESSED
+  compliance String  @default("NOT_ASSESSED")
+  notes      String?
+
+  @@unique([quoteId, lineNo])
+  @@map("quote_items")
+}
+
+model Comparative {
+  id     String              @id @default(cuid())
+  number String              @unique
+  prId   String
+  pr     PurchaseRequisition @relation(fields: [prId], references: [id], onDelete: Cascade)
+  rfqId  String
+  rfq    Rfq                 @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+
+  /// DRAFT | UNDER_REVIEW | RECOMMENDED | APPROVED | REJECTED | SUPERSEDED
+  status       String   @default("DRAFT")
+  preparedById String
+  preparedAt   DateTime @default(now())
+
+  recommendedQuoteId  String?
+  recommendationBasis String?
+
+  /// Justification required when the recommended quote is not the lowest compliant
+  nonLowestJustification String?
+  evaluationCriteria     String  @default("[]")
+
+  marketPrice    Float?
+  previousPrice  Float?
+  lowestTotal    Float?
+  selectedTotal  Float?
+  savingsAmount  Float    @default(0)
+  savingsPercent Float    @default(0)
+  notes          String?
+  updatedAt      DateTime @updatedAt
+
+  lines          ComparativeLine[]
+  cpcCases       CpcCase[]
+  savingsRecords SavingsRecord[]
+
+  @@index([prId])
+  @@map("comparatives")
+}
+
+model ComparativeLine {
+  id            String      @id @default(cuid())
+  comparativeId String
+  comparative   Comparative @relation(fields: [comparativeId], references: [id], onDelete: Cascade)
+  quoteId       String
+  quote         VendorQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  vendorId      String
+  vendor        Vendor      @relation(fields: [vendorId], references: [id])
+
+  unitPriceAvg        Float   @default(0)
+  subtotal            Float   @default(0)
+  taxAmount           Float   @default(0)
+  deliveryCharges     Float   @default(0)
+  total               Float   @default(0)
+  negotiatedTotal     Float?
+  netTotal            Float   @default(0)
+  previousPrice       Float?
+  marketPrice         Float?
+  variancePercent     Float?
+  deliveryDays        Int?
+  paymentTerms        String?
+  warrantyMonths      Int?
+  technicalCompliance String  @default("NOT_ASSESSED")
+  vendorScore         Float?
+  vendorOnTimePercent Float?
+  isLowest            Boolean @default(false)
+  isLowestCompliant   Boolean @default(false)
+  isSelected          Boolean @default(false)
+  rank                Int?
+  scoreTotal          Float?
+  scoreBreakdown      String?
+  notes               String?
+
+  @@unique([comparativeId, quoteId])
+  @@map("comparative_lines")
+}
+
+model Negotiation {
+  id              String      @id @default(cuid())
+  quoteId         String
+  quote           VendorQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  round           Int
+  originalTotal   Float
+  negotiatedTotal Float
+  finalTotal      Float?
+  savings         Float       @default(0)
+  savingsPercent  Float       @default(0)
+
+  /// CALL | EMAIL | MEETING | WHATSAPP | PORTAL
+  channel        String   @default("CALL")
+  negotiatedById String
+  negotiatedBy   User     @relation(fields: [negotiatedById], references: [id])
+  negotiatedAt   DateTime @default(now())
+  notes          String?
+
+  /// OPEN | ACCEPTED | REJECTED | VENDOR_DECLINED
+  outcome String @default("OPEN")
+
+  @@unique([quoteId, round])
+  @@map("negotiations")
+}
+
+// ─────────────────────────────────────────────────────────────
+// CPC
+// ─────────────────────────────────────────────────────────────
+
+model CpcMeeting {
+  id          String   @id @default(cuid())
+  number      String   @unique
+  entityId    String
+  entity      Entity   @relation(fields: [entityId], references: [id])
+  title       String
+  scheduledAt DateTime
+
+  /// WEEKLY | ON_DEMAND
+  meetingType String  @default("WEEKLY")
+  location    String?
+
+  /// SCHEDULED | IN_PROGRESS | COMPLETED | CANCELLED
+  status    String   @default("SCHEDULED")
+  agenda    String?
+  minutes   String?
+  createdAt DateTime @default(now())
+
+  cases CpcCase[]
+
+  @@map("cpc_meetings")
+}
+
+model CpcCase {
+  id             String              @id @default(cuid())
+  number         String              @unique
+  prId           String
+  pr             PurchaseRequisition @relation(fields: [prId], references: [id], onDelete: Cascade)
+  comparativeId  String?
+  comparative    Comparative?        @relation(fields: [comparativeId], references: [id])
+  meetingId      String?
+  meeting        CpcMeeting?         @relation(fields: [meetingId], references: [id])
+  title          String
+  amount         Float               @default(0)
+  savingsAmount  Float               @default(0)
+  recommendation String?
+  riskNotes      String?
+
+  /// PENDING | SCHEDULED | UNDER_REVIEW | APPROVED | REJECTED | RETURNED | CLARIFICATION | DEFERRED
+  status    String    @default("PENDING")
+  createdAt DateTime  @default(now())
+  decidedAt DateTime?
+
+  members   CpcCaseMember[]
+  decisions CpcDecision[]
+
+  @@index([status])
+  @@map("cpc_cases")
+}
+
+model CpcCaseMember {
+  id        String  @id @default(cuid())
+  caseId    String
+  case      CpcCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation(fields: [userId], references: [id])
+  roleLabel String
+  required  Boolean @default(true)
+
+  @@unique([caseId, userId])
+  @@map("cpc_case_members")
+}
+
+model CpcDecision {
+  id       String  @id @default(cuid())
+  caseId   String
+  case     CpcCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  memberId String
+  member   User    @relation(fields: [memberId], references: [id])
+
+  /// APPROVE | REJECT | RETURN | REQUEST_CLARIFICATION | ABSTAIN
+  vote      String
+  comment   String?
+  decidedAt DateTime @default(now())
+
+  /// Final consolidated decision flag
+  isFinal Boolean @default(false)
+
+  @@map("cpc_decisions")
+}
+
+// ─────────────────────────────────────────────────────────────
+// PURCHASE ORDERS
+// ─────────────────────────────────────────────────────────────
+
+model PurchaseOrder {
+  id       String               @id @default(cuid())
+  number   String               @unique
+  entityId String
+  entity   Entity               @relation(fields: [entityId], references: [id])
+  prId     String?
+  pr       PurchaseRequisition? @relation(fields: [prId], references: [id])
+  rfqId    String?
+  rfq      Rfq?                 @relation(fields: [rfqId], references: [id])
+  quoteId  String?
+  quote    VendorQuote?         @relation(fields: [quoteId], references: [id])
+  vendorId String
+  vendor   Vendor               @relation(fields: [vendorId], references: [id])
+
+  vendorAddress   String?
+  vendorContact   String?
+  deliveryStoreId String?
+  deliveryStore   Store?    @relation(fields: [deliveryStoreId], references: [id])
+  deliveryAddress String?
+  deliveryDate    DateTime?
+  paymentTerms    String?
+  creditDays      Int?
+  warrantyTerms   String?
+  termsConditions String?
+  incoterms       String?
+
+  currency        String @default("PKR")
+  subtotal        Float  @default(0)
+  taxAmount       Float  @default(0)
+  deliveryCharges Float  @default(0)
+  otherCharges    Float  @default(0)
+  discount        Float  @default(0)
+  total           Float  @default(0)
+
+  advanceRequired Boolean @default(false)
+  advanceAmount   Float?
+  advancePercent  Float?
+  advanceStatus   String?
+  collateralType  String?
+  collateralRef   String?
+  collateralNotes String?
+
+  /// DRAFT | PENDING_APPROVAL | APPROVED | ISSUED | PARTIALLY_RECEIVED | FULLY_RECEIVED | CLOSED | CANCELLED | ON_HOLD
+  status        String    @default("DRAFT")
+  closureReason String?
+  createdById   String
+  createdBy     User      @relation("PoCreatedBy", fields: [createdById], references: [id])
+  approvedAt    DateTime?
+  issuedAt      DateTime?
+  closedAt      DateTime?
+  cancelledAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  items          PurchaseOrderItem[]
+  gatePasses     GatePass[]
+  deliveries     Delivery[]
+  grns           Grn[]
+  invoices       Invoice[]
+  inspections    Inspection[]
+  exceptions     Exception[]
+  savingsRecords SavingsRecord[]
+
+  @@index([status])
+  @@index([vendorId])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id            String                   @id @default(cuid())
+  poId          String
+  po            PurchaseOrder            @relation(fields: [poId], references: [id], onDelete: Cascade)
+  lineNo        Int
+  itemId        String?
+  item          Item?                    @relation(fields: [itemId], references: [id])
+  prItemId      String?
+  prItem        PurchaseRequisitionItem? @relation(fields: [prItemId], references: [id])
+  description   String
+  brand         String?
+  model         String?
+  specification String?
+  quantity      Float
+  unit          String
+  unitPrice     Float
+  taxRate       Float                    @default(0)
+  taxAmount     Float                    @default(0)
+  lineTotal     Float                    @default(0)
+
+  /// INVENTORY | CONSUMABLE | EXPENSE | ASSET | PROJECT_MATERIAL
+  disposition        String  @default("INVENTORY")
+  requiresInspection Boolean @default(false)
+
+  receivedQty Float @default(0)
+  acceptedQty Float @default(0)
+  rejectedQty Float @default(0)
+  invoicedQty Float @default(0)
+
+  deliveryItems   DeliveryItem[]
+  grnItems        GrnItem[]
+  invoiceItems    InvoiceItem[]
+  inspectionItems InspectionItem[]
+
+  @@unique([poId, lineNo])
+  @@map("purchase_order_items")
+}
+
+// ─────────────────────────────────────────────────────────────
+// GATE PASS / DELIVERY / INSPECTION / GRN
+// ─────────────────────────────────────────────────────────────
+
+model GatePass {
+  id     String @id @default(cuid())
+  number String @unique
+  serial String @unique
+
+  /// INWARD | OUTWARD
+  direction String         @default("INWARD")
+  poId      String?
+  po        PurchaseOrder? @relation(fields: [poId], references: [id])
+  vendorId  String?
+  vendor    Vendor?        @relation(fields: [vendorId], references: [id])
+  storeId   String
+  store     Store          @relation(fields: [storeId], references: [id])
+
+  vehicleNumber       String?
+  vehicleType         String?
+  driverName          String?
+  driverCnic          String?
+  driverPhone         String?
+  deliveryNoteRef     String?
+  invoiceRef          String?
+  materialSummary     String?
+  declaredQuantity    Float?
+  declaredPackages    Int?
+  securityCheckedById String?
+  securityRemarks     String?
+  recordedById        String
+  recordedBy          User      @relation("GatePassRecordedBy", fields: [recordedById], references: [id])
+  arrivedAt           DateTime  @default(now())
+  releasedAt          DateTime?
+
+  /// RECORDED | ROUTED_TO_STORE | RECEIVED | CLOSED | REJECTED
+  status    String   @default("RECORDED")
+  createdAt DateTime @default(now())
+
+  deliveries Delivery[]
+  grns       Grn[]
+
+  @@index([poId])
+  @@map("gate_passes")
+}
+
+model Delivery {
+  id           String        @id @default(cuid())
+  number       String        @unique
+  poId         String
+  po           PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  gatePassId   String?
+  gatePass     GatePass?     @relation(fields: [gatePassId], references: [id])
+  vendorId     String
+  vendor       Vendor        @relation(fields: [vendorId], references: [id])
+  storeId      String
+  store        Store         @relation(fields: [storeId], references: [id])
+  deliveryNoteRef String?
+  deliveryDate DateTime      @default(now())
+  receivedById String
+  receivedBy   User          @relation("DeliveryReceivedBy", fields: [receivedById], references: [id])
+
+  totalPackages         Int?
+  packagesVerified      Int?
+  packagingCondition    String?
+  physicalCondition     String?
+  damageObserved        Boolean @default(false)
+  damageNotes           String?
+  leakageObserved       Boolean @default(false)
+  handlingNotes         String?
+  weightRecorded        Float?
+  weightUnit            String?
+  documentationComplete Boolean @default(true)
+
+  /// PENDING_VERIFICATION | ACCEPTED | PARTIALLY_ACCEPTED | REJECTED | ACCEPTED_WITH_DISCREPANCY
+  status    String   @default("PENDING_VERIFICATION")
+  remarks   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items       DeliveryItem[]
+  inspections Inspection[]
+  grns        Grn[]
+
+  @@index([poId])
+  @@map("deliveries")
+}
+
+model DeliveryItem {
+  id         String            @id @default(cuid())
+  deliveryId String
+  delivery   Delivery          @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  poItemId   String
+  poItem     PurchaseOrderItem @relation(fields: [poItemId], references: [id])
+  itemId     String?
+  item       Item?             @relation(fields: [itemId], references: [id])
+  lineNo     Int
+
+  description   String
+  orderedQty    Float
+  expectedQty   Float
+  actualQty     Float
+  acceptedQty   Float     @default(0)
+  rejectedQty   Float     @default(0)
+  unit          String
+  packages      Int?
+  batchNumber   String?
+  serialNumbers String?
+  expiryDate    DateTime?
+
+  warrantyMonths     Int?
+  specificationMatch Boolean @default(true)
+  conditionNotes     String?
+
+  /// OK | QUANTITY_MISMATCH | DAMAGED | WRONG_ITEM | WRONG_SPEC | EXPIRED | MISSING_SERIAL | MISSING_WARRANTY | SHORT_DELIVERY | EXCESS_DELIVERY
+  discrepancyType  String  @default("OK")
+  discrepancyNotes String?
+
+  @@unique([deliveryId, lineNo])
+  @@map("delivery_items")
+}
+
+model Inspection {
+  id         String         @id @default(cuid())
+  number     String         @unique
+  poId       String?
+  po         PurchaseOrder? @relation(fields: [poId], references: [id])
+  deliveryId String?
+  delivery   Delivery?      @relation(fields: [deliveryId], references: [id])
+
+  /// IT | MECHANICAL | CIVIL | ELECTRICAL | GENERAL | QUALITY
+  inspectionType String    @default("GENERAL")
+  templateCode   String?
+  inspectorId    String?
+  inspector      User?     @relation("InspectionInspector", fields: [inspectorId], references: [id])
+  department     String?
+  scheduledAt    DateTime?
+  inspectedAt    DateTime?
+
+  /// PENDING | IN_PROGRESS | APPROVED | REJECTED | CONDITIONAL | RE_INSPECTION_REQUIRED
+  result       String    @default("PENDING")
+  findings     String?
+  conditions   String?
+  signedByName String?
+  signedAt     DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  items InspectionItem[]
+  grns  Grn[]
+
+  @@index([deliveryId])
+  @@map("inspections")
+}
+
+model InspectionItem {
+  id           String             @id @default(cuid())
+  inspectionId String
+  inspection   Inspection         @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  poItemId     String?
+  poItem       PurchaseOrderItem? @relation(fields: [poItemId], references: [id])
+  itemId       String?
+  item         Item?              @relation(fields: [itemId], references: [id])
+  lineNo       Int
+  description  String
+
+  quantityInspected   Float   @default(0)
+  quantityPassed      Float   @default(0)
+  quantityFailed      Float   @default(0)
+  serialNumber        String?
+  modelVerified       String?
+  specVerified        String?
+  configuration       String?
+  condition           String?
+  performanceNotes    String?
+  accessoriesComplete Boolean @default(true)
+
+  /// PASS | FAIL | CONDITIONAL
+  verdict String @default("PASS")
+
+  /// JSON criterion results
+  criteriaResults String  @default("[]")
+  notes           String?
+
+  @@unique([inspectionId, lineNo])
+  @@map("inspection_items")
+}
+
+model Grn {
+  id           String         @id @default(cuid())
+  number       String         @unique
+  poId         String
+  po           PurchaseOrder  @relation(fields: [poId], references: [id], onDelete: Cascade)
+  vendorId     String
+  vendor       Vendor         @relation(fields: [vendorId], references: [id])
+  deliveryId   String?
+  delivery     Delivery?      @relation(fields: [deliveryId], references: [id])
+  gatePassId   String?
+  gatePass     GatePass?      @relation(fields: [gatePassId], references: [id])
+  inspectionId String?
+  inspection   Inspection?    @relation(fields: [inspectionId], references: [id])
+  storeId      String
+  store        Store          @relation(fields: [storeId], references: [id])
+  receivedById String
+  receivedBy   User           @relation("GrnReceivedBy", fields: [receivedById], references: [id])
+  receivedAt   DateTime       @default(now())
+
+  /// DRAFT | POSTED | CANCELLED
+  status String @default("DRAFT")
+
+  /// NOT_REQUIRED | PENDING | APPROVED | REJECTED | CONDITIONAL
+  inspectionStatus String    @default("NOT_REQUIRED")
+  totalValue       Float     @default(0)
+  remarks          String?
+  postedAt         DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  items          GrnItem[]
+  transactions   InventoryTransaction[]
+  invoiceMatches InvoiceGrnLink[]
+  stacking       GoodsStacking[]
+  assets         Asset[]
+
+  @@index([poId])
+  @@map("grns")
+}
+
+model GrnItem {
+  id          String            @id @default(cuid())
+  grnId       String
+  grn         Grn               @relation(fields: [grnId], references: [id], onDelete: Cascade)
+  poItemId    String
+  poItem      PurchaseOrderItem @relation(fields: [poItemId], references: [id])
+  itemId      String?
+  item        Item?             @relation(fields: [itemId], references: [id])
+  lineNo      Int
+  description String
+
+  orderedQty  Float
+  receivedQty Float
+  acceptedQty Float
+  rejectedQty Float  @default(0)
+  unit        String
+  unitPrice   Float  @default(0)
+  lineValue   Float  @default(0)
+
+  batchNumber     String?
+  serialNumbers   String?
+  expiryDate      DateTime?
+  warrantyMonths  Int?
+  storeLocationId String?
+  disposition     String    @default("INVENTORY")
+  remarks         String?
+
+  @@unique([grnId, lineNo])
+  @@map("grn_items")
+}
+
+model GoodsStacking {
+  id          String         @id @default(cuid())
+  grnId       String?
+  grn         Grn?           @relation(fields: [grnId], references: [id])
+  storeId     String
+  store       Store          @relation(fields: [storeId], references: [id])
+  locationId  String?
+  location    StoreLocation? @relation(fields: [locationId], references: [id])
+  itemId      String?
+  item        Item?          @relation(fields: [itemId], references: [id])
+  description String
+  quantity    Float
+  unit        String
+
+  /// PALLET | RACK | SHELF | FLOOR | BULK | CAGE | COLD_STORAGE
+  stackingMethod String @default("RACK")
+
+  /// GENERAL | HIGH_VALUE | SENSITIVE | HAZARDOUS | PROJECT_MATERIAL
+  goodsClass           String  @default("GENERAL")
+  handlingRequirements String?
+  stackedById          String
+  stackedBy            User    @relation("StackedBy", fields: [stackedById], references: [id])
+  stackedAt            DateTime @default(now())
+  notes                String?
+
+  @@map("goods_stacking")
+}
+
+// ─────────────────────────────────────────────────────────────
+// INVENTORY / STORES
+// ─────────────────────────────────────────────────────────────
+
+model InventoryItem {
+  id           String         @id @default(cuid())
+  itemId       String
+  item         Item           @relation(fields: [itemId], references: [id])
+  storeId      String
+  store        Store          @relation(fields: [storeId], references: [id])
+  locationId   String?
+  location     StoreLocation? @relation(fields: [locationId], references: [id])
+  projectId    String?
+  project      Project?       @relation(fields: [projectId], references: [id])
+  batchNumber  String?
+  serialNumber String?
+  expiryDate   DateTime?
+
+  quantity    Float  @default(0)
+  reservedQty Float  @default(0)
+  unit        String
+  unitCost    Float  @default(0)
+  totalValue  Float  @default(0)
+
+  warrantyMonths Int?
+  warrantyUntil  DateTime?
+  lastGrnId      String?
+  lastPoId       String?
+  entityId       String?
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([itemId, storeId, batchNumber, serialNumber])
+  @@index([storeId])
+  @@index([itemId])
+  @@map("inventory")
+}
+
+model InventoryTransaction {
+  id      String @id @default(cuid())
+  number  String @unique
+  itemId  String
+  item    Item   @relation(fields: [itemId], references: [id])
+  storeId String
+  store   Store  @relation(fields: [storeId], references: [id])
+
+  /// RECEIPT | ISSUE | TRANSFER_OUT | TRANSFER_IN | ADJUSTMENT | RETURN | DISPOSAL | RESERVATION | RELEASE
+  type         String
+  quantity     Float
+  unit         String
+  unitCost     Float   @default(0)
+  value        Float   @default(0)
+  balanceAfter Float   @default(0)
+  batchNumber  String?
+  serialNumber String?
+
+  /// GRN | ISSUE | TRANSFER | DISPOSAL | ADJUSTMENT | PETTY_CASH
+  sourceType  String
+  sourceId    String?
+  sourceRef   String?
+  grnId       String?
+  grn         Grn?               @relation(fields: [grnId], references: [id])
+  issueId     String?
+  issue       StoreIssue?        @relation(fields: [issueId], references: [id])
+  transferId  String?
+  transfer    StoreTransfer?     @relation(fields: [transferId], references: [id])
+  disposalId  String?
+  disposal    DisposalCase?      @relation(fields: [disposalId], references: [id])
+  pettyCashId String?
+  pettyCash   PettyCashRequest?  @relation(fields: [pettyCashId], references: [id])
+  reason      String?
+
+  performedById String
+  performedAt   DateTime @default(now())
+
+  @@index([itemId, storeId])
+  @@index([sourceType, sourceId])
+  @@map("inventory_transactions")
+}
+
+model StoreIssue {
+  id            String @id @default(cuid())
+  number        String @unique
+  storeId       String
+  store         Store  @relation(fields: [storeId], references: [id])
+  requestedById String
+  requestedBy   User   @relation("IssueRequestedBy", fields: [requestedById], references: [id])
+
+  recipientName   String
+  recipientUserId String?
+  departmentId    String?
+  projectId       String?
+  purpose         String?
+
+  /// DRAFT | PENDING_APPROVAL | APPROVED | REJECTED | ISSUED | PARTIALLY_ISSUED | CANCELLED
+  status      String    @default("DRAFT")
+  requestedAt DateTime  @default(now())
+  approvedAt  DateTime?
+  issuedAt    DateTime?
+  issuedById  String?
+  remarks     String?
+
+  items        StoreIssueItem[]
+  transactions InventoryTransaction[]
+
+  @@map("store_issues")
+}
+
+model StoreIssueItem {
+  id      String     @id @default(cuid())
+  issueId String
+  issue   StoreIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  itemId  String
+  item    Item       @relation(fields: [itemId], references: [id])
+  lineNo  Int
+
+  requestedQty    Float
+  approvedQty     Float?
+  issuedQty       Float   @default(0)
+  unit            String
+  availableQty    Float   @default(0)
+  assetId         String?
+  assetTag        String?
+  custodianUserId String?
+  serialNumber    String?
+  batchNumber     String?
+  notes           String?
+
+  @@unique([issueId, lineNo])
+  @@map("store_issue_items")
+}
+
+model StoreTransfer {
+  id            String @id @default(cuid())
+  number        String @unique
+  fromStoreId   String
+  fromStore     Store  @relation("TransferFrom", fields: [fromStoreId], references: [id])
+  toStoreId     String
+  toStore       Store  @relation("TransferTo", fields: [toStoreId], references: [id])
+  requestedById String
+  requestedBy   User   @relation("TransferRequestedBy", fields: [requestedById], references: [id])
+  reason        String?
+
+  /// DRAFT | PENDING_APPROVAL | APPROVED | REJECTED | DISPATCHED | RECEIVED | CANCELLED
+  status         String    @default("DRAFT")
+  requestedAt    DateTime  @default(now())
+  approvedAt     DateTime?
+  dispatchedAt   DateTime?
+  receivedAt     DateTime?
+  dispatchedById String?
+  receivedById   String?
+  vehicleNumber  String?
+  gatePassRef    String?
+  remarks        String?
+
+  items        StoreTransferItem[]
+  transactions InventoryTransaction[]
+
+  @@map("store_transfers")
+}
+
+model StoreTransferItem {
+  id         String        @id @default(cuid())
+  transferId String
+  transfer   StoreTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  itemId     String
+  item       Item          @relation(fields: [itemId], references: [id])
+  lineNo     Int
+
+  requestedQty  Float
+  dispatchedQty Float   @default(0)
+  receivedQty   Float   @default(0)
+  unit          String
+  unitCost      Float   @default(0)
+  batchNumber   String?
+  serialNumber  String?
+  notes         String?
+
+  @@unique([transferId, lineNo])
+  @@map("store_transfer_items")
+}
+
+// ─────────────────────────────────────────────────────────────
+// INVOICES / FINANCE
+// ─────────────────────────────────────────────────────────────
+
+model Invoice {
+  id                  String        @id @default(cuid())
+  number              String        @unique
+  vendorInvoiceNumber String
+  poId                String
+  po                  PurchaseOrder @relation(fields: [poId], references: [id])
+  vendorId            String
+  vendor              Vendor        @relation(fields: [vendorId], references: [id])
+  invoiceDate         DateTime
+  receivedDate        DateTime      @default(now())
+  dueDate             DateTime?
+
+  currency        String @default("PKR")
+  subtotal        Float  @default(0)
+  taxAmount       Float  @default(0)
+  deliveryCharges Float  @default(0)
+  otherCharges    Float  @default(0)
+  discount        Float  @default(0)
+  total           Float  @default(0)
+  withholdingTax  Float  @default(0)
+  netPayable      Float  @default(0)
+
+  /// RECEIVED | UNDER_VERIFICATION | MATCHED | MISMATCH | EXCEPTION_APPROVED | PENDING_APPROVAL | APPROVED | SENT_TO_FINANCE | PAID | REJECTED | ON_HOLD
+  status String @default("RECEIVED")
+
+  /// PENDING | PASSED | FAILED | OVERRIDDEN
+  matchStatus String  @default("PENDING")
+  matchNotes  String?
+  matchResult String  @default("{}")
+
+  exceptionApprovedById String?
+  exceptionApprovedAt   DateTime?
+  exceptionReason       String?
+
+  verifiedById String?
+  verifiedBy   User?     @relation("InvoiceVerifiedBy", fields: [verifiedById], references: [id])
+  verifiedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  items      InvoiceItem[]
+  grnLinks   InvoiceGrnLink[]
+  handoffs   PaymentHandoff[]
+  exceptions Exception[]
+
+  @@index([status])
+  @@index([poId])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id          String             @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice            @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  poItemId    String?
+  poItem      PurchaseOrderItem? @relation(fields: [poItemId], references: [id])
+  itemId      String?
+  item        Item?              @relation(fields: [itemId], references: [id])
+  lineNo      Int
+  description String
+  quantity    Float
+  unit        String
+  unitPrice   Float
+  taxRate     Float              @default(0)
+  taxAmount   Float              @default(0)
+  lineTotal   Float              @default(0)
+
+  /// OK | QTY_MISMATCH | PRICE_MISMATCH | NOT_ON_PO | NOT_RECEIVED | TAX_MISMATCH
+  matchFlag      String  @default("OK")
+  matchNotes     String?
+  poQuantity     Float?
+  poUnitPrice    Float?
+  grnAcceptedQty Float?
+
+  @@unique([invoiceId, lineNo])
+  @@map("invoice_items")
+}
+
+model InvoiceGrnLink {
+  id        String  @id @default(cuid())
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  grnId     String
+  grn       Grn     @relation(fields: [grnId], references: [id])
+
+  @@unique([invoiceId, grnId])
+  @@map("invoice_grn_links")
+}
+
+model PaymentHandoff {
+  id        String  @id @default(cuid())
+  number    String  @unique
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount    Float
+  currency  String  @default("PKR")
+
+  /// PENDING | ACKNOWLEDGED | SCHEDULED | PAID | REJECTED
+  status String @default("PENDING")
+
+  /// BANK_TRANSFER | CHEQUE | CASH | ONLINE
+  paymentMethod    String?
+  bankAccount      String?
+  paymentReference String?
+  scheduledDate    DateTime?
+  paidDate         DateTime?
+  handedOffById    String
+  handedOffBy      User      @relation("HandoffBy", fields: [handedOffById], references: [id])
+  handedOffAt      DateTime  @default(now())
+  financeAckById   String?
+  financeAckAt     DateTime?
+  notes            String?
+
+  @@map("payment_handoffs")
+}
+
+// ─────────────────────────────────────────────────────────────
+// PETTY CASH
+// ─────────────────────────────────────────────────────────────
+
+model PettyCashRequest {
+  id           String     @id @default(cuid())
+  number       String     @unique
+  entityId     String
+  entity       Entity     @relation(fields: [entityId], references: [id])
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id])
+  requesterId  String
+  requester    User       @relation("PettyCashRequester", fields: [requesterId], references: [id])
+
+  purpose         String
+  justification   String?
+  estimatedAmount Float
+  approvedAmount  Float?
+  actualAmount    Float?
+  currency        String    @default("PKR")
+  requiredDate    DateTime?
+
+  /// DRAFT | SUBMITTED | UNDER_EVALUATION | QUOTES_PENDING | QUOTES_COMPARED | PENDING_APPROVAL | APPROVED | PURCHASED | RECEIPT_UPLOADED | VOUCHER_GENERATED | VOUCHER_APPROVED | STORE_ENTRY_PENDING | STORE_ENTRY_DONE | RECONCILED | CLOSED | REJECTED | CANCELLED
+  status String @default("DRAFT")
+
+  /// INVENTORY | CONSUMABLE | EXPENSE | ASSET | PROJECT_MATERIAL
+  disposition   String  @default("EXPENSE")
+  storeRequired Boolean @default(false)
+  storeId       String?
+
+  storeEntryDoneAt    DateTime?
+  purchasedAt         DateTime?
+  purchasedFromVendor String?
+  receiptRef          String?
+  selectedQuoteId     String?
+  evaluatedById       String?
+  approvedById        String?
+  approvedAt          DateTime?
+  reconciledById      String?
+  reconciledAt        DateTime?
+  closedAt            DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  items        PettyCashItem[]
+  quotes       PettyCashQuote[]
+  vouchers     PettyCashVoucher[]
+  transactions InventoryTransaction[]
+
+  @@index([status])
+  @@map("petty_cash_requests")
+}
+
+model PettyCashItem {
+  id          String           @id @default(cuid())
+  requestId   String
+  request     PettyCashRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  lineNo      Int
+  itemId      String?
+  item        Item?            @relation(fields: [itemId], references: [id])
+  description String
+  quantity    Float
+  unit        String
+
+  estimatedUnitPrice Float?
+  actualUnitPrice    Float?
+  lineTotal          Float  @default(0)
+
+  /// INVENTORY | CONSUMABLE | EXPENSE | ASSET | PROJECT_MATERIAL
+  disposition  String  @default("EXPENSE")
+  storeEntered Boolean @default(false)
+
+  @@unique([requestId, lineNo])
+  @@map("petty_cash_items")
+}
+
+model PettyCashQuote {
+  id        String           @id @default(cuid())
+  requestId String
+  request   PettyCashRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  vendorName String
+  vendorId   String?
+  vendor     Vendor?  @relation(fields: [vendorId], references: [id])
+
+  /// PHYSICAL | WHATSAPP | SKYPE | EMAIL | PHONE | WALK_IN
+  channel      String   @default("PHYSICAL")
+  contactRef   String?
+  amount       Float
+  taxIncluded  Boolean  @default(false)
+  deliveryDays Int?
+  notes        String?
+  isSelected   Boolean  @default(false)
+  quotedAt     DateTime @default(now())
+
+  @@map("petty_cash_quotes")
+}
+
+model PettyCashVoucher {
+  id        String           @id @default(cuid())
+  number    String           @unique
+  requestId String
+  request   PettyCashRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  amount    Float
+  currency  String           @default("PKR")
+
+  /// DRAFT | PENDING_SIGNATORY | APPROVED | REJECTED | RECONCILED
+  status       String    @default("DRAFT")
+  payeeName    String
+  receiptRef   String?
+  preparedById String
+  preparedAt   DateTime  @default(now())
+  signatoryId  String?
+  signedAt     DateTime?
+  notes        String?
+
+  @@map("petty_cash_vouchers")
+}
+
+// ─────────────────────────────────────────────────────────────
+// VENDORS
+// ─────────────────────────────────────────────────────────────
+
+model Vendor {
+  id        String @id @default(cuid())
+  code      String @unique
+  name      String
+  legalName String?
+
+  /// MANUFACTURER | DISTRIBUTOR | TRADER | SERVICE_PROVIDER | CONTRACTOR | RETAILER
+  businessType  String  @default("DISTRIBUTOR")
+  address       String?
+  city          String?
+  country       String  @default("Pakistan")
+  contactPerson String?
+  contactPhone  String?
+  contactEmail  String?
+  website       String?
+
+  /// FILER | NON_FILER | EXEMPT | UNREGISTERED
+  taxStatus          String    @default("FILER")
+  ntn                String?
+  strn               String?
+  registrationNumber String?
+  incorporationDate  DateTime?
+
+  officeCount         Int?
+  citiesCovered       String?
+  workforceCount      Int?
+  hasTransportation   Boolean @default(false)
+  transportationNotes String?
+  supportStaffCount   Int?
+  paymentTerms        String?
+  creditDays          Int?
+  bankName            String?
+  bankAccountTitle    String?
+  bankAccountNumber   String?
+  bankIban            String?
+  references          String?
+  productsServices    String?
+  categories          String?
+
+  /// INTERNET | REFERENCE | RELATIONSHIP | MEDIA | EMAIL | WALK_IN | MARKET | TENDER
+  sourceChannel String  @default("MARKET")
+  sourceNotes   String?
+
+  /// PROSPECT | UNDER_EVALUATION | PENDING_APPROVAL | APPROVED | CONDITIONAL | SUSPENDED | BLACKLISTED | INACTIVE
+  status            String    @default("PROSPECT")
+  statusReason      String?
+  approvedAt        DateTime?
+  blacklistedAt     DateTime?
+  isTrader          Boolean   @default(false)
+  minimumOrderValue Float?
+
+  currentScore     Float?
+  maxScore         Float?
+  scorePercent     Float?
+  performanceScore Float?
+  onTimePercent    Float?
+  qualityPercent   Float?
+  rejectionPercent Float?
+  totalOrders      Int       @default(0)
+  totalSpend       Float     @default(0)
+  lastOrderAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  entityLinks     VendorEntityLink[]
+  documents       VendorDocument[]
+  evaluations     VendorEvaluation[]
+  performance     VendorPerformance[]
+  issues          VendorIssue[]
+  blacklistCases  VendorBlacklistCase[]
+  rfqInvites      RfqVendor[]
+  quotes          VendorQuote[]
+  purchaseOrders  PurchaseOrder[]
+  gatePasses      GatePass[]
+  deliveries      Delivery[]
+  grns            Grn[]
+  invoices        Invoice[]
+  priceHistory    PriceHistory[]
+  assets          Asset[]
+  pettyCashQuotes PettyCashQuote[]
+  disposalBids    DisposalBid[]
+  contacts         VendorContact[]
+  comparativeLines ComparativeLine[]
+
+  @@index([status])
+  @@map("vendors")
+}
+
+model VendorEntityLink {
+  vendorId String
+  entityId String
+  vendor   Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  entity   Entity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  approved Boolean @default(false)
+
+  @@id([vendorId, entityId])
+  @@map("vendor_entity_links")
+}
+
+model VendorContact {
+  id        String  @id @default(cuid())
+  vendorId  String
+  vendor    Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  name      String
+  role      String?
+  phone     String?
+  email     String?
+  isPrimary Boolean @default(false)
+
+  @@map("vendor_contacts")
+}
+
+model VendorDocument {
+  id         String  @id @default(cuid())
+  vendorId   String
+  vendor     Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  documentId String?
+
+  /// NTN_CERTIFICATE | STRN_CERTIFICATE | COMPANY_PROFILE | BANK_LETTER | INCORPORATION | REFERENCE_LETTER | ISO | OTHER
+  docType      String
+  name         String
+  expiryDate   DateTime?
+  verified     Boolean   @default(false)
+  verifiedById String?
+  verifiedAt   DateTime?
+  notes        String?
+  createdAt    DateTime  @default(now())
+
+  @@map("vendor_documents")
+}
+
+model EvaluationCriterion {
+  id          String  @id @default(cuid())
+  code        String  @unique
+  name        String
+  description String?
+  maxScore    Float   @default(3)
+  weight      Float   @default(1)
+  group       String  @default("General")
+  sequence    Int     @default(0)
+  active      Boolean @default(true)
+
+  scores VendorScore[]
+
+  @@map("evaluation_criteria")
+}
+
+model VendorEvaluation {
+  id       String @id @default(cuid())
+  number   String @unique
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  /// PRE_QUALIFICATION | PERIODIC | POST_ISSUE | RE_EVALUATION
+  evaluationType String   @default("PRE_QUALIFICATION")
+  evaluatorId    String
+  evaluator      User     @relation(fields: [evaluatorId], references: [id])
+  evaluatedAt    DateTime @default(now())
+
+  totalScore   Float   @default(0)
+  maxScore     Float   @default(0)
+  percentage   Float   @default(0)
+  passingScore Float   @default(0)
+  passed       Boolean @default(false)
+
+  /// DRAFT | SUBMITTED | APPROVED | REJECTED
+  status         String    @default("DRAFT")
+  recommendation String?
+  notes          String?
+  approvedById   String?
+  approvedAt     DateTime?
+
+  scores VendorScore[]
+
+  @@map("vendor_evaluations")
+}
+
+model VendorScore {
+  id            String              @id @default(cuid())
+  evaluationId  String
+  evaluation    VendorEvaluation    @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  criterionId   String
+  criterion     EvaluationCriterion @relation(fields: [criterionId], references: [id])
+  score         Float
+  maxScore      Float
+  weight        Float               @default(1)
+  weightedScore Float               @default(0)
+  comment       String?
+
+  @@unique([evaluationId, criterionId])
+  @@map("vendor_scores")
+}
+
+model VendorPerformance {
+  id          String   @id @default(cuid())
+  vendorId    String
+  vendor      Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  periodStart DateTime
+  periodEnd   DateTime
+
+  ordersCount          Int   @default(0)
+  totalSpend           Float @default(0)
+  onTimeDeliveries     Int   @default(0)
+  lateDeliveries       Int   @default(0)
+  partialDeliveries    Int   @default(0)
+  rejectedLines        Int   @default(0)
+  acceptedLines        Int   @default(0)
+  qualityIssues        Int   @default(0)
+  invoiceIssues        Int   @default(0)
+  warrantyClaims       Int   @default(0)
+  replacementsHonoured Int   @default(0)
+  complaints           Int   @default(0)
+  avgPriceVariance     Float @default(0)
+  onTimePercent        Float @default(0)
+  qualityPercent       Float @default(0)
+  rejectionPercent     Float @default(0)
+  score                Float @default(0)
+
+  computedAt DateTime @default(now())
+
+  @@unique([vendorId, periodStart, periodEnd])
+  @@map("vendor_performance")
+}
+
+model VendorIssue {
+  id       String @id @default(cuid())
+  number   String @unique
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  /// LATE_DELIVERY | QUALITY | QUANTITY_SHORT | PRICE_MISMATCH | FORGED_DOCUMENT | ALTERED_DOCUMENT | SERVICE_FAILURE | AUDIT_FINDING | WARRANTY_DENIED | POLICY_VIOLATION | OTHER
+  issueType String
+
+  /// LOW | MEDIUM | HIGH | CRITICAL
+  severity    String @default("MEDIUM")
+  title       String
+  description String
+
+  relatedPoId      String?
+  relatedGrnId     String?
+  relatedInvoiceId String?
+  raisedById       String
+  raisedBy         User     @relation("VendorIssueRaisedBy", fields: [raisedById], references: [id])
+  raisedAt         DateTime @default(now())
+
+  /// OPEN | UNDER_REVIEW | VENDOR_RESPONDED | RESOLVED | ESCALATED | CLOSED
+  status          String    @default("OPEN")
+  vendorResponse  String?
+  resolution      String?
+  resolvedAt      DateTime?
+  blacklistCaseId String?
+
+  @@map("vendor_issues")
+}
+
+model VendorBlacklistCase {
+  id       String @id @default(cuid())
+  number   String @unique
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  reason   String
+
+  /// FORGED_DOCUMENTS | ALTERED_DOCUMENTS | QUALITY_COMPROMISE | INVOICE_MISMATCH | QUANTITY_MISMATCH | PARTIAL_DELIVERIES | LATE_DELIVERIES | SERVICE_FAILURE | AUDIT_FINDING | POLICY_VIOLATION | OTHER
+  reasonCode String
+  evidence   String?
+
+  /// RAISED | EVIDENCE_COLLECTION | INVESTIGATION | VENDOR_RESPONSE_AWAITED | PROCUREMENT_REVIEW | AUDIT_REVIEW | DECISION_PENDING | BLACKLISTED | WARNING_ISSUED | RETAINED | CLOSED
+  stage              String  @default("RAISED")
+  investigationNotes String?
+  vendorResponse     String?
+  vendorRespondedAt  DateTime?
+  procurementReview  String?
+  auditReview        String?
+  auditRequired      Boolean @default(true)
+
+  /// BLACKLIST | RETAIN | WARNING | SUSPEND
+  decision      String?
+  decisionBy    String?
+  decisionAt    DateTime?
+  decisionNotes String?
+  raisedById    String
+  raisedAt      DateTime  @default(now())
+  closedAt      DateTime?
+
+  @@map("vendor_blacklist_cases")
+}
+
+// ─────────────────────────────────────────────────────────────
+// ASSETS / DISPOSAL
+// ─────────────────────────────────────────────────────────────
+
+model Asset {
+  id          String      @id @default(cuid())
+  assetId     String      @unique
+  tag         String      @unique
+  name        String
+  description String?
+  entityId    String
+  entity      Entity      @relation(fields: [entityId], references: [id])
+  departmentId String?
+  department  Department? @relation(fields: [departmentId], references: [id])
+  categoryId  String?
+  category    Category?   @relation(fields: [categoryId], references: [id])
+  itemId      String?
+  item        Item?       @relation(fields: [itemId], references: [id])
+
+  office       String?
+  location     String?
+  storeId      String?
+  serialNumber String?
+  brand        String?
+  model        String?
+  purchaseDate DateTime?
+  vendorId     String?
+  vendor       Vendor?   @relation(fields: [vendorId], references: [id])
+  poId         String?
+  grnId        String?
+  grn          Grn?      @relation(fields: [grnId], references: [id])
+
+  cost             Float     @default(0)
+  currentValue     Float?
+  depreciationRate Float?
+  warrantyUntil    DateTime?
+  custodianId      String?
+  custodian        User?     @relation("AssetCustodian", fields: [custodianId], references: [id])
+
+  /// ACTIVE | IN_STORAGE | ISSUED | TRANSFERRED | UNDER_REPAIR | IDLE | OBSOLETE | DISPOSED | SCRAPPED | LOST
+  status         String   @default("IN_STORAGE")
+  conditionNotes String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  transactions  AssetTransaction[]
+  disposalItems DisposalItem[]
+
+  @@index([status])
+  @@map("assets")
+}
+
+model AssetTransaction {
+  id      String @id @default(cuid())
+  assetId String
+  asset   Asset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  /// TAGGED | ISSUED | RETURNED | TRANSFERRED | REPAIR_IN | REPAIR_OUT | REVALUED | FLAGGED_IDLE | FLAGGED_OBSOLETE | DISPOSED | SCRAPPED | LOST
+  type            String
+  fromStatus      String?
+  toStatus        String?
+  fromCustodianId String?
+  toCustodianId   String?
+  fromLocation    String?
+  toLocation      String?
+  reference       String?
+  notes           String?
+  performedById   String
+  performedAt     DateTime @default(now())
+
+  @@map("asset_transactions")
+}
+
+model DisposalCase {
+  id       String @id @default(cuid())
+  number   String @unique
+  entityId String
+  entity   Entity @relation(fields: [entityId], references: [id])
+  title    String
+
+  /// FURNITURE | IT_HARDWARE | MOBILE | MARKETING_MATERIAL | CONSTRUCTION_SCRAP | COMPLETE_WASTE | EQUIPMENT | OTHER
+  disposalCategory String
+
+  /// REUSE | TRANSFER | REPAIR | SCRAP | DISPOSE | SALE
+  recommendedAction String?
+  finalAction       String?
+  assessmentNotes   String?
+  estimatedValue    Float?
+  realisedValue     Float?
+
+  /// FLAGGED | ASSESSMENT | AUDIT_REVIEW | PENDING_APPROVAL | APPROVED | BIDDING | BID_EVALUATION | MANAGEMENT_APPROVAL | PAYMENT_PENDING | PAYMENT_RECEIVED | COMPLETED | REJECTED | CANCELLED
+  stage             String    @default("FLAGGED")
+  biddingRequired   Boolean   @default(true)
+  bidDeadline       DateTime?
+  winningBidId      String?
+  paymentReceivedAt DateTime?
+  paymentReference  String?
+
+  raisedById             String
+  raisedBy               User      @relation("DisposalRaisedBy", fields: [raisedById], references: [id])
+  raisedAt               DateTime  @default(now())
+  auditReviewById        String?
+  auditReviewAt          DateTime?
+  auditNotes             String?
+  approvedById           String?
+  approvedAt             DateTime?
+  managementApprovedById String?
+  managementApprovedAt   DateTime?
+  completedAt            DateTime?
+  updatedAt              DateTime  @updatedAt
+
+  items        DisposalItem[]
+  bids         DisposalBid[]
+  transactions InventoryTransaction[]
+
+  @@index([stage])
+  @@map("disposal_cases")
+}
+
+model DisposalItem {
+  id      String       @id @default(cuid())
+  caseId  String
+  case    DisposalCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  lineNo  Int
+  assetId String?
+  asset   Asset?       @relation(fields: [assetId], references: [id])
+  itemId  String?
+  item    Item?        @relation(fields: [itemId], references: [id])
+  storeId String?
+
+  description String
+  quantity    Float
+  unit        String
+
+  /// IDLE | OBSOLETE | DAMAGED | UNREPAIRABLE | EXPIRED | SCRAP
+  condition      String  @default("OBSOLETE")
+  bookValue      Float?
+  estimatedValue Float?
+  realisedValue  Float?
+  disposition    String?
+  notes          String?
+
+  @@unique([caseId, lineNo])
+  @@map("disposal_items")
+}
+
+model DisposalBid {
+  id         String       @id @default(cuid())
+  caseId     String
+  case       DisposalCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  bidderName String
+  vendorId   String?
+  vendor     Vendor?      @relation(fields: [vendorId], references: [id])
+
+  contactPhone String?
+  amount       Float
+  currency     String   @default("PKR")
+  bidDate      DateTime @default(now())
+
+  /// SUBMITTED | SHORTLISTED | WON | LOST | WITHDRAWN | DISQUALIFIED
+  status String  @default("SUBMITTED")
+  notes  String?
+
+  @@map("disposal_bids")
+}
+
+// ─────────────────────────────────────────────────────────────
+// DOCUMENTS / AUDIT / NOTIFICATIONS / TASKS / EXCEPTIONS
+// ─────────────────────────────────────────────────────────────
+
+model DocumentType {
+  id       String @id @default(cuid())
+  code     String @unique
+  name     String
+  category String
+
+  /// JSON array of entity types this doc can attach to
+  appliesTo         String  @default("[]")
+  required          Boolean @default(false)
+  maxSizeMb         Int     @default(20)
+  allowedExtensions String  @default("pdf,png,jpg,jpeg,xlsx,xls,docx,doc,dwg,csv")
+  retentionMonths   Int?
+
+  /// Minimum permission code required to view
+  viewPermission String?
+  active         Boolean @default(true)
+
+  documents Document[]
+
+  @@map("document_types")
+}
+
+model Document {
+  id               String @id @default(cuid())
+  name             String
+  originalFilename String
+  storagePath      String
+  mimeType         String
+  sizeBytes        Int
+  checksum         String?
+  version          Int    @default(1)
+
+  parentDocumentId String?
+  parentDocument   Document?  @relation("DocVersions", fields: [parentDocumentId], references: [id])
+  versions         Document[] @relation("DocVersions")
+
+  documentTypeId String?
+  documentType   DocumentType? @relation(fields: [documentTypeId], references: [id])
+
+  /// PR | RFQ | QUOTE | COMPARATIVE | PO | GATE_PASS | DELIVERY | INSPECTION | GRN | INVOICE | VENDOR | PETTY_CASH | DISPOSAL | ASSET | CPC | STORE_TRANSFER | STORE_ISSUE
+  linkedType String
+  linkedId   String
+
+  /// Denormalized case key so the whole procurement case timeline can be fetched in one query
+  caseKey     String?
+  category    String  @default("General")
+  description String?
+  tags        String?
+
+  /// PUBLIC | INTERNAL | CONFIDENTIAL | RESTRICTED
+  confidentiality String   @default("INTERNAL")
+  entityId        String?
+  uploadedById    String
+  uploadedBy      User     @relation(fields: [uploadedById], references: [id])
+  uploadedAt      DateTime @default(now())
+  isCurrent       Boolean  @default(true)
+  archived        Boolean  @default(false)
+
+  accessLogs DocumentAccessLog[]
+
+  @@index([linkedType, linkedId])
+  @@index([caseKey])
+  @@map("documents")
+}
+
+model DocumentAccessLog {
+  id         String   @id @default(cuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  userId     String
+
+  /// VIEW | DOWNLOAD | DENIED
+  action     String
+  ip         String?
+  accessedAt DateTime @default(now())
+
+  @@index([documentId])
+  @@map("document_access_logs")
+}
+
+model AuditLog {
+  id         String  @id @default(cuid())
+  entityType String
+  entityId   String
+  entityRef  String?
+  action     String
+
+  /// JSON of {field: {from, to}}
+  changes  String?
+  oldValue String?
+  newValue String?
+  reason   String?
+
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id])
+  actorName  String?
+  actorRoles String?
+  ip         String?
+  userAgent  String?
+  caseKey    String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([caseKey])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// APPROVAL_REQUIRED | PR_RETURNED | PR_REJECTED | RFQ_RESPONSE_PENDING | QUOTE_RECEIVED | CPC_PENDING | PO_APPROVAL | DELIVERY_OVERDUE | INSPECTION_REQUIRED | GRN_PENDING | INVOICE_MISMATCH | FINANCE_HANDOFF | VENDOR_EVALUATION_DUE | VENDOR_ISSUE | DISPOSAL_APPROVAL | EXCEPTION_RAISED | GENERAL
+  type  String
+  title String
+  body  String?
+
+  /// LOW | NORMAL | HIGH | CRITICAL
+  priority  String    @default("NORMAL")
+  linkType  String?
+  linkId    String?
+  linkUrl   String?
+  read      Boolean   @default(false)
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, read])
+  @@map("notifications")
+}
+
+/// Queued outbound email. Notifications are written first and mailed from here,
+/// so a transport being down delays delivery but never loses the message, and
+/// every attempt is inspectable after the fact.
+model EmailMessage {
+  id        String  @id @default(cuid())
+  toAddress String
+  toName    String?
+  subject   String
+  bodyText  String
+  bodyHtml  String?
+
+  /// APPROVAL | REMINDER | EXCEPTION | DIGEST | GENERAL
+  category String @default("GENERAL")
+
+  /// QUEUED | SENDING | SENT | FAILED | SUPPRESSED
+  status   String @default("QUEUED")
+  attempts Int    @default(0)
+  lastError String?
+
+  /// Transport that accepted it, e.g. logger or smtp
+  transport String?
+  providerId String?
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  notificationId String?
+  linkUrl        String?
+  entityId       String?
+
+  queuedAt DateTime  @default(now())
+  sentAt   DateTime?
+  failedAt DateTime?
+
+  @@index([status, queuedAt])
+  @@map("email_messages")
+}
+
+model Task {
+  id          String  @id @default(cuid())
+  title       String
+  description String?
+
+  /// APPROVAL | ACTION | REVIEW | DATA_ENTRY | INSPECTION | RECEIVING | VERIFICATION
+  taskType         String  @default("ACTION")
+  assigneeId       String?
+  assignee         User?   @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  assignedRoleCode String?
+  entityId         String?
+  documentType     String
+  documentId       String
+  documentRef      String
+
+  /// OPEN | IN_PROGRESS | DONE | CANCELLED
+  status        String    @default("OPEN")
+  priority      String    @default("NORMAL")
+  dueAt         DateTime?
+  slaHours      Int?
+  createdAt     DateTime  @default(now())
+  completedAt   DateTime?
+  completedById String?
+  linkUrl       String?
+
+  @@index([assigneeId, status])
+  @@index([assignedRoleCode, status])
+  @@map("tasks")
+}
+
+model Exception {
+  id     String @id @default(cuid())
+  number String @unique
+
+  /// MISSING_SPECIFICATION | APPROVAL_DELAY | INSUFFICIENT_QUOTATIONS | PRICE_VARIANCE | NON_LOWEST_SELECTED | LATE_DELIVERY | QUANTITY_MISMATCH | DAMAGED_MATERIAL | FAILED_INSPECTION | MISSING_GRN | INVOICE_MISMATCH | VENDOR_COMPLIANCE | STORE_ENTRY_MISSING | BUDGET_OVERRUN | OTHER
+  type String
+
+  /// LOW | MEDIUM | HIGH | CRITICAL
+  severity    String  @default("MEDIUM")
+  title       String
+  description String?
+  reason      String?
+
+  documentType String
+  documentId   String
+  documentRef  String
+  caseKey      String?
+  entityId     String?
+
+  prId      String?
+  pr        PurchaseRequisition? @relation(fields: [prId], references: [id])
+  poId      String?
+  po        PurchaseOrder?       @relation(fields: [poId], references: [id])
+  invoiceId String?
+  invoice   Invoice?             @relation(fields: [invoiceId], references: [id])
+
+  ownerId    String?
+  owner      User?   @relation("ExceptionOwner", fields: [ownerId], references: [id])
+  raisedById String?
+  raisedBy   User?   @relation("ExceptionRaisedBy", fields: [raisedById], references: [id])
+
+  /// OPEN | IN_PROGRESS | RESOLVED | ACCEPTED | WAIVED | CLOSED
+  status       String    @default("OPEN")
+  blocking     Boolean   @default(false)
+  dueAt        DateTime?
+  resolution   String?
+  resolvedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([status, severity])
+  @@index([documentType, documentId])
+  @@map("exceptions")
+}
+
+model SavingsRecord {
+  id            String        @id @default(cuid())
+  comparativeId String?
+  comparative   Comparative?  @relation(fields: [comparativeId], references: [id])
+  poId          String?
+  po            PurchaseOrder? @relation(fields: [poId], references: [id])
+  entityId      String?
+  categoryId    String?
+  vendorId      String?
+
+  itemDescription String
+  quantity        Float  @default(0)
+  marketPrice     Float?
+  previousPrice   Float?
+  initialQuote    Float?
+  negotiatedPrice Float?
+  finalPrice      Float
+  savingsPerUnit  Float  @default(0)
+  totalSavings    Float  @default(0)
+  savingsPercent  Float  @default(0)
+
+  /// NEGOTIATION | TIMING | VENDOR_SWITCH | BULK | SPEC_OPTIMISATION | MARKET_RATE
+  savingsType String   @default("NEGOTIATION")
+  notes       String?
+  recordedAt  DateTime @default(now())
+
+  @@index([entityId, recordedAt])
+  @@map("savings_records")
+}
+
+model NumberSequence {
+  id      String @id @default(cuid())
+  key     String @unique
+  prefix  String
+  year    Int
+  counter Int    @default(0)
+  padding Int    @default(5)
+
+  @@map("number_sequences")
+}
+
+model SavedView {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name     String
+  resource String
+
+  /// JSON of filters/sort/columns
+  config    String   @default("{}")
+  isShared  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, resource, name])
+  @@map("saved_views")
+}
