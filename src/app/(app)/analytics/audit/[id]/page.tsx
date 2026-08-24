@@ -149,7 +149,7 @@ export default async function AuditEventPage({ params }: { params: Promise<{ id:
         }
         meta={
           <>
-            <span className="text-xs text-[var(--c-text-secondary)]">{fmtDateTime(log.createdAt)}</span>
+            <span className="text-xs text-muted">{fmtDateTime(log.createdAt)}</span>
             <span className="text-xs text-[var(--c-text-tertiary)]">{relativeTime(log.createdAt)}</span>
             {log.caseKey && (
               <Link href={`/analytics/audit?q=${encodeURIComponent(log.caseKey)}`} className="text-xs">
@@ -270,7 +270,7 @@ function HistoryList({
   }>;
 }) {
   if (!rows.length) {
-    return <p className="px-4 py-6 text-center text-xs text-[var(--c-text-secondary)]">Nothing else recorded.</p>;
+    return <p className="px-4 py-6 text-center text-xs text-muted">Nothing else recorded.</p>;
   }
   return (
     <ul className="divide-y divide-[var(--c-border-subtle)]">

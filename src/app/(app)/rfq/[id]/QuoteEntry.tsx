@@ -227,7 +227,7 @@ export function QuoteEntry({
           </FormSection>
 
           <FormSection title="Priced lines" columns={1}>
-            <div className="sm:col-span-full overflow-hidden rounded-[var(--radius-md)] border border-[var(--c-border)]">
+            <div className="sm:col-span-full overflow-hidden rounded-xl border border-border">
               <div className="table-wrap">
                 <table className="dt">
                   <thead>
@@ -376,7 +376,7 @@ export function QuoteEntry({
             </Field>
             <div>
               <div className="label mb-1">Quotation total</div>
-              <div className="rounded-[var(--radius-sm)] border border-[var(--c-border)] bg-[var(--c-surface-sunken)] px-2.5 py-2">
+              <div className="rounded-lg border border-border bg-surface-secondary px-2.5 py-2">
                 <div className="tnum text-[1.0625rem] font-600">{money(totals.total)}</div>
                 <div className="mt-0.5 text-2xs text-[var(--c-text-tertiary)]">
                   net {money(totals.net)} + tax {money(totals.tax)}

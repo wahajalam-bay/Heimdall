@@ -186,7 +186,7 @@ export default async function DisposalPage() {
               .map((s) => (
                 <span
                   key={s.stage}
-                  className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--c-border)] px-2.5 py-1.5 text-xs"
+                  className="flex items-center gap-2 rounded-lg border border-border px-2.5 py-1.5 text-xs"
                 >
                   <StatusBadge status={s.stage} />
                   <span className="tnum font-600">{s.count}</span>

@@ -202,7 +202,7 @@ export default async function ProcurementCasePage({
         eyebrow={`${pr.entity.code} · ${pr.department.name}`}
         title={
           <span className="flex flex-wrap items-baseline gap-2.5">
-            <span className="mono text-[1rem] text-[var(--c-text-secondary)]">{pr.number}</span>
+            <span className="mono text-[1rem] text-muted">{pr.number}</span>
             <span>{pr.title}</span>
           </span>
         }

@@ -227,7 +227,7 @@ export default async function PoDetailPage({
         eyebrow={`${po.entity.code} · ${po.pr?.department.name ?? "—"}`}
         title={
           <span className="flex flex-wrap items-baseline gap-2.5">
-            <span className="mono text-[1rem] text-[var(--c-text-secondary)]">{po.number}</span>
+            <span className="mono text-[1rem] text-muted">{po.number}</span>
             <span>{po.vendor.name}</span>
           </span>
         }
@@ -344,9 +344,9 @@ export default async function PoDetailPage({
                   ]}
                 />
                 {po.termsConditions && (
-                  <div className="mt-4 border-t border-[var(--c-border-subtle)] pt-3">
+                  <div className="mt-4 border-t border-separator pt-3">
                     <div className="label mb-1.5">Terms & conditions</div>
-                    <p className="whitespace-pre-line text-xs leading-5 text-[var(--c-text-secondary)]">
+                    <p className="whitespace-pre-line text-xs leading-5 text-muted">
                       {po.termsConditions}
                     </p>
                   </div>
@@ -364,11 +364,11 @@ export default async function PoDetailPage({
                       ["Discount", `- ${money(po.discount)}`],
                     ].map(([l, v]) => (
                       <div key={l} className="flex items-baseline justify-between gap-3 text-xs">
-                        <span className="text-[var(--c-text-secondary)]">{l}</span>
+                        <span className="text-muted">{l}</span>
                         <span className="tnum">{v}</span>
                       </div>
                     ))}
-                    <div className="flex items-baseline justify-between gap-3 border-t border-[var(--c-border-subtle)] pt-1.5 text-[0.8125rem] font-600">
+                    <div className="flex items-baseline justify-between gap-3 border-t border-separator pt-1.5 text-[0.8125rem] font-600">
                       <span>Order total</span>
                       <span className="tnum">{money(po.total)}</span>
                     </div>
@@ -438,7 +438,7 @@ export default async function PoDetailPage({
                         <td>
                           <div>{i.description}</div>
                           {(i.brand || i.model) && (
-                            <div className="mt-0.5 text-2xs text-[var(--c-text-secondary)]">
+                            <div className="mt-0.5 text-2xs text-muted">
                               {[i.brand, i.model].filter(Boolean).join(" · ")}
                             </div>
                           )}
@@ -639,7 +639,7 @@ export default async function PoDetailPage({
                         </table>
                       </div>
                       {d.inspections.length > 0 && (
-                        <div className="border-t border-[var(--c-border-subtle)] px-4 py-2.5">
+                        <div className="border-t border-separator px-4 py-2.5">
                           <span className="label mr-2">Inspections</span>
                           {d.inspections.map((i) => (
                             <Link key={i.id} href={`/inspections/${i.id}`} className="mr-2">
@@ -856,7 +856,7 @@ export default async function PoDetailPage({
                       </table>
                     </div>
                     {inv.handoffs.length > 0 && (
-                      <div className="border-t border-[var(--c-border-subtle)] px-4 py-2.5 text-xs">
+                      <div className="border-t border-separator px-4 py-2.5 text-xs">
                         <span className="label mr-2">Finance</span>
                         {inv.handoffs.map((h) => (
                           <span key={h.id} className="mr-3">

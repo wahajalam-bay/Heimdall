@@ -143,7 +143,7 @@ export default async function AdminPoliciesPage({ searchParams }: { searchParams
                         <td>
                           <span className="block text-xs font-500">{def.label}</span>
                           <span className="mono mt-0.5 block text-2xs text-[var(--c-text-tertiary)]">{def.key}</span>
-                          <span className="mt-1 block max-w-[34rem] text-2xs leading-4 text-[var(--c-text-secondary)]">
+                          <span className="mt-1 block max-w-[34rem] text-2xs leading-4 text-muted">
                             {def.description}
                           </span>
                         </td>
@@ -159,7 +159,7 @@ export default async function AdminPoliciesPage({ searchParams }: { searchParams
                             {source}
                           </Badge>
                         </td>
-                        <td className="text-2xs text-[var(--c-text-secondary)]">
+                        <td className="text-2xs text-muted">
                           {display(def.default, def.valueType)}
                         </td>
                         <td className="text-2xs">
@@ -220,7 +220,7 @@ export default async function AdminPoliciesPage({ searchParams }: { searchParams
         bodyClassName="px-0 py-0"
       >
         {stored.length === 0 ? (
-          <p className="px-4 py-6 text-center text-xs text-[var(--c-text-secondary)]">
+          <p className="px-4 py-6 text-center text-xs text-muted">
             No overrides — every rule is running on its shipped default.
           </p>
         ) : (

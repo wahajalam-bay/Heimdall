@@ -408,7 +408,7 @@ export function DataTable({
   return (
     <div className={classNames("card overflow-hidden", className)}>
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--c-border)] px-3 py-2.5">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5">
         <div className="relative min-w-[11rem] flex-1 sm:max-w-xs">
           <svg
             className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--c-text-tertiary)]"
@@ -467,7 +467,7 @@ export function DataTable({
               Views
             </button>
             {viewMenu && (
-              <div className="absolute right-0 z-30 mt-1 w-60 rounded-[var(--radius-md)] border border-[var(--c-border)] bg-[var(--c-surface-raised)] py-1 shadow-[var(--shadow-lg)]">
+              <div className="absolute right-0 z-30 mt-1 w-60 overlay-panel py-1">
                 <button
                   type="button"
                   className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-[var(--c-surface-hover)]"
@@ -488,7 +488,7 @@ export function DataTable({
                 </button>
                 {savedViews && savedViews.length > 0 && (
                   <>
-                    <div className="my-1 border-t border-[var(--c-border-subtle)]" />
+                    <div className="my-1 border-t border-separator" />
                     {savedViews.map((v) => (
                       <div
                         key={v.id}
@@ -530,13 +530,13 @@ export function DataTable({
               Columns
             </button>
             {colMenu && (
-              <div className="absolute right-0 z-30 mt-1 max-h-72 w-56 overflow-y-auto rounded-[var(--radius-md)] border border-[var(--c-border)] bg-[var(--c-surface-raised)] p-1 shadow-[var(--shadow-lg)]">
+              <div className="absolute right-0 z-30 mt-1 max-h-72 w-56 overflow-y-auto rounded-xl border border-border bg-overlay p-1 shadow-overlay">
                 {columns
                   .filter((c) => !c.locked)
                   .map((c) => (
                     <label
                       key={c.key}
-                      className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-xs)] px-2 py-1.5 text-xs hover:bg-[var(--c-surface-hover)]"
+                      className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-xs hover:bg-[var(--c-surface-hover)]"
                     >
                       <input
                         type="checkbox"
@@ -617,14 +617,14 @@ export function DataTable({
       {sorted.length === 0 ? (
         rows.length === 0 ? (
           (emptyState ?? (
-            <div className="px-4 py-12 text-center text-xs text-[var(--c-text-secondary)]">
+            <div className="px-4 py-12 text-center text-xs text-muted">
               No records yet.
             </div>
           ))
         ) : (
           <div className="px-4 py-12 text-center">
             <p className="text-[0.8125rem] font-600">No results</p>
-            <p className="mt-1 text-xs text-[var(--c-text-secondary)]">
+            <p className="mt-1 text-xs text-muted">
               No rows match your search or filters.
             </p>
             <button type="button" className="btn btn-secondary btn-sm mt-3" onClick={clearAll}>
@@ -748,8 +748,8 @@ export function DataTable({
 
       {/* Pagination */}
       {sorted.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--c-border)] px-3 py-2">
-          <div className="text-xs text-[var(--c-text-secondary)]">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-3 py-2">
+          <div className="text-xs text-muted">
             <span className="tnum font-500 text-[var(--c-text)]">
               {(safePage - 1) * pageSize + 1}–{Math.min(safePage * pageSize, sorted.length)}
             </span>{" "}
@@ -788,7 +788,7 @@ export function DataTable({
               >
                 Prev
               </button>
-              <span className="tnum px-1.5 text-xs text-[var(--c-text-secondary)]">
+              <span className="tnum px-1.5 text-xs text-muted">
                 {safePage} / {totalPages}
               </span>
               <button

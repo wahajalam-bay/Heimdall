@@ -182,11 +182,11 @@ export function Sidebar({
       >
         <Link
           href="/"
-          className="flex min-w-0 items-center gap-2 rounded-[var(--radius-sm)] outline-offset-2"
+          className="flex min-w-0 items-center gap-2 rounded-lg outline-offset-2"
           title={railMode ? `Heimdall · ${entityLabel}` : undefined}
         >
           <span
-            className="flex size-6 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-[0.6875rem] font-700"
+            className="flex size-6 shrink-0 items-center justify-center rounded-lg text-[0.6875rem] font-700"
             style={{ background: "var(--c-nav-mark)", color: "var(--c-nav-mark-ink)" }}
             aria-hidden
           >
@@ -256,7 +256,7 @@ export function Sidebar({
                 <button
                   type="button"
                   onClick={() => toggleGroup(g.label)}
-                  className="flex w-full items-center justify-between gap-1 rounded-[var(--radius-xs)] px-2 py-1.5 text-left transition-colors hover:bg-[var(--c-nav-bg-hover)]"
+                  className="flex w-full items-center justify-between gap-1 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-[var(--c-nav-bg-hover)]"
                   aria-expanded={!collapsed}
                 >
                   {/* The module hue lives in the label itself; a separate bar
@@ -320,7 +320,7 @@ export function Sidebar({
                           }
                           onBlur={railMode ? () => setTip(null) : undefined}
                           className={classNames(
-                            "group relative flex items-center rounded-[var(--radius-sm)] text-[0.8125rem] leading-5 transition-colors",
+                            "group relative flex items-center rounded-lg text-[0.8125rem] leading-5 transition-colors",
                             railMode ? "justify-center px-0 py-1.5" : "gap-2 px-2 py-[0.3125rem]",
                             active
                               ? "bg-[var(--c-nav-active-bg)] font-500 text-[var(--c-nav-text)]"
@@ -384,7 +384,7 @@ export function Sidebar({
           type="button"
           onClick={() => applyRail(!railMode)}
           className={classNames(
-            "flex w-full items-center rounded-[var(--radius-sm)] px-2 py-1.5 text-xs text-[var(--c-nav-text-muted)] transition-colors hover:bg-[var(--c-nav-bg-hover)] hover:text-[var(--c-nav-text)]",
+            "flex w-full items-center rounded-lg px-2 py-1.5 text-xs text-[var(--c-nav-text-muted)] transition-colors hover:bg-[var(--c-nav-bg-hover)] hover:text-[var(--c-nav-text)]",
             railMode ? "justify-center" : "gap-2",
           )}
           title={railMode ? "Expand navigation (Ctrl+B)" : "Collapse navigation (Ctrl+B)"}
@@ -446,7 +446,7 @@ export function Sidebar({
       {/* Rail tooltip: fixed, so the nav scroller cannot clip it. */}
       {rail && tip && (
         <div
-          className="pointer-events-none fixed z-40 hidden -translate-y-1/2 whitespace-nowrap rounded-[var(--radius-sm)] border border-[var(--c-border)] bg-[var(--c-surface-raised)] px-2 py-1 text-xs text-[var(--c-text)] shadow-[var(--shadow-md)] lg:block"
+          className="pointer-events-none fixed z-40 hidden -translate-y-1/2 whitespace-nowrap rounded-lg border border-border bg-overlay px-2 py-1 text-xs text-[var(--c-text)] shadow-overlay lg:block"
           style={{ left: "calc(var(--nav-w) + 0.5rem)", top: tip.top + 14 }}
           role="presentation"
         >
@@ -464,7 +464,7 @@ export function Sidebar({
           <div className="absolute inset-y-0 left-0 w-[17rem] border-r border-[var(--c-nav-border)] bg-[var(--c-nav-bg)]">
             <button
               type="button"
-              className="absolute right-2 top-2.5 z-10 flex size-7 items-center justify-center rounded-[var(--radius-sm)] text-[var(--c-nav-text-muted)] transition-colors hover:bg-[var(--c-nav-bg-hover)] hover:text-[var(--c-nav-text)]"
+              className="absolute right-2 top-2.5 z-10 flex size-7 items-center justify-center rounded-lg text-[var(--c-nav-text-muted)] transition-colors hover:bg-[var(--c-nav-bg-hover)] hover:text-[var(--c-nav-text)]"
               onClick={() => setMobileOpen(false)}
               aria-label="Close navigation"
             >

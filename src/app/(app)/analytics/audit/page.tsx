@@ -272,7 +272,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
                       <td className="text-xs">
                         {href && l.entityRef ? <RefLink href={href}>{l.entityRef}</RefLink> : (l.entityRef ?? l.entityType)}
                       </td>
-                      <td className="max-w-[32rem] text-2xs text-[var(--c-text-secondary)]">
+                      <td className="max-w-[32rem] text-2xs text-muted">
                         {l.reason ?? <span className="text-[var(--c-danger)]">No reason recorded</span>}
                       </td>
                     </tr>

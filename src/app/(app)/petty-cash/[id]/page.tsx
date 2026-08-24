@@ -166,7 +166,7 @@ export default async function PettyCashDetailPage({ params }: { params: Promise<
         eyebrow={`${pc.entity.code} · ${pc.department.name}`}
         title={
           <span className="flex flex-wrap items-baseline gap-2.5">
-            <span className="mono text-[1rem] text-[var(--c-text-secondary)]">{pc.number}</span>
+            <span className="mono text-[1rem] text-muted">{pc.number}</span>
             <span>{pc.purpose}</span>
           </span>
         }
@@ -424,7 +424,7 @@ export default async function PettyCashDetailPage({ params }: { params: Promise<
             bodyClassName="px-0 py-0"
           >
             {pc.quotes.length === 0 ? (
-              <p className="px-4 py-6 text-center text-xs text-[var(--c-text-secondary)]">
+              <p className="px-4 py-6 text-center text-xs text-muted">
                 No market quotes recorded yet.
               </p>
             ) : (
@@ -453,7 +453,7 @@ export default async function PettyCashDetailPage({ params }: { params: Promise<
                           )}
                         </td>
                         <td className="text-2xs">{humanize(q.channel)}</td>
-                        <td className="text-2xs text-[var(--c-text-secondary)]">{q.contactRef ?? "—"}</td>
+                        <td className="text-2xs text-muted">{q.contactRef ?? "—"}</td>
                         <td className="num text-xs font-500">{money(q.amount)}</td>
                         <td className="text-2xs">{q.taxIncluded ? "Inclusive" : "Exclusive"}</td>
                         <td className="num text-2xs">{q.deliveryDays !== null ? `${q.deliveryDays} d` : "—"}</td>
@@ -571,13 +571,13 @@ export default async function PettyCashDetailPage({ params }: { params: Promise<
 
           <SectionCard title="Vouchers">
             {pc.vouchers.length === 0 ? (
-              <p className="text-xs text-[var(--c-text-secondary)]">
+              <p className="text-xs text-muted">
                 No voucher generated yet. A voucher is produced once the purchase and its receipt are recorded.
               </p>
             ) : (
               <ul className="space-y-3">
                 {pc.vouchers.map((v) => (
-                  <li key={v.id} className="rounded-[var(--radius-md)] border border-[var(--c-border)] px-3 py-2.5">
+                  <li key={v.id} className="rounded-xl border border-border px-3 py-2.5">
                     <div className="flex items-center justify-between gap-2">
                       <Mono>{v.number}</Mono>
                       <StatusBadge status={v.status} />
@@ -600,7 +600,7 @@ export default async function PettyCashDetailPage({ params }: { params: Promise<
                         <dd>{v.signedAt ? fmtDateTime(v.signedAt) : "Awaiting signatory"}</dd>
                       </div>
                     </dl>
-                    {v.notes && <p className="mt-1.5 text-2xs text-[var(--c-text-secondary)]">{v.notes}</p>}
+                    {v.notes && <p className="mt-1.5 text-2xs text-muted">{v.notes}</p>}
                   </li>
                 ))}
               </ul>

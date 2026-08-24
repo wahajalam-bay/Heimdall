@@ -149,7 +149,7 @@ export default async function HandoffDetailPage({ params }: { params: Promise<{ 
         eyebrow={`${invoice.po.entity.code} · ${invoice.vendor.name}`}
         title={
           <span className="flex flex-wrap items-baseline gap-2.5">
-            <span className="mono text-[1rem] text-[var(--c-text-secondary)]">{handoff.number}</span>
+            <span className="mono text-[1rem] text-muted">{handoff.number}</span>
             <span>{money(handoff.amount)} payable</span>
           </span>
         }
@@ -340,15 +340,15 @@ export default async function HandoffDetailPage({ params }: { params: Promise<{ 
             <SectionCard title="Outstanding match issues" description="Recorded at the time of the last match run.">
               <ul className="space-y-1 pl-5 text-xs leading-5">
                 {match.failures.map((f, i) => (
-                  <li key={i} className="list-disc text-[var(--c-text-secondary)]">
+                  <li key={i} className="list-disc text-muted">
                     {f}
                   </li>
                 ))}
               </ul>
               {invoice.matchStatus === "OVERRIDDEN" && invoice.exceptionReason && (
-                <div className="mt-3 border-t border-[var(--c-border-subtle)] pt-2.5">
+                <div className="mt-3 border-t border-separator pt-2.5">
                   <span className="label mb-1 block">Waiver on record</span>
-                  <p className="text-xs leading-5 text-[var(--c-text-secondary)]">{invoice.exceptionReason}</p>
+                  <p className="text-xs leading-5 text-muted">{invoice.exceptionReason}</p>
                 </div>
               )}
             </SectionCard>

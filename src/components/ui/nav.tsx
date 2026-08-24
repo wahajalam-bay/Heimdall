@@ -19,7 +19,7 @@ export function TabNav({
   return (
     <nav
       className={classNames(
-        "-mb-px flex gap-0.5 overflow-x-auto border-b border-[var(--c-border)]",
+        "-mb-px flex gap-0.5 overflow-x-auto border-b border-border",
         className,
       )}
       aria-label="Sections"
@@ -49,7 +49,7 @@ export function TabNav({
           "relative inline-flex shrink-0 items-center whitespace-nowrap px-3 py-2 text-[0.8125rem] font-500 transition-colors",
           isActive
             ? "text-[var(--c-text)] after:absolute after:inset-x-0 after:-bottom-px after:h-[2px] after:bg-[var(--c-accent)]"
-            : "text-[var(--c-text-secondary)] hover:text-[var(--c-text)]",
+            : "text-muted hover:text-[var(--c-text)]",
           t.disabled && "pointer-events-none opacity-40",
         );
         return t.disabled ? (
@@ -81,7 +81,7 @@ export function Breadcrumbs({
               {it.label}
             </Link>
           ) : (
-            <span className="text-[var(--c-text-secondary)]">{it.label}</span>
+            <span className="text-muted">{it.label}</span>
           )}
         </span>
       ))}
@@ -109,7 +109,7 @@ export function PillNav({
               "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-500 transition-colors",
               isActive
                 ? "border-[var(--c-accent-soft-border)] bg-[var(--c-accent-soft)] text-[var(--c-accent-text)]"
-                : "border-[var(--c-border)] bg-[var(--c-surface)] text-[var(--c-text-secondary)] hover:border-[var(--c-border-strong)] hover:text-[var(--c-text)]",
+                : "border-border bg-[var(--c-surface)] text-muted hover:border-[var(--c-border-strong)] hover:text-[var(--c-text)]",
             )}
           >
             {it.label}

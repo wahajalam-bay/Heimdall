@@ -103,7 +103,7 @@ export default async function DeliveryDetailPage({ params }: { params: Promise<{
         eyebrow={`${d.po.entity.code} · ${d.store.name}`}
         title={
           <span className="flex flex-wrap items-baseline gap-2.5">
-            <span className="mono text-[1rem] text-[var(--c-text-secondary)]">{d.number}</span>
+            <span className="mono text-[1rem] text-muted">{d.number}</span>
             <span>{d.vendor.name}</span>
           </span>
         }
@@ -235,7 +235,7 @@ export default async function DeliveryDetailPage({ params }: { params: Promise<{
 
           <SectionCard title="Inspection" description={needsInspection ? "Mandatory for one or more lines" : "Not required for these items"}>
             {d.inspections.length === 0 ? (
-              <p className="py-2 text-xs text-[var(--c-text-secondary)]">
+              <p className="py-2 text-xs text-muted">
                 {needsInspection
                   ? "Inspection is required but has not been raised."
                   : "No technical inspection is required for these items."}

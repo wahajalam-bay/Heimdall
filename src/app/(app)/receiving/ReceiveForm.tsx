@@ -485,7 +485,7 @@ export function ReceiveForm({
       </SectionCard>
 
       {errors.length > 0 && (
-        <div className="rounded-[var(--radius-sm)] border border-[var(--c-warning-border)] bg-[var(--c-warning-soft)] px-3 py-2.5">
+        <div className="rounded-2xl alert-warning px-3 py-2.5">
           <p className="text-xs font-600 text-[var(--c-warning)]">Resolve before submitting</p>
           <ul className="mt-1 space-y-0.5 pl-4 text-xs text-[var(--c-warning)]">
             {errors.map((e, i) => (

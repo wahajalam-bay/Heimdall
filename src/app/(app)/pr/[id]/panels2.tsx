@@ -59,7 +59,7 @@ export function CpcPanel({ pr }: { pr: ProcurementCase }) {
           bodyClassName="px-0 py-0"
         >
           {k.recommendation && (
-            <div className="border-b border-[var(--c-border-subtle)] px-4 py-3">
+            <div className="border-b border-separator px-4 py-3">
               <div className="label mb-1">Recommendation to the committee</div>
               <p className="text-xs leading-5">{k.recommendation}</p>
               {k.riskNotes && (
@@ -72,7 +72,7 @@ export function CpcPanel({ pr }: { pr: ProcurementCase }) {
           )}
 
           <div className="grid gap-0 sm:grid-cols-2">
-            <div className="border-b border-[var(--c-border-subtle)] px-4 py-3 sm:border-r sm:border-b-0">
+            <div className="border-b border-separator px-4 py-3 sm:border-r sm:border-b-0">
               <div className="label mb-2">Committee members</div>
               <ul className="space-y-2">
                 {k.members.map((m) => {
@@ -99,7 +99,7 @@ export function CpcPanel({ pr }: { pr: ProcurementCase }) {
             <div className="px-4 py-3">
               <div className="label mb-2">Decisions</div>
               {k.decisions.length === 0 ? (
-                <p className="text-xs text-[var(--c-text-secondary)]">No decisions recorded yet.</p>
+                <p className="text-xs text-muted">No decisions recorded yet.</p>
               ) : (
                 <ul className="space-y-2.5">
                   {k.decisions.map((d) => (
@@ -109,7 +109,7 @@ export function CpcPanel({ pr }: { pr: ProcurementCase }) {
                         <StatusBadge status={d.vote === "APPROVE" ? "APPROVED" : d.vote} />
                         <span className="text-2xs text-[var(--c-text-tertiary)]">{fmtDateTime(d.decidedAt)}</span>
                       </div>
-                      {d.comment && <p className="mt-0.5 text-xs leading-5 text-[var(--c-text-secondary)]">{d.comment}</p>}
+                      {d.comment && <p className="mt-0.5 text-xs leading-5 text-muted">{d.comment}</p>}
                     </li>
                   ))}
                 </ul>
@@ -169,7 +169,7 @@ export function PoPanel({ pr }: { pr: ProcurementCase }) {
             }
             bodyClassName="px-0 py-0"
           >
-            <div className="border-b border-[var(--c-border-subtle)] px-4 py-3">
+            <div className="border-b border-separator px-4 py-3">
               <DefList
                 columns={3}
                 items={[
@@ -193,7 +193,7 @@ export function PoPanel({ pr }: { pr: ProcurementCase }) {
                 ]}
               />
               {po.advanceRequired && po.collateralRef && (
-                <p className="mt-2 text-2xs text-[var(--c-text-secondary)]">
+                <p className="mt-2 text-2xs text-muted">
                   <span className="label mr-2">Collateral</span>
                   {po.collateralRef}
                   {po.collateralNotes ? ` — ${po.collateralNotes}` : ""}
@@ -257,13 +257,13 @@ export function PoPanel({ pr }: { pr: ProcurementCase }) {
             </div>
 
             {po.termsConditions && (
-              <div className="border-t border-[var(--c-border-subtle)] px-4 py-3">
+              <div className="border-t border-separator px-4 py-3">
                 <div className="label mb-1">Terms & conditions</div>
-                <p className="whitespace-pre-line text-xs leading-5 text-[var(--c-text-secondary)]">{po.termsConditions}</p>
+                <p className="whitespace-pre-line text-xs leading-5 text-muted">{po.termsConditions}</p>
               </div>
             )}
             {po.closureReason && (
-              <div className="border-t border-[var(--c-border-subtle)] px-4 py-2.5">
+              <div className="border-t border-separator px-4 py-2.5">
                 <InlineAlert tone="warning">
                   <span className="font-600">Closure reason: </span>
                   {po.closureReason}
@@ -355,7 +355,7 @@ export function DeliveryPanel({ pr }: { pr: ProcurementCase }) {
           description={`${d.poNumber} · received at ${d.store.name} by ${d.receivedBy.name} on ${fmtDateTime(d.deliveryDate)}`}
           bodyClassName="px-0 py-0"
         >
-          <div className="grid gap-x-6 gap-y-2 border-b border-[var(--c-border-subtle)] px-4 py-3 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="grid gap-x-6 gap-y-2 border-b border-separator px-4 py-3 sm:grid-cols-3 lg:grid-cols-6">
             {[
               ["Delivery note", d.deliveryNoteRef ?? "—"],
               ["Packages", d.totalPackages !== null ? `${d.packagesVerified ?? 0} of ${d.totalPackages} verified` : "—"],
@@ -372,7 +372,7 @@ export function DeliveryPanel({ pr }: { pr: ProcurementCase }) {
           </div>
 
           {(d.damageObserved || d.leakageObserved) && (
-            <div className="border-b border-[var(--c-border-subtle)] px-4 py-2.5">
+            <div className="border-b border-separator px-4 py-2.5">
               <BlockedNotice
                 title="Condition issues recorded at receipt"
                 reasons={[
@@ -447,9 +447,9 @@ export function DeliveryPanel({ pr }: { pr: ProcurementCase }) {
           </div>
 
           {d.remarks && (
-            <div className="border-t border-[var(--c-border-subtle)] px-4 py-3">
+            <div className="border-t border-separator px-4 py-3">
               <div className="label mb-1">Receiver remarks</div>
-              <p className="text-xs leading-5 text-[var(--c-text-secondary)]">{d.remarks}</p>
+              <p className="text-xs leading-5 text-muted">{d.remarks}</p>
             </div>
           )}
         </SectionCard>
@@ -500,7 +500,7 @@ export function InspectionPanel({ pr }: { pr: ProcurementCase }) {
           bodyClassName="px-0 py-0"
         >
           {insp.findings && (
-            <div className="border-b border-[var(--c-border-subtle)] px-4 py-3">
+            <div className="border-b border-separator px-4 py-3">
               <div className="label mb-1">Findings</div>
               <p className="text-xs leading-5">{insp.findings}</p>
               {insp.conditions && (
@@ -529,7 +529,7 @@ export function InspectionPanel({ pr }: { pr: ProcurementCase }) {
                       <Badge tone={it.verdict === "PASS" ? "success" : it.verdict === "FAIL" ? "danger" : "warning"}>
                         {humanize(it.verdict)}
                       </Badge>
-                      <span className="tnum text-2xs text-[var(--c-text-secondary)]">
+                      <span className="tnum text-2xs text-muted">
                         {qty(it.quantityPassed)} passed / {qty(it.quantityFailed)} failed of {qty(it.quantityInspected)}
                       </span>
                     </span>
@@ -561,7 +561,7 @@ export function InspectionPanel({ pr }: { pr: ProcurementCase }) {
                     )}
                   </div>
                   {criteria.length > 0 && (
-                    <div className="mt-2.5 overflow-hidden rounded-[var(--radius-sm)] border border-[var(--c-border-subtle)]">
+                    <div className="mt-2.5 overflow-hidden rounded-lg border border-separator">
                       <table className="dt">
                         <thead>
                           <tr>
@@ -587,7 +587,7 @@ export function InspectionPanel({ pr }: { pr: ProcurementCase }) {
                     </div>
                   )}
                   {it.performanceNotes && (
-                    <p className="mt-2 text-2xs leading-4 text-[var(--c-text-secondary)]">{it.performanceNotes}</p>
+                    <p className="mt-2 text-2xs leading-4 text-muted">{it.performanceNotes}</p>
                   )}
                 </div>
               );
@@ -691,8 +691,8 @@ export function GrnPanel({ pr }: { pr: ProcurementCase }) {
             </table>
           </div>
           {g.remarks && (
-            <div className="border-t border-[var(--c-border-subtle)] px-4 py-3">
-              <p className="text-xs leading-5 text-[var(--c-text-secondary)]">{g.remarks}</p>
+            <div className="border-t border-separator px-4 py-3">
+              <p className="text-xs leading-5 text-muted">{g.remarks}</p>
             </div>
           )}
         </SectionCard>
@@ -761,7 +761,7 @@ export function InvoicePanel({ pr }: { pr: ProcurementCase }) {
             bodyClassName="px-0 py-0"
           >
             {match && !match.passed && (
-              <div className="border-b border-[var(--c-border-subtle)] px-4 py-3">
+              <div className="border-b border-separator px-4 py-3">
                 <BlockedNotice
                   title="Three-way match failed — payment is blocked"
                   reasons={match.failures}
@@ -775,7 +775,7 @@ export function InvoicePanel({ pr }: { pr: ProcurementCase }) {
               </div>
             )}
             {inv.exceptionReason && (
-              <div className="border-b border-[var(--c-border-subtle)] px-4 py-2.5">
+              <div className="border-b border-separator px-4 py-2.5">
                 <InlineAlert tone="warning">
                   <span className="font-600">Mismatch waived by an authorised approver: </span>
                   {inv.exceptionReason}
@@ -828,7 +828,7 @@ export function InvoicePanel({ pr }: { pr: ProcurementCase }) {
               </table>
             </div>
 
-            <div className="grid gap-x-6 gap-y-2 border-t border-[var(--c-border-subtle)] px-4 py-3 sm:grid-cols-3 lg:grid-cols-6">
+            <div className="grid gap-x-6 gap-y-2 border-t border-separator px-4 py-3 sm:grid-cols-3 lg:grid-cols-6">
               {[
                 ["Subtotal", money(inv.subtotal)],
                 ["Tax", money(inv.taxAmount)],
@@ -899,7 +899,7 @@ export function FinancePanel({ pr }: { pr: ProcurementCase }) {
                     </td>
                     <td className="text-xs">{po.collateralType ? humanize(po.collateralType) : "—"}</td>
                     <td className="text-xs">{po.collateralRef ?? "—"}</td>
-                    <td className="text-xs text-[var(--c-text-secondary)]">{po.collateralNotes ?? "—"}</td>
+                    <td className="text-xs text-muted">{po.collateralNotes ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1015,7 +1015,7 @@ export function AuditPanel({
                         <span className="text-[var(--c-success)]">{String(v.to ?? "—")}</span>
                       </div>
                     ))}
-                  {r.reason && <div className="mt-0.5 text-[var(--c-text-secondary)]">“{r.reason}”</div>}
+                  {r.reason && <div className="mt-0.5 text-muted">“{r.reason}”</div>}
                   {!r.changes && !r.reason && "—"}
                 </td>
                 <td className="mono text-2xs">{r.ip ?? "—"}</td>

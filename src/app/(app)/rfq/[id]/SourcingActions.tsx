@@ -102,7 +102,7 @@ export function AddVendorButton({
       >
         <div className="space-y-3">
           <label className="block">
-            <span className="mb-1 block text-xs font-500 text-[var(--c-text-secondary)]">Vendor</span>
+            <span className="mb-1 block text-xs font-500 text-muted">Vendor</span>
             <select className="field" value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
               <option value="">Select vendor…</option>
               {vendors.map((v) => (
@@ -113,7 +113,7 @@ export function AddVendorButton({
             </select>
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-500 text-[var(--c-text-secondary)]">Invitation channel</span>
+            <span className="mb-1 block text-xs font-500 text-muted">Invitation channel</span>
             <select className="field" value={channel} onChange={(e) => setChannel(e.target.value)}>
               {["EMAIL", "PORTAL", "WHATSAPP", "PHYSICAL", "SKYPE", "PHONE", "WALK_IN"].map((c) => (
                 <option key={c} value={c}>
@@ -129,7 +129,7 @@ export function AddVendorButton({
                 requires the vendor-blacklist permission and a recorded reason.
               </InlineAlert>
               <label className="block">
-                <span className="mb-1 block text-xs font-500 text-[var(--c-text-secondary)]">Override reason</span>
+                <span className="mb-1 block text-xs font-500 text-muted">Override reason</span>
                 <textarea className="field" rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
               </label>
             </>

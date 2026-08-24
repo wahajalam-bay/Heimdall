@@ -86,7 +86,7 @@ export default async function NewRfqPage({ searchParams }: { searchParams: Promi
       />
       {pr.rfqs.length > 0 && (
         <Card>
-          <p className="text-xs text-[var(--c-text-secondary)]">
+          <p className="text-xs text-muted">
             This requisition already has {pr.rfqs.length} RFQ(s):{" "}
             {pr.rfqs.map((r) => (
               <Link key={r.id} href={`/rfq/${r.id}`} className="mono mr-2 text-[var(--c-accent-text)]">

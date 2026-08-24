@@ -137,7 +137,7 @@ export default async function IssueDetailPage({ params }: { params: Promise<{ id
         eyebrow={`${issue.store.entity.code} · ${issue.store.name}`}
         title={
           <span className="flex flex-wrap items-baseline gap-2.5">
-            <span className="mono text-[1rem] text-[var(--c-text-secondary)]">{issue.number}</span>
+            <span className="mono text-[1rem] text-muted">{issue.number}</span>
             <span>Issued to {issue.recipientName}</span>
           </span>
         }
@@ -249,7 +249,7 @@ export default async function IssueDetailPage({ params }: { params: Promise<{ id
                           {li.item.trackSerial && <span className="ml-2">Serialised</span>}
                         </span>
                         {li.notes && (
-                          <span className="mt-0.5 block text-2xs text-[var(--c-text-secondary)]">{li.notes}</span>
+                          <span className="mt-0.5 block text-2xs text-muted">{li.notes}</span>
                         )}
                       </td>
                       <td className="num text-xs">{qty(li.requestedQty, li.unit)}</td>
@@ -266,7 +266,7 @@ export default async function IssueDetailPage({ params }: { params: Promise<{ id
                       <td className="num text-xs">
                         <span className={short ? "text-[var(--c-danger)]" : undefined}>{qty(free, li.unit)}</span>
                       </td>
-                      <td className="text-2xs text-[var(--c-text-secondary)]">
+                      <td className="text-2xs text-muted">
                         {li.batchNumber || li.serialNumber ? (
                           <>
                             {li.batchNumber && <span className="block">Batch {li.batchNumber}</span>}
@@ -335,15 +335,15 @@ export default async function IssueDetailPage({ params }: { params: Promise<{ id
           <SectionCard title="Ledger impact">
             <div className="space-y-2 text-xs">
               <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[var(--c-text-secondary)]">Outstanding to release</span>
+                <span className="text-muted">Outstanding to release</span>
                 <span className="tnum font-500">{qty(outstanding)}</span>
               </div>
               <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[var(--c-text-secondary)]">Movements posted</span>
+                <span className="text-muted">Movements posted</span>
                 <span className="tnum font-500">{issue.transactions.length}</span>
               </div>
-              <div className="flex items-baseline justify-between gap-3 border-t border-[var(--c-border-subtle)] pt-2">
-                <span className="text-[var(--c-text-secondary)]">Value consumed</span>
+              <div className="flex items-baseline justify-between gap-3 border-t border-separator pt-2">
+                <span className="text-muted">Value consumed</span>
                 <span className="tnum font-600">{money(ledgerValue)}</span>
               </div>
               {issue.transactions.length === 0 && (

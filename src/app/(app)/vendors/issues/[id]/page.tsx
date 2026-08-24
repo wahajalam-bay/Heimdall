@@ -105,7 +105,7 @@ export default async function VendorIssueDetailPage({ params }: { params: Promis
         eyebrow={`${issue.vendor.code} · ${issue.vendor.name}`}
         title={
           <span className="flex flex-wrap items-baseline gap-2.5">
-            <span className="mono text-[1rem] text-[var(--c-text-secondary)]">{issue.number}</span>
+            <span className="mono text-[1rem] text-muted">{issue.number}</span>
             <span>{issue.title}</span>
           </span>
         }
@@ -261,7 +261,7 @@ export default async function VendorIssueDetailPage({ params }: { params: Promis
 
           <SectionCard title="Linked documents" description="What this issue arose from.">
             {!po && !grn && !invoice ? (
-              <p className="text-xs text-[var(--c-text-secondary)]">
+              <p className="text-xs text-muted">
                 Not linked to a specific document. General conduct issues are recorded this way.
               </p>
             ) : (

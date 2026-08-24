@@ -183,13 +183,13 @@ export default async function AdminRolesPage() {
                   </div>
 
                   {hasDrift && (
-                    <div className="grid gap-3 border-t border-[var(--c-border-subtle)] pt-2.5 sm:grid-cols-2">
+                    <div className="grid gap-3 border-t border-separator pt-2.5 sm:grid-cols-2">
                       {added.length > 0 && (
                         <div>
                           <span className="label mb-1 block text-[var(--c-warning)]">
                             Added beyond shipped ({added.length})
                           </span>
-                          <p className="mono text-2xs leading-4 text-[var(--c-text-secondary)]">{added.join(", ")}</p>
+                          <p className="mono text-2xs leading-4 text-muted">{added.join(", ")}</p>
                         </div>
                       )}
                       {removed.length > 0 && (
@@ -197,14 +197,14 @@ export default async function AdminRolesPage() {
                           <span className="label mb-1 block text-[var(--c-warning)]">
                             Removed from shipped ({removed.length})
                           </span>
-                          <p className="mono text-2xs leading-4 text-[var(--c-text-secondary)]">{removed.join(", ")}</p>
+                          <p className="mono text-2xs leading-4 text-muted">{removed.join(", ")}</p>
                         </div>
                       )}
                     </div>
                   )}
 
-                  <details className="border-t border-[var(--c-border-subtle)] pt-2.5">
-                    <summary className="cursor-pointer text-2xs text-[var(--c-text-secondary)]">
+                  <details className="border-t border-separator pt-2.5">
+                    <summary className="cursor-pointer text-2xs text-muted">
                       Show all {current.length} permissions
                     </summary>
                     <div className="mt-2 grid gap-1 sm:grid-cols-2 lg:grid-cols-3">

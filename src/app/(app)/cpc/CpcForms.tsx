@@ -270,7 +270,7 @@ export function ScheduleMeetingForm({
           <div>
             <span className="label mb-1.5 block">Cases to table ({eligible.length} pending)</span>
             {eligible.length === 0 ? (
-              <p className="text-xs text-[var(--c-text-secondary)]">
+              <p className="text-xs text-muted">
                 No pending cases for this entity. The meeting can still be scheduled.
               </p>
             ) : (

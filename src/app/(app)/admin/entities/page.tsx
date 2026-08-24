@@ -130,7 +130,7 @@ export default async function AdminEntitiesPage() {
                   ]}
                 />
 
-                <div className="mt-3 border-t border-[var(--c-border-subtle)] pt-3">
+                <div className="mt-3 border-t border-separator pt-3">
                   <span className="label mb-1.5 block">Rules in force</span>
                   {r ? (
                     <DefList
@@ -164,7 +164,7 @@ export default async function AdminEntitiesPage() {
                   ) : null}
                 </div>
 
-                <div className="mt-3 flex flex-wrap gap-1.5 border-t border-[var(--c-border-subtle)] pt-3">
+                <div className="mt-3 flex flex-wrap gap-1.5 border-t border-separator pt-3">
                   <Badge tone="neutral">{e._count.users} users</Badge>
                   <Badge tone="neutral">{e._count.departments} departments</Badge>
                   <Badge tone="neutral">{e._count.projects} projects</Badge>

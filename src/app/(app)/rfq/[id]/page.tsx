@@ -140,7 +140,7 @@ export default async function RfqDetailPage({ params }: { params: Promise<{ id: 
         eyebrow={`${rfq.pr.entity.code} · ${rfq.pr.department.name}`}
         title={
           <span className="flex flex-wrap items-baseline gap-2.5">
-            <span className="mono text-[1rem] text-[var(--c-text-secondary)]">{rfq.number}</span>
+            <span className="mono text-[1rem] text-muted">{rfq.number}</span>
             <span>{rfq.title}</span>
           </span>
         }
@@ -437,7 +437,7 @@ export default async function RfqDetailPage({ params }: { params: Promise<{ id: 
           </table>
         </div>
         {invitedWithoutQuote.length > 0 && (
-          <div className="border-t border-[var(--c-border-subtle)] px-4 py-2.5">
+          <div className="border-t border-separator px-4 py-2.5">
             <Meter
               value={quoted}
               max={rfq.vendors.length}
@@ -481,7 +481,7 @@ export default async function RfqDetailPage({ params }: { params: Promise<{ id: 
                         <StatusBadge status={n.outcome} />
                       </td>
                       <td className="text-2xs">{n.negotiatedBy.name}</td>
-                      <td className="text-2xs leading-4 text-[var(--c-text-secondary)]">{n.notes ?? "—"}</td>
+                      <td className="text-2xs leading-4 text-muted">{n.notes ?? "—"}</td>
                     </tr>
                   )),
                 )}

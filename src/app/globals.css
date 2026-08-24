@@ -1,362 +1,393 @@
-@import "tailwindcss";
-
 /* ─────────────────────────────────────────────────────────────
-   Heimdall design tokens
+   Heimdall — HeroUI v3 design system
 
-   A calm, dense, high-contrast enterprise surface on a Bayut green
-   spine. Three related hues do three different jobs and never swap:
+   llms.txt (the HeroUI v3 documentation) is the source of truth for this
+   application's visual language, and this file is the only place it is
+   expressed. The package ships the real thing, so nothing is re-drawn by hand:
 
-     · green   — interaction. Buttons, links, the active row, the mark.
-     · emerald — a settled outcome. Approved, matched, posted, paid.
-     · teal    — work in motion. Anything mid-flight or awaiting a hand.
+     @heroui/styles  →  tailwind, base layer, component CSS, theme variables,
+                        focus/disabled utilities, scrollbars, animations
 
-   State keeps its own well-separated hues (amber caution, red refusal,
-   blue information) so a warning can never read as a brand flourish.
-   The lifecycle ramp (--c-stage-*) runs green → teal in six steps that
-   are monotonic in lightness with a real gap between each (checked as a
-   sequential scale, not eyeballed): how far a case has travelled is
-   legible before the label is.
-   Module hues (--c-mod-*) give each area of the system one identity
-   colour, drawn from the categorical set below.
+   What this file adds, in order:
 
-   Every categorical colour here has been run through the palette
-   validator against its own surface: lightness band, chroma floor,
-   protan/deutan/tritan separation on adjacent pairs, and WCAG contrast.
+     1. The brand override. HeroUI derives everything from a small set of base
+        values, so a green product identity is one token: --accent. Hover, soft
+        fills, focus rings and pressed states all follow from it.
+     2. Tokens HeroUI does not define but this product needs — an information
+        colour, an in-flight colour, the navigation plate, the lifecycle ramp,
+        the categorical chart palette, and module identity hues.
+     3. A bridge from this application's own --c-* names onto HeroUI's tokens,
+        so every screen inherits the system without being rewritten.
+     4. The application's component classes, expressed with HeroUI's geometry
+        and tokens rather than values of their own.
+
+   Roles never swap: accent carries interaction, success a settled outcome,
+   the in-flight colour work in motion, and the state hues (amber, red, blue)
+   are reserved for state.
+   ───────────────────────────────────────────────────────────── */
+
+@layer theme, base, components, utilities;
+
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@heroui/styles/base" layer(base);
+@import "@heroui/styles/base/scrollbar.css" layer(base);
+@import "@heroui/styles/themes/shared/theme.css";
+@import "@heroui/styles/themes/default/variables.css" layer(theme);
+@import "@heroui/styles/utilities";
+@import "@heroui/styles/variants";
+
+/* ── Scale additions ──────────────────────────────────────────
+   HeroUI uses Tailwind's own type scale (xs .75 / sm .875 / base 1 / lg 1.125),
+   so no size is redefined here. A register of 141 screens does need one step
+   below Tailwind's smallest for table meta lines, which is added rather than
+   the whole scale being replaced.
    ───────────────────────────────────────────────────────────── */
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, Consolas, monospace;
 
-  --radius-xs: 3px;
-  --radius-sm: 5px;
-  --radius-md: 7px;
-  --radius-lg: 10px;
-  --radius-xl: 14px;
-
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
-  --text-xs: 0.75rem;
-  --text-xs--line-height: 1.125rem;
-  --text-sm: 0.8125rem;
-  --text-sm--line-height: 1.25rem;
-  --text-base: 0.875rem;
-  --text-base--line-height: 1.375rem;
-  --text-lg: 1rem;
-  --text-lg--line-height: 1.5rem;
-  --text-xl: 1.125rem;
-  --text-xl--line-height: 1.625rem;
-  --text-2xl: 1.375rem;
-  --text-2xl--line-height: 1.875rem;
-  --text-3xl: 1.75rem;
-  --text-3xl--line-height: 2.125rem;
-  --text-4xl: 2.25rem;
-  --text-4xl--line-height: 2.5rem;
 }
+
+/* ── 1. Brand ─────────────────────────────────────────────────
+   The accent does two jobs in HeroUI: a solid fill carrying its own foreground,
+   and, as --accent-soft-foreground, text on a 15% wash of itself. Both were
+   checked rather than eyeballed: light 4.98:1 with snow on the fill and 4.68:1
+   as text on the canvas; dark 7.65:1 with eclipse on the fill and 8.77:1 as
+   text. Hence a deeper green in light mode and a brighter one in dark, each
+   with the foreground that suits it.
+   ───────────────────────────────────────────────────────────── */
+
+@layer theme {
+  :root {
+    --accent: oklch(0.52 0.145 152);
+    --accent-foreground: var(--snow);
+
+    /* HeroUI leaves fields borderless because its forms sit on the canvas. Here
+       they sit inside cards, where a white field on a white surface has no edge
+       at all — so the system's own field-border token is turned on rather than a
+       border being drawn by hand. */
+    --field-border: var(--border);
+    --field-border-width: 1px;
+
+    /* The Bayut mark keeps the bright brand green; it is a logo, not a fill. */
+    --brand: oklch(0.6157 0.1729 152.3);
+
+    /* HeroUI has no information or in-progress role. Blue reads as information
+       against a green product, and teal as work in motion. */
+    --info: oklch(0.546 0.155 253);
+    --info-foreground: var(--snow);
+    --progress: oklch(0.52 0.09 195);
+    --progress-foreground: var(--snow);
+
+    /* Navigation plate — a deep green surface in both themes, so the brand is
+       carried by the one surface that is on screen all day. Every ink below
+       clears 4.5:1 against it. */
+    --nav: oklch(0.28 0.062 158);
+    --nav-hover: oklch(0.33 0.065 158);
+    --nav-active: oklch(0.38 0.07 158);
+    --nav-separator: oklch(0.35 0.05 158);
+    --nav-foreground: oklch(0.95 0.015 155);
+    --nav-muted: oklch(0.82 0.035 155);
+    --nav-dim: oklch(0.7 0.03 155);
+    --nav-mark: oklch(0.72 0.17 152);
+    --nav-mark-foreground: oklch(0.24 0.06 158);
+
+    /* Lifecycle ramp — green to teal in six steps, monotonic in lightness with a
+       real gap between each, so distance travelled reads before the label does. */
+    --stage-1: oklch(0.74 0.13 152);
+    --stage-2: oklch(0.675 0.132 159);
+    --stage-3: oklch(0.61 0.134 166);
+    --stage-4: oklch(0.545 0.132 173);
+    --stage-5: oklch(0.48 0.126 180);
+    --stage-6: oklch(0.415 0.115 188);
+
+    /* Categorical chart palette — validated for lightness band, chroma floor,
+       protan/deutan/tritan separation on adjacent pairs, and contrast. */
+    --viz-1: oklch(0.6157 0.1729 152.3);
+    --viz-2: oklch(0.4885 0.2143 264.1);
+    --viz-3: oklch(0.5514 0.1785 40.5);
+    --viz-4: oklch(0.6402 0.1108 191.2);
+    --viz-5: oklch(0.5064 0.2081 356.1);
+    --viz-6: oklch(0.5375 0.1234 76.4);
+    --viz-7: oklch(0.4699 0.2296 297.6);
+    --viz-8: oklch(0.5851 0.1372 163.2);
+
+    /* Module identity — one hue per area of the system. */
+    --mod-home: var(--accent);
+    --mod-procurement: var(--viz-1);
+    --mod-operations: var(--viz-2);
+    --mod-vendors: var(--viz-4);
+    --mod-cpc: var(--viz-5);
+    --mod-finance: var(--viz-8);
+    --mod-assets: var(--viz-6);
+    --mod-analytics: var(--viz-7);
+    --mod-admin: var(--muted);
+
+    /* Module hues as they appear on the navigation plate. The plate is dark in
+       both themes, so these do not follow light and dark. */
+    --nav-mod-home: oklch(0.72 0.17 152);
+    --nav-mod-procurement: oklch(0.75 0.16 152);
+    --nav-mod-operations: oklch(0.7 0.14 258);
+    --nav-mod-vendors: oklch(0.76 0.12 190);
+    --nav-mod-cpc: oklch(0.72 0.16 5);
+    --nav-mod-finance: oklch(0.79 0.15 163);
+    --nav-mod-assets: oklch(0.78 0.13 80);
+    --nav-mod-analytics: oklch(0.74 0.14 295);
+    --nav-mod-admin: oklch(0.82 0.01 286);
+
+    /* Layout */
+    --nav-w: 15rem;
+    --nav-w-rail: 3.5rem;
+    --topbar-h: 3.25rem;
+
+    /* Row height. One pair of tokens drives table cells and card padding, so
+       compact is a real density change rather than a smaller font. */
+    --row-pad-y: 0.5rem;
+    --row-pad-x: 0.75rem;
+    --card-pad: 1rem;
+  }
+
+  [data-theme="dark"] {
+    --accent: oklch(0.72 0.17 152);
+    --accent-foreground: var(--eclipse);
+
+    --brand: oklch(0.72 0.17 152);
+
+    --info: oklch(0.7 0.14 253);
+    --info-foreground: var(--eclipse);
+    --progress: oklch(0.72 0.1 195);
+    --progress-foreground: var(--eclipse);
+
+    /* Deeper and less saturated, so the plate sits back from a near-black
+       canvas instead of glowing against it. */
+    --nav: oklch(0.23 0.05 158);
+    --nav-hover: oklch(0.28 0.055 158);
+    --nav-active: oklch(0.33 0.06 158);
+    --nav-separator: oklch(0.3 0.04 158);
+    --nav-foreground: oklch(0.94 0.012 155);
+    --nav-muted: oklch(0.8 0.03 155);
+    --nav-dim: oklch(0.68 0.025 155);
+
+    /* The ramp is re-picked for the dark surface, not inverted: it still runs
+       green to teal, and still darkens step by step. */
+    --stage-1: oklch(0.86 0.13 152);
+    --stage-2: oklch(0.795 0.133 159);
+    --stage-3: oklch(0.73 0.135 166);
+    --stage-4: oklch(0.665 0.132 173);
+    --stage-5: oklch(0.6 0.126 180);
+    --stage-6: oklch(0.535 0.115 188);
+
+    /* Dark steps are selected, not flipped — validated against the dark surface. */
+    --viz-1: oklch(0.5851 0.1372 152.3);
+    --viz-2: oklch(0.598 0.1503 262.5);
+    --viz-3: oklch(0.6169 0.1518 45.6);
+    --viz-4: oklch(0.6402 0.1108 183.4);
+    --viz-5: oklch(0.5286 0.1519 359.2);
+    --viz-6: oklch(0.6479 0.1215 80.9);
+    --viz-7: oklch(0.6183 0.1875 293.8);
+    --viz-8: oklch(0.6379 0.1372 163.2);
+  }
+}
+
+/* ── 2. Added colours reach Tailwind ─────────────────────────
+   HeroUI exposes its own tokens as utilities; these are the additions, so
+   bg-info, text-progress, bg-nav and the rest behave like the rest of the
+   system.
+   ───────────────────────────────────────────────────────────── */
+
+@theme inline {
+  --color-brand: var(--brand);
+
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-soft: color-mix(in oklab, var(--info) 15%, transparent);
+  --color-info-soft-foreground: var(--info);
+
+  --color-progress: var(--progress);
+  --color-progress-foreground: var(--progress-foreground);
+  --color-progress-soft: color-mix(in oklab, var(--progress) 15%, transparent);
+  --color-progress-soft-foreground: var(--progress);
+
+  --color-nav: var(--nav);
+  --color-nav-hover: var(--nav-hover);
+  --color-nav-active: var(--nav-active);
+  --color-nav-separator: var(--nav-separator);
+  --color-nav-foreground: var(--nav-foreground);
+  --color-nav-muted: var(--nav-muted);
+  --color-nav-dim: var(--nav-dim);
+
+  --color-module: var(--mod);
+}
+
+/* ── 3. Bridge ────────────────────────────────────────────────
+   The application refers to colours by its own --c-* names in several hundred
+   places. Rather than rewrite those screens, the names are re-pointed at
+   HeroUI's tokens: one definition, and the whole product moves together. New
+   code should prefer the HeroUI names directly.
+   ───────────────────────────────────────────────────────────── */
 
 :root {
-  color-scheme: light;
-
   /* Surfaces */
-  --c-canvas: #f7f8fa;
-  --c-surface: #ffffff;
-  --c-surface-raised: #ffffff;
-  --c-surface-sunken: #f2f3f6;
-  --c-surface-hover: #f6f7f9;
-  --c-surface-active: #eef0f4;
-  --c-overlay: rgb(16 19 27 / 0.42);
+  --c-canvas: var(--background);
+  --c-surface: var(--surface);
+  --c-surface-raised: var(--overlay);
+  --c-surface-sunken: var(--surface-secondary);
+  --c-surface-hover: color-mix(in oklab, var(--surface) 96%, var(--foreground) 4%);
+  --c-surface-active: var(--surface-tertiary);
+  --c-overlay: var(--backdrop);
 
-  /* Lines */
-  --c-border: #e3e5ea;
-  --c-border-strong: #cdd0d8;
-  --c-border-subtle: #edeef2;
+  /* Lines. HeroUI separates a border from a separator; the application's
+     "strong" edge is the next separator step down. */
+  --c-border: var(--border);
+  --c-border-subtle: var(--separator);
+  --c-border-strong: color-mix(in oklab, var(--surface) 78%, var(--foreground) 22%);
 
-  /* Text */
-  --c-text: #14161c;
-  --c-text-secondary: #565a67;
-  --c-text-tertiary: #82868f;
-  --c-text-inverse: #ffffff;
+  /* Text. HeroUI defines one muted step; a third level is mixed toward the
+     canvas rather than invented. */
+  --c-text: var(--foreground);
+  --c-text-secondary: var(--muted);
+  --c-text-tertiary: color-mix(in oklab, var(--muted) 78%, var(--background) 22%);
+  --c-text-inverse: var(--background);
 
-  /* Brand — Bayut green. The mark wears the bright step; interaction wears
-     the deeper one, which carries white text at 4.5:1. */
-  --c-brand: #00a651;
-  --c-brand-strong: #008f46;
-  --c-emerald: #059669;
-  --c-teal: #0f9d8f;
+  /* Accent */
+  --c-accent: var(--accent);
+  --c-accent-hover: var(--accent-hover);
+  --c-accent-active: var(--accent-hover);
+  --c-accent-soft: var(--accent-soft);
+  --c-accent-soft-border: color-mix(in oklab, var(--accent) 28%, transparent);
+  --c-accent-text: var(--accent-soft-foreground);
 
-  /* Accent — interaction */
-  --c-accent: #0a7a45;
-  --c-accent-hover: #086b3c;
-  --c-accent-active: #065c33;
-  --c-accent-soft: #e8f7ef;
-  --c-accent-soft-border: #bfe6d1;
-  --c-accent-text: #05603a;
+  /* State */
+  --c-success: var(--success-soft-foreground);
+  --c-success-soft: var(--success-soft);
+  --c-success-border: color-mix(in oklab, var(--success) 28%, transparent);
+  --c-warning: var(--warning-soft-foreground);
+  --c-warning-soft: var(--warning-soft);
+  --c-warning-border: color-mix(in oklab, var(--warning) 28%, transparent);
+  --c-danger: var(--danger-soft-foreground);
+  --c-danger-soft: var(--danger-soft);
+  --c-danger-border: color-mix(in oklab, var(--danger) 28%, transparent);
+  --c-info: var(--info);
+  --c-info-soft: color-mix(in oklab, var(--info) 15%, transparent);
+  --c-info-border: color-mix(in oklab, var(--info) 28%, transparent);
+  --c-progress: var(--progress);
+  --c-progress-soft: color-mix(in oklab, var(--progress) 15%, transparent);
+  --c-progress-border: color-mix(in oklab, var(--progress) 28%, transparent);
 
-  /* Semantic — emerald settles, teal moves, amber cautions, red refuses */
-  --c-success: #047857;
-  --c-success-soft: #e6f6f0;
-  --c-success-border: #b3e3d1;
-  --c-warning: #a15c07;
-  --c-warning-soft: #fef5e7;
-  --c-warning-border: #f5d9a8;
-  --c-danger: #ce2c31;
-  --c-danger-soft: #feecee;
-  --c-danger-border: #f9c6c6;
-  --c-info: #0d74ce;
-  --c-info-soft: #e9f2fd;
-  --c-info-border: #bcd9f7;
-  --c-progress: #0f766e;
-  --c-progress-soft: #e6f5f3;
-  --c-progress-border: #b3ded8;
+  /* Radii come from HeroUI's scale, which is derived from --radius; the legacy
+     names are pointed at it rather than redefined. */
+  --c-radius-xs: var(--radius-xs);
+  --c-radius-sm: var(--radius-sm);
+  --c-radius-md: var(--radius-md);
+  --c-radius-lg: var(--radius-lg);
+  --c-radius-xl: var(--radius-xl);
 
-  /* Navigation rail — a deep green plate in both themes. The brand is carried by
-     the one surface that is on screen all day, rather than by a hairline; every
-     ink below clears 4.5:1 against it. */
-  --c-nav-bg: #06301f;
-  --c-nav-bg-hover: #0b3d29;
-  --c-nav-active-bg: #0f4a33;
-  --c-nav-border: #124331;
-  --c-nav-text: #e9f3ec;
-  --c-nav-text-muted: #a9c5b6;
-  --c-nav-text-dim: #7d9c8c;
-  --c-nav-mark: #21b869;
-  --c-nav-mark-ink: #06301f;
+  /* Elevation is HeroUI's, by component role rather than by size. */
+  --shadow-xs: var(--surface-shadow);
+  --shadow-sm: var(--surface-shadow);
+  --shadow-md: var(--overlay-shadow);
+  --shadow-lg: var(--overlay-shadow);
+  --shadow-focus: 0 0 0 var(--ring-offset-width) var(--background), 0 0 0 calc(var(--ring-offset-width) + 2px) var(--focus);
 
-  /* Lifecycle ramp — green to teal, monotonically darker, so position in the
-     lifecycle is readable as depth rather than as an unrelated hue. */
-  --c-stage-1: #65c281;
-  --c-stage-2: #3cae78;
-  --c-stage-3: #049871;
-  --c-stage-4: #028068;
-  --c-stage-5: #02695d;
-  --c-stage-6: #04534e;
+  /* Charts, lifecycle, modules, navigation plate */
+  --c-viz-1: var(--viz-1);
+  --c-viz-2: var(--viz-2);
+  --c-viz-3: var(--viz-3);
+  --c-viz-4: var(--viz-4);
+  --c-viz-5: var(--viz-5);
+  --c-viz-6: var(--viz-6);
+  --c-viz-7: var(--viz-7);
+  --c-viz-8: var(--viz-8);
 
-  /* Data-viz sequence — validated categorical order (light surface) */
-  --c-viz-1: #00a651;
-  --c-viz-2: #1d4ed8;
-  --c-viz-3: #c2410c;
-  --c-viz-4: #0f9d8f;
-  --c-viz-5: #be185d;
-  --c-viz-6: #a16207;
-  --c-viz-7: #6d28d9;
-  --c-viz-8: #059669;
+  --c-stage-1: var(--stage-1);
+  --c-stage-2: var(--stage-2);
+  --c-stage-3: var(--stage-3);
+  --c-stage-4: var(--stage-4);
+  --c-stage-5: var(--stage-5);
+  --c-stage-6: var(--stage-6);
 
-  /* Module identity — one colour per area of the system, taken from the
-     categorical set so a module colour and a chart series never disagree. */
-  --c-mod-home: #0a7a45;
-  --c-mod-procurement: #00a651;
-  --c-mod-operations: #1d4ed8;
-  --c-mod-vendors: #0f9d8f;
-  --c-mod-cpc: #be185d;
-  --c-mod-finance: #059669;
-  --c-mod-assets: #a16207;
-  --c-mod-analytics: #6d28d9;
-  --c-mod-admin: #565a67;
+  --c-mod-home: var(--mod-home);
+  --c-mod-procurement: var(--mod-procurement);
+  --c-mod-operations: var(--mod-operations);
+  --c-mod-vendors: var(--mod-vendors);
+  --c-mod-cpc: var(--mod-cpc);
+  --c-mod-finance: var(--mod-finance);
+  --c-mod-assets: var(--mod-assets);
+  --c-mod-analytics: var(--mod-analytics);
+  --c-mod-admin: var(--mod-admin);
 
-  --shadow-xs: 0 1px 2px rgb(16 19 27 / 0.05);
-  --shadow-sm: 0 1px 3px rgb(16 19 27 / 0.07), 0 1px 2px rgb(16 19 27 / 0.04);
-  --shadow-md: 0 4px 12px -2px rgb(16 19 27 / 0.09), 0 2px 4px -2px rgb(16 19 27 / 0.05);
-  --shadow-lg: 0 12px 32px -8px rgb(16 19 27 / 0.16), 0 4px 8px -4px rgb(16 19 27 / 0.06);
-  --shadow-focus: 0 0 0 3px rgb(10 122 69 / 0.22);
+  --c-nav-mod-home: var(--nav-mod-home);
+  --c-nav-mod-procurement: var(--nav-mod-procurement);
+  --c-nav-mod-operations: var(--nav-mod-operations);
+  --c-nav-mod-vendors: var(--nav-mod-vendors);
+  --c-nav-mod-cpc: var(--nav-mod-cpc);
+  --c-nav-mod-finance: var(--nav-mod-finance);
+  --c-nav-mod-assets: var(--nav-mod-assets);
+  --c-nav-mod-analytics: var(--nav-mod-analytics);
+  --c-nav-mod-admin: var(--nav-mod-admin);
 
-  --nav-w: 15rem;
-  --nav-w-rail: 3.5rem;
-  --topbar-h: 3.25rem;
+  --c-nav-bg: var(--nav);
+  --c-nav-bg-hover: var(--nav-hover);
+  --c-nav-active-bg: var(--nav-active);
+  --c-nav-border: var(--nav-separator);
+  --c-nav-text: var(--nav-foreground);
+  --c-nav-text-muted: var(--nav-muted);
+  --c-nav-text-dim: var(--nav-dim);
+  --c-nav-mark: var(--nav-mark);
+  --c-nav-mark-ink: var(--nav-mark-foreground);
+
+  /* The module in view, published by the navigation. */
+  --c-mod: var(--accent);
 }
 
-/* Collapsed navigation: one token drives the rail and the content offset, so the
-   sidebar and the page it sits beside can never disagree about the width. */
 :root[data-nav="rail"] {
   --nav-w: var(--nav-w-rail);
 }
 
-:root[data-theme="dark"] {
-  color-scheme: dark;
-
-  --c-canvas: #0c0d11;
-  --c-surface: #14161b;
-  --c-surface-raised: #191c22;
-  --c-surface-sunken: #101216;
-  --c-surface-hover: #1c1f26;
-  --c-surface-active: #22262e;
-  --c-overlay: rgb(0 0 0 / 0.62);
-
-  --c-border: #262a33;
-  --c-border-strong: #383d49;
-  --c-border-subtle: #1e2129;
-
-  --c-text: #edeef1;
-  --c-text-secondary: #a0a4af;
-  --c-text-tertiary: #71757f;
-  --c-text-inverse: #0c0d11;
-
-  --c-brand: #21b869;
-  --c-brand-strong: #17a45c;
-  --c-emerald: #16a97a;
-  --c-teal: #1aa694;
-
-  --c-accent: #21b869;
-  --c-accent-hover: #34c579;
-  --c-accent-active: #4bd189;
-  --c-accent-soft: #0d2419;
-  --c-accent-soft-border: #17402b;
-  --c-accent-text: #7fe0ab;
-
-  --c-success: #2fbd8a;
-  --c-success-soft: #0c2620;
-  --c-success-border: #164539;
-  --c-warning: #e2a44a;
-  --c-warning-soft: #2a1e0c;
-  --c-warning-border: #4a3618;
-  --c-danger: #ec6f70;
-  --c-danger-soft: #2b1416;
-  --c-danger-border: #4d2225;
-  --c-info: #52a8f5;
-  --c-info-soft: #0f1e2e;
-  --c-info-border: #1c3a56;
-  --c-progress: #2ab7a8;
-  --c-progress-soft: #0b2523;
-  --c-progress-border: #16443f;
-
-  /* Deeper and less saturated in dark mode, so the rail sits back from a
-     near-black canvas instead of glowing against it. */
-  --c-nav-bg: #08251a;
-  --c-nav-bg-hover: #0d3325;
-  --c-nav-active-bg: #113f2e;
-  --c-nav-border: #14352a;
-  --c-nav-text: #e6efe9;
-  --c-nav-text-muted: #9fbcac;
-  --c-nav-text-dim: #7a998a;
-  --c-nav-mark: #2fc274;
-  --c-nav-mark-ink: #05231a;
-
-  /* The ramp is re-picked for the dark surface, not inverted: it still runs
-     green to teal, and still darkens step by step. */
-  --c-stage-1: #8fedaa;
-  --c-stage-2: #6ad79f;
-  --c-stage-3: #40c195;
-  --c-stage-4: #00ab8c;
-  --c-stage-5: #039181;
-  --c-stage-6: #027972;
-
-  /* Dark steps are selected, not flipped — validated against #14161b */
-  --c-viz-1: #17a45c;
-  --c-viz-2: #3b7fe0;
-  --c-viz-3: #d96e2a;
-  --c-viz-4: #1aa694;
-  --c-viz-5: #b83668;
-  --c-viz-6: #c08a1e;
-  --c-viz-7: #9067ee;
-  --c-viz-8: #16a97a;
-
-  --c-mod-home: #21b869;
-  --c-mod-procurement: #17a45c;
-  --c-mod-operations: #3b7fe0;
-  --c-mod-vendors: #1aa694;
-  --c-mod-cpc: #b83668;
-  --c-mod-finance: #16a97a;
-  --c-mod-assets: #c08a1e;
-  --c-mod-analytics: #9067ee;
-  --c-mod-admin: #a0a4af;
-
-  --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.4);
-  --shadow-sm: 0 1px 3px rgb(0 0 0 / 0.5), 0 1px 2px rgb(0 0 0 / 0.3);
-  --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.55), 0 2px 4px -2px rgb(0 0 0 / 0.4);
-  --shadow-lg: 0 12px 32px -8px rgb(0 0 0 / 0.7), 0 4px 8px -4px rgb(0 0 0 / 0.4);
-  --shadow-focus: 0 0 0 3px rgb(33 184 105 / 0.32);
+:root[data-density="compact"] {
+  --row-pad-y: 0.3125rem;
+  --row-pad-x: 0.625rem;
+  --card-pad: 0.75rem;
 }
 
-/* Module hues as they appear on the navigation plate. The plate is a deep green
-   in both themes, so these do not follow light/dark — they are picked to read
-   against it, and every one clears 4.4:1. */
-:root {
-  --c-nav-mod-home: #21b869;
-  --c-nav-mod-procurement: #2fbd7a;
-  --c-nav-mod-operations: #5a9bf6;
-  --c-nav-mod-vendors: #2ec4b2;
-  --c-nav-mod-cpc: #e2648f;
-  --c-nav-mod-finance: #2fd39c;
-  --c-nav-mod-assets: #d9a83a;
-  --c-nav-mod-analytics: #a78bfa;
-  --c-nav-mod-admin: #b9c3bd;
-}
-
-/* The module in view. Set on the document by the navigation, read by the page
-   eyebrow, the rule under the top bar and the active navigation row. */
-:root {
-  --c-mod: var(--c-accent);
-}
-:root[data-module="home"] { --c-mod: var(--c-mod-home); }
-:root[data-module="procurement"] { --c-mod: var(--c-mod-procurement); }
-:root[data-module="operations"] { --c-mod: var(--c-mod-operations); }
-:root[data-module="vendors"] { --c-mod: var(--c-mod-vendors); }
-:root[data-module="cpc"] { --c-mod: var(--c-mod-cpc); }
-:root[data-module="finance"] { --c-mod: var(--c-mod-finance); }
-:root[data-module="assets"] { --c-mod: var(--c-mod-assets); }
-:root[data-module="analytics"] { --c-mod: var(--c-mod-analytics); }
-:root[data-module="admin"] { --c-mod: var(--c-mod-admin); }
-
-@theme inline {
-  --color-brand: var(--c-brand);
-  --color-emerald: var(--c-emerald);
-  --color-teal: var(--c-teal);
-  --color-module: var(--c-mod);
-  --color-canvas: var(--c-canvas);
-  --color-surface: var(--c-surface);
-  --color-raised: var(--c-surface-raised);
-  --color-sunken: var(--c-surface-sunken);
-  --color-hover: var(--c-surface-hover);
-  --color-line: var(--c-border);
-  --color-line-strong: var(--c-border-strong);
-  --color-line-subtle: var(--c-border-subtle);
-  --color-ink: var(--c-text);
-  --color-ink-2: var(--c-text-secondary);
-  --color-ink-3: var(--c-text-tertiary);
-  --color-accent: var(--c-accent);
-  --color-accent-soft: var(--c-accent-soft);
-  --color-accent-text: var(--c-accent-text);
-  --color-success: var(--c-success);
-  --color-warning: var(--c-warning);
-  --color-danger: var(--c-danger);
-  --color-info: var(--c-info);
-  --color-progress: var(--c-progress);
-}
+:root[data-module="home"] { --c-mod: var(--mod-home); }
+:root[data-module="procurement"] { --c-mod: var(--mod-procurement); }
+:root[data-module="operations"] { --c-mod: var(--mod-operations); }
+:root[data-module="vendors"] { --c-mod: var(--mod-vendors); }
+:root[data-module="cpc"] { --c-mod: var(--mod-cpc); }
+:root[data-module="finance"] { --c-mod: var(--mod-finance); }
+:root[data-module="assets"] { --c-mod: var(--mod-assets); }
+:root[data-module="analytics"] { --c-mod: var(--mod-analytics); }
+:root[data-module="admin"] { --c-mod: var(--mod-admin); }
 
 /* ── Base ─────────────────────────────────────────────────────
-   These are resets, so they live in the base layer. Unlayered CSS outranks
-   every @layer, which means an unlayered `a { color: inherit }` silently beats
-   any text-colour utility put on a link — the reason navigation text ignored
-   its own colour. In the layer, a utility can override a reset, which is the
-   whole point of having utilities.
+   HeroUI's own base layer handles resets and border inheritance. Only what is
+   specific to this product is added, and it stays in the base layer so that a
+   utility class can always override it.
    ───────────────────────────────────────────────────────────── */
 
 @layer base {
-  * {
-    border-color: var(--c-border);
-  }
-
   html {
     -webkit-text-size-adjust: 100%;
     font-feature-settings: "cv05" 1, "cv08" 1, "ss01" 1;
+    scrollbar-gutter: stable;
   }
 
   body {
-    background: var(--c-canvas);
-    color: var(--c-text);
+    background: var(--background);
+    color: var(--foreground);
     font-family: var(--font-sans);
-    font-size: 0.875rem;
-    line-height: 1.375rem;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     margin: 0;
+    @apply text-sm;
   }
 
-  ::selection {
-    background: var(--c-accent-soft);
-    color: var(--c-accent-text);
-  }
-
-  /* Tabular figures everywhere numbers are compared vertically */
+  /* Figures are compared down columns far more often than read across. */
   .tnum,
   table td,
   table th {
@@ -386,104 +417,162 @@
   }
 }
 
-/* ── Components ───────────────────────────────────────────────
-   Inside @layer components, so a utility class always wins over a
-   component class. Unlayered, `.btn { display: inline-flex }` beat
-   `lg:hidden` and `.field { width: 100% }` beat `w-auto` — utilities
-   silently did nothing on any element carrying one of these classes.
+/* ── 4. Components ────────────────────────────────────────────
+   Each class carries HeroUI's geometry and tokens for the part it plays. The
+   package's own CSS is the reference: buttons are pills at h-10 (h-9 from md)
+   with a 0.97 press, surfaces take the surface shadow and a 32px-capped radius,
+   fields take the field radius and shadow with no border, chips are 2xl.
    ───────────────────────────────────────────────────────────── */
 
 @layer components {
+  /* ── Buttons ─────────────────────────────────────────────── */
 
-  /* A ring rather than a glow: the old accent glow was invisible against an accent
-     fill, which is exactly where a primary action lives. The offset keeps it clear
-     of the element on every surface, light or dark. */
-  :focus-visible {
-    outline: 2px solid var(--c-accent);
-    outline-offset: 2px;
-    border-radius: var(--radius-sm);
-  }
+  .btn {
+    @apply relative isolate inline-flex h-10 w-fit origin-center items-center justify-center gap-2
+           rounded-3xl px-4 text-sm font-medium whitespace-nowrap outline-none select-none no-highlight md:h-9;
 
-  /* On the accent itself, a surface-coloured gap separates fill from ring. */
-  .btn-primary:focus-visible,
-  .btn-danger:focus-visible {
-    box-shadow: 0 0 0 2px var(--c-surface);
-  }
+    transition:
+      transform 250ms var(--ease-smooth, cubic-bezier(0.4, 0, 0.2, 1)),
+      background-color 100ms var(--ease-out, ease-out),
+      box-shadow 100ms var(--ease-out, ease-out);
+    @apply transform-gpu will-change-transform motion-reduce:transition-none;
 
-  /* Fields keep the softer treatment — the accent border already marks them. */
-  .field:focus-visible {
-    outline: none;
-  }
+    cursor: var(--cursor-interactive);
 
-  /* Skip link: the navigation is 50-odd entries, so a keyboard user needs a way
-     past it on every page. */
-  .skip-link {
-    position: fixed;
-    top: 0.5rem;
-    left: 0.5rem;
-    z-index: 60;
-    transform: translateY(-200%);
-    background: var(--c-surface-raised);
-    color: var(--c-text);
-    border: 1px solid var(--c-border-strong);
-    border-radius: var(--radius-sm);
-    box-shadow: var(--shadow-md);
-    padding: 0.4375rem 0.75rem;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    transition: transform 120ms ease;
-  }
-  .skip-link:focus-visible {
-    transform: translateY(0);
-  }
+    --button-bg: transparent;
+    --button-bg-hover: var(--button-bg);
+    --button-bg-pressed: var(--button-bg-hover);
+    --button-fg: currentColor;
 
-  @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-      animation-duration: 0.01ms !important;
-      transition-duration: 0.01ms !important;
+    background-color: var(--button-bg);
+    color: var(--button-fg);
+
+    &:focus-visible:not(:focus),
+    &:focus-visible {
+      @apply status-focused;
+    }
+
+    &:disabled,
+    &[aria-disabled="true"] {
+      @apply status-disabled;
+    }
+
+    &:active,
+    &[data-pressed="true"] {
+      background-color: var(--button-bg-pressed);
+      transform: scale(0.97);
+    }
+
+    @media (hover: hover) {
+      &:hover,
+      &[data-hovered="true"] {
+        background-color: var(--button-bg-hover);
+      }
+    }
+
+    & svg {
+      @apply pointer-events-none size-4 shrink-0 self-center;
     }
   }
 
-  /* Scrollbars */
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: var(--c-border-strong) transparent;
+  .btn-primary {
+    --button-bg: var(--accent);
+    --button-bg-hover: var(--accent-hover);
+    --button-bg-pressed: var(--accent-hover);
+    --button-fg: var(--accent-foreground);
   }
 
-  /* A scrollbar appearing must not reflow the page under the pointer. */
-  html {
-    scrollbar-gutter: stable;
-  }
-  .scroll-y {
-    overflow-y: auto;
-    scrollbar-gutter: stable;
-  }
-  ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-  }
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: var(--c-border-strong);
-    border-radius: 999px;
-    border: 3px solid transparent;
-    background-clip: content-box;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: var(--c-text-tertiary);
-    background-clip: content-box;
+  .btn-secondary {
+    --button-bg: var(--default);
+    --button-bg-hover: var(--default-hover);
+    --button-bg-pressed: var(--default-hover);
+    --button-fg: var(--accent-soft-foreground);
   }
 
-  /* ── Component primitives ────────────────────────────────── */
+  /* Dismissive actions. HeroUI's tertiary is the neutral fill without the
+     accent text. */
+  .btn-tertiary {
+    --button-bg: var(--default);
+    --button-bg-hover: var(--default-hover);
+    --button-bg-pressed: var(--default-hover);
+  }
+
+  .btn-ghost {
+    --button-bg: transparent;
+    --button-bg-hover: var(--default);
+    --button-bg-pressed: var(--default);
+    --button-fg: var(--default-foreground);
+  }
+
+  .btn-outline {
+    @apply border border-border;
+    --button-bg: transparent;
+    --button-bg-hover: color-mix(in srgb, var(--default) 60%, transparent);
+    --button-bg-pressed: var(--default);
+    --button-fg: var(--default-foreground);
+  }
+
+  .btn-danger {
+    --button-bg: var(--danger);
+    --button-bg-hover: var(--danger-hover);
+    --button-bg-pressed: var(--danger-hover);
+    --button-fg: var(--danger-foreground);
+  }
+
+  .btn-danger-soft {
+    --button-bg: var(--danger-soft);
+    --button-bg-hover: var(--danger-soft-hover);
+    --button-bg-pressed: var(--danger-soft-hover);
+    --button-fg: var(--danger-soft-foreground);
+  }
+
+  /* An approval is the one action this product treats as its own kind, so it
+     gets a variant in the same shape as the rest rather than a one-off style. */
+  .btn-success {
+    --button-bg: var(--success);
+    --button-bg-hover: var(--success-hover);
+    --button-bg-pressed: var(--success-hover);
+    --button-fg: var(--success-foreground);
+  }
+
+  .btn-sm {
+    @apply h-9 px-3 md:h-8;
+
+    &:active,
+    &[data-pressed="true"] {
+      transform: scale(0.98);
+    }
+  }
+
+  /* One step below HeroUI's smallest, for the controls that sit inside table
+     rows. Same shape, same states. */
+  .btn-xs {
+    @apply h-7 gap-1.5 px-2.5 text-xs md:h-7;
+
+    & svg {
+      @apply size-3.5;
+    }
+
+    &:active,
+    &[data-pressed="true"] {
+      transform: scale(0.98);
+    }
+  }
+
+  .btn-lg {
+    @apply h-11 text-base md:h-10;
+
+    &:active,
+    &[data-pressed="true"] {
+      transform: scale(0.96);
+    }
+  }
+
+  /* ── Surfaces ────────────────────────────────────────────── */
 
   .card {
-    background: var(--c-surface);
-    border: 1px solid var(--c-border);
-    border-radius: var(--radius-lg);
+    @apply relative flex flex-col bg-surface shadow-surface;
+    border-radius: min(32px, var(--radius-3xl));
   }
 
   .card-pad {
@@ -491,378 +580,307 @@
   }
 
   .hairline {
-    border-top: 1px solid var(--c-border-subtle);
+    border-top: 1px solid var(--separator);
   }
 
+  /* ── Typography ──────────────────────────────────────────── */
+
   .label {
-    font-size: 0.6875rem;
-    font-weight: 550;
-    letter-spacing: 0.045em;
-    text-transform: uppercase;
-    color: var(--c-text-tertiary);
+    @apply text-2xs font-medium tracking-[0.045em] uppercase text-muted;
   }
 
   .mono {
     font-family: var(--font-mono);
-    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
     letter-spacing: -0.01em;
   }
 
-  /* Inputs */
+  /* ── Form fields ─────────────────────────────────────────── */
+
   .field {
-    width: 100%;
-    background: var(--c-surface);
-    border: 1px solid var(--c-border-strong);
-    border-radius: var(--radius-sm);
-    padding: 0.4375rem 0.625rem;
-    font-size: 0.8125rem;
-    line-height: 1.25rem;
-    color: var(--c-text);
-    transition: border-color 120ms ease, box-shadow 120ms ease;
+    @apply flex h-10 w-full items-center bg-field px-3 text-sm text-field-foreground shadow-field outline-none md:h-9;
+    border-radius: var(--radius-field);
+    border: var(--border-width-field) solid var(--color-field-border);
+    transition: box-shadow 100ms var(--ease-out, ease-out), background-color 100ms var(--ease-out, ease-out);
+
+    &::placeholder {
+      color: var(--color-field-placeholder);
+    }
+
+    @media (hover: hover) {
+      &:hover:not(:disabled):not(:focus) {
+        background-color: var(--color-field-hover);
+      }
+    }
+
+    &:focus,
+    &[data-focused="true"] {
+      @apply status-focused-field;
+    }
+
+    &:disabled,
+    &[readonly] {
+      @apply status-disabled;
+    }
+
+    &[aria-invalid="true"] {
+      @apply status-invalid-field;
+    }
   }
-  .field::placeholder {
-    color: var(--c-text-tertiary);
+
+  textarea.field,
+  select[multiple].field {
+    @apply h-auto min-h-20 items-start py-2 leading-5;
   }
-  .field:hover:not(:disabled):not(:focus) {
-    border-color: var(--c-text-tertiary);
-  }
-  .field:focus {
-    outline: none;
-    border-color: var(--c-accent);
-    box-shadow: var(--shadow-focus);
-  }
-  .field:disabled,
-  .field[readonly] {
-    background: var(--c-surface-sunken);
-    color: var(--c-text-secondary);
-    cursor: not-allowed;
-  }
-  .field[aria-invalid="true"] {
-    border-color: var(--c-danger);
-  }
-  .field[aria-invalid="true"]:focus {
-    box-shadow: 0 0 0 3px rgb(206 44 49 / 0.2);
-  }
+
   select.field {
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='none' stroke='%2382868f' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 0.5rem center;
-    padding-right: 1.75rem;
-  }
-  textarea.field {
-    resize: vertical;
-    min-height: 4.5rem;
+    @apply pr-8;
   }
 
-  /* Buttons */
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.375rem;
-    border-radius: var(--radius-sm);
-    border: 1px solid transparent;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    line-height: 1;
-    padding: 0.4375rem 0.75rem;
-    cursor: pointer;
-    white-space: nowrap;
-    transition: background-color 110ms ease, border-color 110ms ease, color 110ms ease, opacity 110ms ease;
-    user-select: none;
-  }
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .btn-primary {
-    background: var(--c-accent);
-    color: #fff;
-    border-color: var(--c-accent);
-  }
-  .btn-primary:hover:not(:disabled) {
-    background: var(--c-accent-hover);
-    border-color: var(--c-accent-hover);
-  }
-  .btn-secondary {
-    background: var(--c-surface);
-    color: var(--c-text);
-    border-color: var(--c-border-strong);
-    box-shadow: var(--shadow-xs);
-  }
-  .btn-secondary:hover:not(:disabled) {
-    background: var(--c-surface-hover);
-    border-color: var(--c-text-tertiary);
-  }
-  .btn-ghost {
-    background: transparent;
-    color: var(--c-text-secondary);
-  }
-  .btn-ghost:hover:not(:disabled) {
-    background: var(--c-surface-active);
-    color: var(--c-text);
-  }
-  .btn-danger {
-    background: var(--c-danger);
-    color: #fff;
-    border-color: var(--c-danger);
-  }
-  .btn-danger:hover:not(:disabled) {
-    filter: brightness(1.08);
-  }
-  .btn-danger-soft {
-    background: var(--c-danger-soft);
-    color: var(--c-danger);
-    border-color: var(--c-danger-border);
-  }
-  .btn-danger-soft:hover:not(:disabled) {
-    background: var(--c-danger);
-    color: #fff;
-  }
-  .btn-success {
-    background: var(--c-success);
-    color: #fff;
-    border-color: var(--c-success);
-  }
-  .btn-success:hover:not(:disabled) {
-    filter: brightness(1.08);
-  }
-  .btn-sm {
-    padding: 0.3125rem 0.5625rem;
-    font-size: 0.75rem;
-  }
-  .btn-xs {
-    padding: 0.1875rem 0.4375rem;
-    font-size: 0.6875rem;
-    border-radius: var(--radius-xs);
-  }
-  .btn-lg {
-    padding: 0.5625rem 1rem;
-    font-size: 0.875rem;
-  }
+  /* ── Chips ───────────────────────────────────────────────── */
 
-  /* Badges */
   .badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    border-radius: 999px;
-    border: 1px solid;
-    padding: 0.09375rem 0.4375rem;
-    font-size: 0.6875rem;
-    font-weight: 500;
-    line-height: 1.125rem;
-    white-space: nowrap;
+    @apply inline-flex w-fit shrink-0 items-center gap-0.5 rounded-2xl px-2 py-0.5 text-2xs leading-5 font-medium;
+
+    --chip-bg: var(--default);
+    --chip-fg: var(--default-foreground);
+
+    background-color: var(--chip-bg);
+    color: var(--chip-fg);
   }
+
   .badge-neutral {
-    background: var(--c-surface-sunken);
-    border-color: var(--c-border);
-    color: var(--c-text-secondary);
+    --chip-bg: var(--default);
+    --chip-fg: var(--default-foreground);
   }
-  .badge-info {
-    background: var(--c-info-soft);
-    border-color: var(--c-info-border);
-    color: var(--c-info);
-  }
-  .badge-progress {
-    background: var(--c-progress-soft);
-    border-color: var(--c-progress-border);
-    color: var(--c-progress);
-  }
-  .badge-success {
-    background: var(--c-success-soft);
-    border-color: var(--c-success-border);
-    color: var(--c-success);
-  }
-  .badge-warning {
-    background: var(--c-warning-soft);
-    border-color: var(--c-warning-border);
-    color: var(--c-warning);
-  }
-  .badge-danger {
-    background: var(--c-danger-soft);
-    border-color: var(--c-danger-border);
-    color: var(--c-danger);
-  }
+
   .badge-accent {
-    background: var(--c-accent-soft);
-    border-color: var(--c-accent-soft-border);
-    color: var(--c-accent-text);
+    --chip-bg: var(--accent-soft);
+    --chip-fg: var(--accent-soft-foreground);
   }
 
-  /* Row height. One pair of tokens drives table cells and card padding, so compact
-     is a real density change rather than a smaller font. */
-  :root {
-    --row-pad-y: 0.5rem;
-    --row-pad-x: 0.75rem;
-    --card-pad: 1rem 1.125rem;
-  }
-  :root[data-density="compact"] {
-    --row-pad-y: 0.3125rem;
-    --row-pad-x: 0.625rem;
-    --card-pad: 0.75rem 0.875rem;
+  .badge-success {
+    --chip-bg: var(--success-soft);
+    --chip-fg: var(--success-soft-foreground);
   }
 
-  /* Tables */
+  .badge-warning {
+    --chip-bg: var(--warning-soft);
+    --chip-fg: var(--warning-soft-foreground);
+  }
+
+  .badge-danger {
+    --chip-bg: var(--danger-soft);
+    --chip-fg: var(--danger-soft-foreground);
+  }
+
+  .badge-info {
+    --chip-bg: color-mix(in oklab, var(--info) 15%, transparent);
+    --chip-fg: var(--info);
+  }
+
+  .badge-progress {
+    --chip-bg: color-mix(in oklab, var(--progress) 15%, transparent);
+    --chip-fg: var(--progress);
+  }
+
+  /* ── Overlays ────────────────────────────────────────────
+     HeroUI separates the surface a card sits on from the overlay a floating
+     thing sits on, and gives each its own shadow. Menus, popovers and modal
+     panels share the card's 32px-capped radius; a tooltip takes the smaller one.
+     ───────────────────────────────────────────────────────── */
+
+  .overlay-panel {
+    @apply bg-overlay text-sm shadow-overlay outline-none;
+    border-radius: min(32px, var(--radius-3xl));
+  }
+
+  .tooltip-panel {
+    @apply max-w-xs bg-overlay p-2 text-xs shadow-overlay;
+    border-radius: min(32px, var(--radius-xl));
+  }
+
+  /* A row inside a menu or listbox. */
+  .overlay-item {
+    @apply flex w-full items-center gap-2 rounded-2xl px-3 py-1.5 text-left text-sm;
+    cursor: var(--cursor-interactive);
+
+    @media (hover: hover) {
+      &:hover,
+      &[data-hovered="true"] {
+        background-color: var(--default);
+      }
+    }
+
+    &[aria-selected="true"],
+    &[data-selected="true"] {
+      background-color: var(--accent-soft);
+      color: var(--accent-soft-foreground);
+    }
+  }
+
+  /* ── Alerts ──────────────────────────────────────────────── */
+
+  .alert {
+    @apply flex w-full flex-row items-start justify-start gap-4 bg-surface px-4 py-3 shadow-surface;
+    border-radius: min(32px, var(--radius-3xl));
+  }
+
+  .alert-accent {
+    background-color: var(--accent-soft);
+    color: var(--accent-soft-foreground);
+    @apply shadow-none;
+  }
+
+  .alert-success {
+    background-color: var(--success-soft);
+    color: var(--success-soft-foreground);
+    @apply shadow-none;
+  }
+
+  .alert-warning {
+    background-color: var(--warning-soft);
+    color: var(--warning-soft-foreground);
+    @apply shadow-none;
+  }
+
+  .alert-danger {
+    background-color: var(--danger-soft);
+    color: var(--danger-soft-foreground);
+    @apply shadow-none;
+  }
+
+  .alert-info {
+    background-color: color-mix(in oklab, var(--info) 15%, transparent);
+    color: var(--info);
+    @apply shadow-none;
+  }
+
+  /* ── Tables ──────────────────────────────────────────────── */
+
+  .table-wrap {
+    @apply scrollbar-thin overflow-x-auto;
+  }
+
   .dt {
-    width: 100%;
+    @apply w-full text-sm;
     border-collapse: separate;
     border-spacing: 0;
-    font-size: 0.8125rem;
   }
+
   .dt thead th {
-    position: sticky;
-    top: 0;
-    z-index: 2;
-    background: var(--c-surface-sunken);
-    border-bottom: 1px solid var(--c-border);
-    /* Reads as a lifted edge once rows scroll beneath it. */
-    box-shadow: 0 1px 0 0 var(--c-border);
+    @apply sticky top-0 z-2 bg-surface-secondary text-2xs font-medium tracking-[0.04em] whitespace-nowrap uppercase text-muted;
     padding: var(--row-pad-y) var(--row-pad-x);
     text-align: left;
-    font-size: 0.6875rem;
-    font-weight: 550;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--c-text-tertiary);
-    white-space: nowrap;
+    border-bottom: 1px solid var(--separator);
+    box-shadow: 0 1px 0 0 var(--separator);
   }
+
   .dt tbody td {
-    /* A reference, a date or a status broken across three lines is unreadable, and
-       a width hint cannot win against a dozen competing columns. Cells hold their
-       line by default; the ones that carry prose ask for wrapping. */
-    white-space: nowrap;
+    /* A reference, a date or a status broken across three lines is unreadable,
+       and a width hint cannot win against a dozen competing columns. Cells hold
+       their line; the ones carrying prose ask to wrap. */
+    @apply whitespace-nowrap align-middle;
     padding: var(--row-pad-y) var(--row-pad-x);
-    border-bottom: 1px solid var(--c-border-subtle);
-    vertical-align: middle;
-  }
-  .dt tbody tr:last-child td {
-    border-bottom: none;
-  }
-  .dt tbody tr {
-    transition: background-color 90ms ease;
-  }
-  .dt tbody tr:hover {
-    background: var(--c-surface-hover);
-  }
-  .dt tbody tr[data-clickable="true"] {
-    cursor: pointer;
-  }
-  /* The row's first cell holds the real link; this makes the whole row respond to
-     that link's focus so keyboard and mouse see the same affordance. */
-  .dt tbody tr[data-clickable="true"]:focus-within {
-    background: var(--c-surface-hover);
-  }
-  .dt .num {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
+    border-bottom: 1px solid var(--separator);
   }
 
   .dt tbody td.wrap {
-    white-space: normal;
-  }
-  .dt tfoot td {
-    padding: 0.5rem 0.75rem;
-    border-top: 1px solid var(--c-border);
-    background: var(--c-surface-sunken);
-    font-weight: 600;
+    @apply whitespace-normal;
   }
 
-  .table-wrap {
-    overflow-x: auto;
-    overflow-y: visible;
+  .dt tbody tr:last-child td {
+    border-bottom: none;
   }
 
-  /* Skeletons */
-  @keyframes shimmer {
-    0% { background-position: -320px 0; }
-    100% { background-position: 320px 0; }
-  }
-  .skeleton {
-    border-radius: var(--radius-sm);
-    background: linear-gradient(
-      90deg,
-      var(--c-surface-sunken) 0%,
-      var(--c-surface-active) 50%,
-      var(--c-surface-sunken) 100%
-    );
-    background-size: 640px 100%;
-    animation: shimmer 1.35s linear infinite;
+  .dt tbody tr:hover {
+    background: color-mix(in oklab, var(--surface) 96%, var(--foreground) 4%);
   }
 
-  /* Lifecycle rail */
+  .dt tbody tr[data-clickable="true"] {
+    cursor: var(--cursor-interactive);
+  }
+
+  /* The row's first cell holds the real link; this makes the whole row respond
+     to that link's focus, so keyboard and mouse see the same affordance. */
+  .dt tbody tr[data-clickable="true"]:focus-within {
+    background: color-mix(in oklab, var(--surface) 94%, var(--foreground) 6%);
+  }
+
+  .dt .num {
+    @apply whitespace-nowrap text-right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Lifecycle rail ──────────────────────────────────────── */
+
   .rail {
-    display: flex;
-    align-items: stretch;
-    gap: 0;
-    overflow-x: auto;
-    padding-bottom: 2px;
+    @apply scrollbar-thin flex gap-1 overflow-x-auto pt-2;
   }
+
+  /* Sixteen stages at the system's type size cannot share one screen width, and
+     a rail of "Subm…", "Appro…", "Procu…" tells nobody anything. Each step keeps
+     a readable width and the rail scrolls. */
   .rail-step {
-    position: relative;
-    flex: 1 0 auto;
-    min-width: 7.5rem;
-    padding: 0.5rem 0.75rem 0.5rem 1.125rem;
-    border-top: 2px solid var(--c-border);
-    font-size: 0.75rem;
+    @apply w-[8rem] shrink-0 grow border-t-2 pt-2;
+    border-color: var(--separator);
   }
-  .rail-step:first-child {
-    padding-left: 0;
-  }
+
   .rail-step[data-state="done"] {
-    border-top-color: var(--c-success);
+    border-color: var(--success);
   }
+
   .rail-step[data-state="current"] {
-    border-top-color: var(--c-accent);
+    border-color: var(--accent);
   }
+
   .rail-step[data-state="blocked"] {
-    border-top-color: var(--c-danger);
-  }
-  .rail-step[data-state="pending"] {
-    border-top-color: var(--c-border);
+    border-color: var(--danger);
   }
 
-  /* Timeline */
+  .rail-step[data-state="skipped"] {
+    border-style: dashed;
+  }
+
+  /* ── Timeline ────────────────────────────────────────────── */
+
   .tl {
-    position: relative;
-    padding-left: 1.375rem;
-  }
-  .tl::before {
-    content: "";
-    position: absolute;
-    left: 0.3125rem;
-    top: 0.5rem;
-    bottom: 0.5rem;
-    width: 1px;
-    background: var(--c-border);
-  }
-  .tl-item {
-    position: relative;
-    padding: 0.4375rem 0;
-  }
-  .tl-dot {
-    position: absolute;
-    left: -1.375rem;
-    top: 0.6875rem;
-    width: 0.6875rem;
-    height: 0.6875rem;
-    border-radius: 999px;
-    border: 2px solid var(--c-surface);
-    background: var(--c-border-strong);
+    @apply relative;
   }
 
-  /* Utility */
-  .scroll-shadow {
-    background:
-      linear-gradient(to right, var(--c-surface) 30%, transparent),
-      linear-gradient(to left, var(--c-surface) 30%, transparent) 100% 0,
-      radial-gradient(farthest-side at 0 50%, rgb(0 0 0 / 0.08), transparent),
-      radial-gradient(farthest-side at 100% 50%, rgb(0 0 0 / 0.08), transparent) 100% 0;
-    background-repeat: no-repeat;
-    background-size: 40px 100%, 40px 100%, 14px 100%, 14px 100%;
-    background-attachment: local, local, scroll, scroll;
+  .tl-item {
+    @apply relative pb-4 pl-6;
+  }
+
+  .tl-item::before {
+    content: "";
+    @apply absolute top-2 bottom-0 left-[0.3125rem] w-px;
+    background: var(--separator);
+  }
+
+  .tl-item:last-child::before {
+    @apply hidden;
+  }
+
+  .tl-dot {
+    @apply absolute top-1.5 left-0 size-2.5 rounded-full;
+    background: var(--muted);
+    box-shadow: 0 0 0 2px var(--surface);
+  }
+
+  /* ── Feedback ────────────────────────────────────────────── */
+
+  .skeleton {
+    @apply rounded-md;
+    background: color-mix(in oklab, var(--surface) 88%, var(--foreground) 12%);
+    animation: heimdall-shimmer 1.6s ease-in-out infinite;
+  }
+
+  /* ── Utility surfaces ────────────────────────────────────── */
+
+  .scroll-y {
+    @apply scrollbar-thin overflow-y-auto;
+    scrollbar-gutter: stable;
   }
 
   .truncate-2 {
@@ -872,10 +890,58 @@
     overflow: hidden;
   }
 
+  /* The navigation is 50-odd entries, so a keyboard user needs a way past it. */
+  .skip-link {
+    @apply fixed top-2 left-2 z-60 rounded-2xl bg-overlay px-3 py-2 text-sm font-medium text-foreground shadow-overlay;
+    transform: translateY(-200%);
+    transition: transform 120ms var(--ease-out, ease-out);
+  }
+
+  .skip-link:focus-visible {
+    transform: translateY(0);
+    @apply status-focused;
+  }
+
+  .scroll-shadow {
+    background:
+      linear-gradient(to right, var(--surface) 30%, transparent),
+      linear-gradient(to left, var(--surface) 30%, transparent) 100% 0,
+      radial-gradient(farthest-side at 0 50%, color-mix(in oklab, var(--foreground) 8%, transparent), transparent),
+      radial-gradient(farthest-side at 100% 50%, color-mix(in oklab, var(--foreground) 8%, transparent), transparent) 100% 0;
+    background-repeat: no-repeat;
+    background-size: 40px 100%, 40px 100%, 14px 100%, 14px 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
+}
+
+@keyframes heimdall-shimmer {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 @media print {
-  .no-print { display: none !important; }
-  body { background: #fff; }
-  .card { border-color: #ccc; box-shadow: none; }
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+  .card {
+    box-shadow: none;
+    border: 1px solid #ccc;
+  }
 }

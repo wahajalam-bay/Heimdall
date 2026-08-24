@@ -109,13 +109,13 @@ export function EvaluateVendorForm({
             </button>
           }
         >
-          <div className="rounded-[var(--radius-md)] border border-[var(--c-border)] px-3.5 py-3">
+          <div className="rounded-xl border border-border px-3.5 py-3">
             <div className="flex flex-wrap items-baseline justify-between gap-3">
               <div>
                 <span className="label block">Scaled score</span>
                 <span className="tnum text-[1.25rem] font-600">
                   {scaled}
-                  <span className="text-xs font-400 text-[var(--c-text-secondary)]"> / {configuredMax}</span>
+                  <span className="text-xs font-400 text-muted"> / {configuredMax}</span>
                 </span>
               </div>
               <div className="text-right">
@@ -133,7 +133,7 @@ export function EvaluateVendorForm({
           {groups.map(([group, list]) => (
             <div key={group} className="space-y-1.5">
               <h4 className="label">{group}</h4>
-              <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--c-border)]">
+              <div className="overflow-hidden rounded-xl border border-border">
                 <table className="dt">
                   <thead>
                     <tr>

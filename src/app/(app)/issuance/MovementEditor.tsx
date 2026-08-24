@@ -100,7 +100,7 @@ export function MovementEditor({
 
   if (stock.length === 0) {
     return (
-      <div className="rounded-[var(--radius-md)] border border-[var(--c-warning-border)] bg-[var(--c-warning-soft)] px-3 py-3 text-xs text-[var(--c-warning)]">
+      <div className="rounded-2xl alert-warning px-3 py-3 text-xs text-[var(--c-warning)]">
         {emptyMessage}
         <input type="hidden" name={name} value="[]" />
       </div>
@@ -110,7 +110,7 @@ export function MovementEditor({
   return (
     <div className="space-y-2.5">
       <input type="hidden" name={name} value={payload} />
-      <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--c-border)]">
+      <div className="overflow-hidden rounded-xl border border-border">
         <table className="dt">
           <thead>
             <tr>
@@ -261,7 +261,7 @@ export function MovementEditor({
       </div>
 
       {errors.length > 0 && (
-        <div className="rounded-[var(--radius-sm)] border border-[var(--c-warning-border)] bg-[var(--c-warning-soft)] px-3 py-2">
+        <div className="rounded-2xl alert-warning px-3 py-2">
           <ul className="space-y-0.5 pl-4 text-xs text-[var(--c-warning)]">
             {errors.map((e, i) => (
               <li key={i} className="list-disc">

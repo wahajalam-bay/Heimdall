@@ -37,7 +37,7 @@ export default async function LoginPage() {
   return (
     <div className="grid min-h-dvh lg:grid-cols-[1fr_28rem]">
       {/* Brand / context panel */}
-      <div className="relative hidden flex-col justify-between overflow-hidden border-r border-[var(--c-border)] bg-[var(--c-surface)] p-10 lg:flex">
+      <div className="relative hidden flex-col justify-between overflow-hidden bg-surface p-10 lg:flex">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 opacity-[0.55]"
@@ -49,7 +49,7 @@ export default async function LoginPage() {
         <div className="relative">
           <div className="flex items-center gap-2.5">
             <span
-              className="flex size-8 items-center justify-center rounded-[var(--radius-md)] text-sm font-700 text-white"
+              className="flex size-8 items-center justify-center rounded-xl text-sm font-700 text-white"
               style={{ background: "var(--c-accent)" }}
             >
               H
@@ -65,7 +65,7 @@ export default async function LoginPage() {
           <h1 className="text-[1.75rem] leading-9 font-600 tracking-[-0.02em]">
             One connected lifecycle, from requisition to finance handoff.
           </h1>
-          <p className="mt-3 text-[0.875rem] leading-6 text-[var(--c-text-secondary)]">
+          <p className="mt-3 text-[0.875rem] leading-6 text-muted">
             Every requisition, RFQ, comparative, committee decision, purchase order, gate pass,
             inspection, GRN, inventory movement and invoice match lives in one auditable chain — with
             configurable thresholds per entity, not hard-coded rules.
@@ -79,7 +79,7 @@ export default async function LoginPage() {
             ].map(([t, d]) => (
               <div key={t}>
                 <dt className="text-[0.8125rem] font-600">{t}</dt>
-                <dd className="mt-0.5 text-xs leading-5 text-[var(--c-text-secondary)]">{d}</dd>
+                <dd className="mt-0.5 text-xs leading-5 text-muted">{d}</dd>
               </div>
             ))}
           </dl>
@@ -92,17 +92,17 @@ export default async function LoginPage() {
 
       {/* Form panel */}
       <div className="flex flex-col justify-center bg-[var(--c-canvas)] px-5 py-10 sm:px-10">
-        <div className="mx-auto w-full max-w-sm">
+        <div className="card card-pad mx-auto w-full max-w-sm gap-0">
           <div className="mb-6 lg:hidden">
             <span
-              className="inline-flex size-8 items-center justify-center rounded-[var(--radius-md)] text-sm font-700 text-white"
+              className="inline-flex size-8 items-center justify-center rounded-xl text-sm font-700 text-white"
               style={{ background: "var(--c-accent)" }}
             >
               H
             </span>
           </div>
           <h2 className="text-[1.25rem] font-600 tracking-[-0.015em]">Sign in</h2>
-          <p className="mt-1 text-[0.8125rem] text-[var(--c-text-secondary)]">
+          <p className="mt-1 text-[0.8125rem] text-muted">
             Use your organisational credentials to continue.
           </p>
           <LoginForm accounts={accounts} />

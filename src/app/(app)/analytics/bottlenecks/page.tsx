@@ -212,7 +212,7 @@ export default async function BottlenecksPage({ searchParams }: { searchParams: 
                           </td>
                           <td className="num text-2xs">{b.slaHours ? `${b.slaHours} h` : "—"}</td>
                           <td className="num text-xs">{b.value !== null ? money(b.value) : "—"}</td>
-                          <td className="max-w-[24rem] text-2xs text-[var(--c-text-secondary)]">{b.nextAction}</td>
+                          <td className="max-w-[24rem] text-2xs text-muted">{b.nextAction}</td>
                         </tr>
                       ))}
                   </tbody>

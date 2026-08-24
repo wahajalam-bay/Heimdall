@@ -241,10 +241,10 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
             <Link
               key={l.href}
               href={l.href}
-              className="rounded-[var(--radius-md)] border border-[var(--c-border)] px-3 py-2.5 transition-colors hover:bg-[var(--c-surface-hover)]"
+              className="rounded-xl border border-border px-3 py-2.5 transition-colors hover:bg-[var(--c-surface-hover)]"
             >
               <span className="block text-xs font-600">{l.label}</span>
-              <span className="mt-0.5 block text-2xs text-[var(--c-text-secondary)]">{l.note}</span>
+              <span className="mt-0.5 block text-2xs text-muted">{l.note}</span>
             </Link>
           ))}
         </div>

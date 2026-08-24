@@ -133,14 +133,14 @@ export default async function AlertsPage({ searchParams }: { searchParams: Promi
                         />
                       )}
                       <Badge tone="neutral">{humanize(n.type)}</Badge>
-                      <span className={n.read ? "text-[0.8125rem] text-[var(--c-text-secondary)]" : "text-[0.8125rem] font-500"}>
+                      <span className={n.read ? "text-[0.8125rem] text-muted" : "text-[0.8125rem] font-500"}>
                         {n.title}
                       </span>
                       <span className="ml-auto shrink-0 text-2xs text-[var(--c-text-tertiary)]">
                         {relativeTime(n.createdAt)}
                       </span>
                     </div>
-                    {n.body && <p className="mt-0.5 text-xs leading-5 text-[var(--c-text-secondary)]">{n.body}</p>}
+                    {n.body && <p className="mt-0.5 text-xs leading-5 text-muted">{n.body}</p>}
                   </>
                 );
                 return (

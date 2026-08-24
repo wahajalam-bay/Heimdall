@@ -136,7 +136,7 @@ export default async function ComparativeDetailPage({ params }: { params: Promis
         eyebrow={`${c.pr.entity.code} · ${c.pr.department.name}`}
         title={
           <span className="flex flex-wrap items-baseline gap-2.5">
-            <span className="mono text-[1rem] text-[var(--c-text-secondary)]">{c.number}</span>
+            <span className="mono text-[1rem] text-muted">{c.number}</span>
             <span>{c.pr.title}</span>
           </span>
         }
@@ -456,7 +456,7 @@ export default async function ComparativeDetailPage({ params }: { params: Promis
                 ]}
               />
             ) : (
-              <p className="py-3 text-xs text-[var(--c-text-secondary)]">
+              <p className="py-3 text-xs text-muted">
                 No vendor has been recommended yet. Selection is deliberate — the system never auto-awards to the lowest
                 price.
               </p>
@@ -466,15 +466,15 @@ export default async function ComparativeDetailPage({ params }: { params: Promis
           <SectionCard title="Tax treatment" description="Comparing tax-registered against non-tax offers on a like-for-like basis">
             <div className="space-y-2">
               <div className="flex items-baseline justify-between gap-3 text-xs">
-                <span className="text-[var(--c-text-secondary)]">Tax-registered quotations</span>
+                <span className="text-muted">Tax-registered quotations</span>
                 <span className="tnum font-500">{taxVsNonTax.taxed.length}</span>
               </div>
               <div className="flex items-baseline justify-between gap-3 text-xs">
-                <span className="text-[var(--c-text-secondary)]">Non-tax quotations</span>
+                <span className="text-muted">Non-tax quotations</span>
                 <span className="tnum font-500">{taxVsNonTax.untaxed.length}</span>
               </div>
               {taxVsNonTax.untaxed.length > 0 && (
-                <p className="mt-1 rounded-[var(--radius-sm)] border border-[var(--c-warning-border)] bg-[var(--c-warning-soft)] px-2.5 py-1.5 text-2xs leading-4 text-[var(--c-warning)]">
+                <p className="mt-1 rounded-2xl alert-warning px-2.5 py-1.5 text-2xs leading-4 text-[var(--c-warning)]">
                   {taxVsNonTax.untaxed.map((l) => l.vendor.name).join(", ")} quoted without sales tax. A non-tax
                   quotation is not directly comparable — input tax cannot be claimed and no tax invoice will be issued for
                   reconciliation.
@@ -485,7 +485,7 @@ export default async function ComparativeDetailPage({ params }: { params: Promis
 
           {c.notes && (
             <SectionCard title="Preparer's notes">
-              <p className="text-xs leading-5 text-[var(--c-text-secondary)]">{c.notes}</p>
+              <p className="text-xs leading-5 text-muted">{c.notes}</p>
             </SectionCard>
           )}
         </div>
@@ -513,7 +513,7 @@ export default async function ComparativeDetailPage({ params }: { params: Promis
                     </Badge>
                   </div>
                   {l.quote.complianceNotes && (
-                    <p className="mt-1 text-xs leading-5 text-[var(--c-text-secondary)]">{l.quote.complianceNotes}</p>
+                    <p className="mt-1 text-xs leading-5 text-muted">{l.quote.complianceNotes}</p>
                   )}
                   {l.quote.exceptions && (
                     <p className="mt-1 text-xs leading-5 text-[var(--c-warning)]">{l.quote.exceptions}</p>

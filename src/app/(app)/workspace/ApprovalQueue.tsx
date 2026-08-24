@@ -118,8 +118,8 @@ export function ApprovalQueue({ items }: { items: QueueItem[] }) {
           <div
             key={item.taskId}
             className={classNames(
-              "flex flex-wrap items-start justify-between gap-x-4 gap-y-2 rounded-[var(--radius-md)] border px-3 py-2.5 transition-opacity",
-              state ? "border-[var(--c-border-subtle)] opacity-55" : "border-[var(--c-border)]",
+              "flex flex-wrap items-start justify-between gap-x-4 gap-y-2 rounded-xl border px-3 py-2.5 transition-opacity",
+              state ? "border-separator opacity-55" : "border-border",
               item.overdue && !state && "border-[var(--c-warning-border)] bg-[var(--c-warning-soft)]",
             )}
           >
@@ -150,7 +150,7 @@ export function ApprovalQueue({ items }: { items: QueueItem[] }) {
 
             <div className="flex shrink-0 items-center gap-1.5">
               {state ? (
-                <span className="flex items-center gap-1.5 text-2xs text-[var(--c-text-secondary)]">
+                <span className="flex items-center gap-1.5 text-2xs text-muted">
                   <Spinner size={11} />
                   {state === "APPROVED" ? "Approving…" : "Returning…"}
                 </span>

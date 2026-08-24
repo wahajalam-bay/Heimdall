@@ -217,23 +217,23 @@ export function CaseActions({
         }
       >
         {pending || issues === null ? (
-          <p className="flex items-center gap-2 text-xs text-[var(--c-text-secondary)]">
+          <p className="flex items-center gap-2 text-xs text-muted">
             <Spinner size={12} /> Running checks…
           </p>
         ) : issues.length === 0 ? (
-          <div className="rounded-[var(--radius-sm)] border border-[var(--c-success-border)] bg-[var(--c-success-soft)] px-3 py-2.5 text-xs text-[var(--c-success)]">
+          <div className="rounded-2xl alert-success px-3 py-2.5 text-xs text-[var(--c-success)]">
             All mandatory information is present. This requisition is ready to submit.
           </div>
         ) : (
           <div>
-            <p className="mb-2 text-xs text-[var(--c-text-secondary)]">
+            <p className="mb-2 text-xs text-muted">
               {issues.length} item(s) must be resolved before this requisition can be submitted:
             </p>
             <ul className="space-y-1.5">
               {issues.map((i, idx) => (
                 <li
                   key={idx}
-                  className="rounded-[var(--radius-sm)] border border-[var(--c-warning-border)] bg-[var(--c-warning-soft)] px-2.5 py-1.5 text-xs text-[var(--c-warning)]"
+                  className="rounded-2xl alert-warning px-2.5 py-1.5 text-xs text-[var(--c-warning)]"
                 >
                   {i}
                 </li>

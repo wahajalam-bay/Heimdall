@@ -312,7 +312,7 @@ export default async function OpenPosPage() {
         title="How this board is built"
         description="Each flag comes from a rule, not a manual note"
       >
-        <ul className="grid gap-x-8 gap-y-2 text-xs leading-5 text-[var(--c-text-secondary)] sm:grid-cols-2">
+        <ul className="grid gap-x-8 gap-y-2 text-xs leading-5 text-muted sm:grid-cols-2">
           <li>
             <span className="font-600 text-[var(--c-text)]">No GRN</span> — the order is issued but no goods receipt note
             has been posted, so nothing is in inventory.

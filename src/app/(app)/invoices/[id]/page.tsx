@@ -200,7 +200,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
         eyebrow={`${invoice.po.entity.code} · ${invoice.vendor.name}`}
         title={
           <span className="flex flex-wrap items-baseline gap-2.5">
-            <span className="mono text-[1rem] text-[var(--c-text-secondary)]">{invoice.number}</span>
+            <span className="mono text-[1rem] text-muted">{invoice.number}</span>
             <span>Vendor reference {invoice.vendorInvoiceNumber}</span>
           </span>
         }
@@ -365,7 +365,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
           description={`Purchase order against goods received against invoice. Tolerances in force: ${result.tolerances.qtyPercent}% on quantity, ${result.tolerances.pricePercent}% on price, ${money(result.tolerances.valueAbsolute)} absolute on value.`}
           bodyClassName="px-0 py-0"
         >
-          <div className="flex flex-wrap gap-4 border-b border-[var(--c-border-subtle)] px-4 py-3">
+          <div className="flex flex-wrap gap-4 border-b border-separator px-4 py-3">
             <div>
               <span className="label block">Overall</span>
               <Badge tone={result.passed ? "success" : "danger"}>{result.passed ? "Passed" : "Failed"}</Badge>
@@ -430,7 +430,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                     <td>
                       <Badge tone={FLAG_TONE[l.flag] ?? "neutral"}>{humanize(l.flag)}</Badge>
                     </td>
-                    <td className="max-w-[22rem] text-2xs text-[var(--c-text-secondary)]">{l.notes ?? "—"}</td>
+                    <td className="max-w-[22rem] text-2xs text-muted">{l.notes ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -438,13 +438,13 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
           </div>
 
           {(result.failures.length > 0 || result.warnings.length > 0) && (
-            <div className="space-y-2.5 border-t border-[var(--c-border-subtle)] px-4 py-3">
+            <div className="space-y-2.5 border-t border-separator px-4 py-3">
               {result.failures.length > 0 && (
                 <div>
                   <span className="label mb-1 block text-[var(--c-danger)]">Failures</span>
                   <ul className="space-y-1 pl-5 text-xs leading-5">
                     {result.failures.map((f, i) => (
-                      <li key={i} className="list-disc text-[var(--c-text-secondary)]">
+                      <li key={i} className="list-disc text-muted">
                         {f}
                       </li>
                     ))}
@@ -456,7 +456,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                   <span className="label mb-1 block text-[var(--c-warning)]">Warnings</span>
                   <ul className="space-y-1 pl-5 text-xs leading-5">
                     {result.warnings.map((w, i) => (
-                      <li key={i} className="list-disc text-[var(--c-text-secondary)]">
+                      <li key={i} className="list-disc text-muted">
                         {w}
                       </li>
                     ))}
@@ -646,35 +646,35 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
           <SectionCard title="Amounts">
             <div className="space-y-2 text-xs">
               <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[var(--c-text-secondary)]">Subtotal</span>
+                <span className="text-muted">Subtotal</span>
                 <span className="tnum">{money(invoice.subtotal)}</span>
               </div>
               <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[var(--c-text-secondary)]">Tax</span>
+                <span className="text-muted">Tax</span>
                 <span className="tnum">{money(invoice.taxAmount)}</span>
               </div>
               <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[var(--c-text-secondary)]">Delivery charges</span>
+                <span className="text-muted">Delivery charges</span>
                 <span className="tnum">{money(invoice.deliveryCharges)}</span>
               </div>
               <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[var(--c-text-secondary)]">Other charges</span>
+                <span className="text-muted">Other charges</span>
                 <span className="tnum">{money(invoice.otherCharges)}</span>
               </div>
               <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[var(--c-text-secondary)]">Discount</span>
+                <span className="text-muted">Discount</span>
                 <span className="tnum">−{money(invoice.discount)}</span>
               </div>
-              <div className="flex items-baseline justify-between gap-3 border-t border-[var(--c-border-subtle)] pt-2">
-                <span className="text-[var(--c-text-secondary)]">Invoice total</span>
+              <div className="flex items-baseline justify-between gap-3 border-t border-separator pt-2">
+                <span className="text-muted">Invoice total</span>
                 <span className="tnum font-600">{money(invoice.total)}</span>
               </div>
               <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[var(--c-text-secondary)]">Withholding tax</span>
+                <span className="text-muted">Withholding tax</span>
                 <span className="tnum">−{money(invoice.withholdingTax)}</span>
               </div>
-              <div className="flex items-baseline justify-between gap-3 border-t border-[var(--c-border-subtle)] pt-2">
-                <span className="text-[var(--c-text-secondary)]">Net payable</span>
+              <div className="flex items-baseline justify-between gap-3 border-t border-separator pt-2">
+                <span className="text-muted">Net payable</span>
                 <span className="tnum text-[0.9375rem] font-600">{money(invoice.netPayable)}</span>
               </div>
               {invoice.po.total > 0 && (

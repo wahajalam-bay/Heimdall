@@ -130,18 +130,18 @@ export default async function AdminPage() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className="rounded-[var(--radius-md)] border border-[var(--c-border)] px-3.5 py-3 transition-colors hover:bg-[var(--c-surface-hover)]"
+                  className="rounded-xl border border-border px-3.5 py-3 transition-colors hover:bg-[var(--c-surface-hover)]"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <span className="text-xs font-600">{item.label}</span>
                     <Badge tone="neutral">{item.count}</Badge>
                   </div>
-                  <span className="mt-1 block text-2xs text-[var(--c-text-secondary)]">{item.note}</span>
+                  <span className="mt-1 block text-2xs text-muted">{item.note}</span>
                 </Link>
               ) : (
                 <div
                   key={item.href}
-                  className="rounded-[var(--radius-md)] border border-dashed border-[var(--c-border)] px-3.5 py-3 opacity-60"
+                  className="rounded-xl border border-dashed border-border px-3.5 py-3 opacity-60"
                 >
                   <span className="block text-xs font-600">{item.label}</span>
                   <span className="mt-1 block text-2xs text-[var(--c-text-tertiary)]">

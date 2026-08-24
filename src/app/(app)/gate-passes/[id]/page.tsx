@@ -80,7 +80,7 @@ export default async function GatePassDetailPage({ params }: { params: Promise<{
         eyebrow={`${g.store.entity.code} · ${g.store.name}`}
         title={
           <span className="flex flex-wrap items-baseline gap-2.5">
-            <span className="mono text-[1rem] text-[var(--c-text-secondary)]">{g.number}</span>
+            <span className="mono text-[1rem] text-muted">{g.number}</span>
             <span>{g.vendor?.name ?? g.materialSummary ?? "Inward delivery"}</span>
           </span>
         }
@@ -166,30 +166,30 @@ export default async function GatePassDetailPage({ params }: { params: Promise<{
           <SectionCard title="Declared vs verified">
             <div className="space-y-2">
               <div className="flex items-baseline justify-between gap-3 text-xs">
-                <span className="text-[var(--c-text-secondary)]">Declared packages</span>
+                <span className="text-muted">Declared packages</span>
                 <span className="tnum font-500">{g.declaredPackages ?? "—"}</span>
               </div>
               <div className="flex items-baseline justify-between gap-3 text-xs">
-                <span className="text-[var(--c-text-secondary)]">Declared quantity</span>
+                <span className="text-muted">Declared quantity</span>
                 <span className="tnum font-500">
                   {g.declaredQuantity !== null ? qty(g.declaredQuantity) : "—"}
                 </span>
               </div>
               {delivery ? (
                 <>
-                  <div className="flex items-baseline justify-between gap-3 border-t border-[var(--c-border-subtle)] pt-2 text-xs">
-                    <span className="text-[var(--c-text-secondary)]">Packages verified</span>
+                  <div className="flex items-baseline justify-between gap-3 border-t border-separator pt-2 text-xs">
+                    <span className="text-muted">Packages verified</span>
                     <span className="tnum font-500">
                       {delivery.packagesVerified ?? "—"} of {delivery.totalPackages ?? "—"}
                     </span>
                   </div>
                   <div className="flex items-baseline justify-between gap-3 text-xs">
-                    <span className="text-[var(--c-text-secondary)]">Verification outcome</span>
+                    <span className="text-muted">Verification outcome</span>
                     <StatusBadge status={delivery.status} />
                   </div>
                 </>
               ) : (
-                <p className="border-t border-[var(--c-border-subtle)] pt-2 text-2xs text-[var(--c-text-tertiary)]">
+                <p className="border-t border-separator pt-2 text-2xs text-[var(--c-text-tertiary)]">
                   Declared figures are the vendor&apos;s. They are not accepted until the store physically verifies them.
                 </p>
               )}

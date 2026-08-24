@@ -255,7 +255,7 @@ export default async function ExceptionsPage({ searchParams }: { searchParams: P
           {severityMix.length > 0 ? (
             <DonutChart data={severityMix} centerLabel="Open" centerValue={String(open.length)} format="number" />
           ) : (
-            <p className="py-8 text-center text-xs text-[var(--c-text-secondary)]">Nothing open.</p>
+            <p className="py-8 text-center text-xs text-muted">Nothing open.</p>
           )}
         </SectionCard>
         <SectionCard title="Open by owner" description="Unassigned exceptions are nobody's problem — that is the risk.">

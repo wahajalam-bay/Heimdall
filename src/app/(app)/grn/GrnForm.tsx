@@ -153,7 +153,7 @@ export function GrnForm({
       footerSticky
       secondary={
         <>
-          <label className="mr-auto flex cursor-pointer items-center gap-2 text-xs text-[var(--c-text-secondary)]">
+          <label className="mr-auto flex cursor-pointer items-center gap-2 text-xs text-muted">
             <input type="checkbox" checked={post} onChange={(e) => setPost(e.target.checked)} />
             Post to inventory immediately
           </label>
@@ -318,7 +318,7 @@ export function GrnForm({
                 <td colSpan={6} className="text-right">Taking into inventory</td>
                 <td className="num">{qty(totals.accepted)}</td>
                 <td className="num">{money(totals.value)}</td>
-                <td colSpan={3} className="text-2xs text-[var(--c-text-secondary)]">
+                <td colSpan={3} className="text-2xs text-muted">
                   {totals.stockLines} line(s) will create a stock movement
                 </td>
               </tr>
@@ -328,7 +328,7 @@ export function GrnForm({
       </SectionCard>
 
       {errors.length > 0 && (
-        <div className="rounded-[var(--radius-sm)] border border-[var(--c-warning-border)] bg-[var(--c-warning-soft)] px-3 py-2.5">
+        <div className="rounded-2xl alert-warning px-3 py-2.5">
           <p className="text-xs font-600 text-[var(--c-warning)]">Resolve before creating the GRN</p>
           <ul className="mt-1 space-y-0.5 pl-4 text-xs text-[var(--c-warning)]">
             {errors.map((e, i) => (

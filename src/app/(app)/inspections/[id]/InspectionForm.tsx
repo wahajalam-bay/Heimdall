@@ -235,7 +235,7 @@ export function InspectionForm({
           >
             <div className="grid gap-x-4 gap-y-3.5 sm:grid-cols-4">
               <label className="block">
-                <span className="mb-1 block text-xs font-500 text-[var(--c-text-secondary)]">Quantity passed</span>
+                <span className="mb-1 block text-xs font-500 text-muted">Quantity passed</span>
                 <input
                   className="field text-right"
                   type="number"
@@ -246,7 +246,7 @@ export function InspectionForm({
                 />
               </label>
               <label className="block">
-                <span className="mb-1 block text-xs font-500 text-[var(--c-text-secondary)]">Quantity failed</span>
+                <span className="mb-1 block text-xs font-500 text-muted">Quantity failed</span>
                 <input
                   className="field text-right"
                   type="number"
@@ -257,7 +257,7 @@ export function InspectionForm({
                 />
               </label>
               <label className="block">
-                <span className="mb-1 block text-xs font-500 text-[var(--c-text-secondary)]">Line verdict</span>
+                <span className="mb-1 block text-xs font-500 text-muted">Line verdict</span>
                 <select
                   className="field"
                   value={s.verdict}
@@ -269,7 +269,7 @@ export function InspectionForm({
                 </select>
               </label>
               <label className="block">
-                <span className="mb-1 block text-xs font-500 text-[var(--c-text-secondary)]">Serial / batch verified</span>
+                <span className="mb-1 block text-xs font-500 text-muted">Serial / batch verified</span>
                 <input
                   className="field"
                   value={s.serialNumber}
@@ -279,7 +279,7 @@ export function InspectionForm({
               </label>
 
               <label className="block sm:col-span-2">
-                <span className="mb-1 block text-xs font-500 text-[var(--c-text-secondary)]">Model verified</span>
+                <span className="mb-1 block text-xs font-500 text-muted">Model verified</span>
                 <input
                   className="field"
                   value={s.modelVerified}
@@ -287,7 +287,7 @@ export function InspectionForm({
                 />
               </label>
               <label className="block sm:col-span-2">
-                <span className="mb-1 block text-xs font-500 text-[var(--c-text-secondary)]">Specification verified</span>
+                <span className="mb-1 block text-xs font-500 text-muted">Specification verified</span>
                 <input
                   className="field"
                   value={s.specVerified}
@@ -295,7 +295,7 @@ export function InspectionForm({
                 />
               </label>
               <label className="block sm:col-span-2">
-                <span className="mb-1 block text-xs font-500 text-[var(--c-text-secondary)]">Configuration</span>
+                <span className="mb-1 block text-xs font-500 text-muted">Configuration</span>
                 <input
                   className="field"
                   value={s.configuration}
@@ -303,7 +303,7 @@ export function InspectionForm({
                 />
               </label>
               <label className="block sm:col-span-2">
-                <span className="mb-1 block text-xs font-500 text-[var(--c-text-secondary)]">Condition</span>
+                <span className="mb-1 block text-xs font-500 text-muted">Condition</span>
                 <input
                   className="field"
                   value={s.condition}
@@ -312,14 +312,14 @@ export function InspectionForm({
               </label>
             </div>
 
-            <div className="mt-4 overflow-hidden rounded-[var(--radius-md)] border border-[var(--c-border)]">
-              <div className="border-b border-[var(--c-border-subtle)] bg-[var(--c-surface-sunken)] px-3 py-2">
+            <div className="mt-4 overflow-hidden rounded-xl border border-border">
+              <div className="border-b border-separator bg-surface-secondary px-3 py-2">
                 <span className="label">Inspection criteria — {inspection.templateLabel}</span>
               </div>
               <div className="grid gap-x-4 gap-y-2.5 px-3 py-3 sm:grid-cols-2">
                 {criteria.map((c) => (
                   <div key={c.key}>
-                    <span className="mb-1 flex items-baseline gap-1 text-xs font-500 text-[var(--c-text-secondary)]">
+                    <span className="mb-1 flex items-baseline gap-1 text-xs font-500 text-muted">
                       {c.label}
                       {c.required && <span className="text-[var(--c-danger)]">*</span>}
                     </span>
@@ -360,7 +360,7 @@ export function InspectionForm({
 
             <div className="mt-3 grid gap-x-4 gap-y-3 sm:grid-cols-2">
               <label className="block">
-                <span className="mb-1 block text-xs font-500 text-[var(--c-text-secondary)]">Performance notes</span>
+                <span className="mb-1 block text-xs font-500 text-muted">Performance notes</span>
                 <textarea
                   className="field"
                   rows={2}
@@ -370,7 +370,7 @@ export function InspectionForm({
               </label>
               <div className="space-y-2">
                 <label className="block">
-                  <span className="mb-1 block text-xs font-500 text-[var(--c-text-secondary)]">Line notes</span>
+                  <span className="mb-1 block text-xs font-500 text-muted">Line notes</span>
                   <textarea
                     className="field"
                     rows={2}
@@ -393,7 +393,7 @@ export function InspectionForm({
       })}
 
       {errors.length > 0 && (
-        <div className="rounded-[var(--radius-sm)] border border-[var(--c-warning-border)] bg-[var(--c-warning-soft)] px-3 py-2.5">
+        <div className="rounded-2xl alert-warning px-3 py-2.5">
           <p className="text-xs font-600 text-[var(--c-warning)]">Resolve before signing</p>
           <ul className="mt-1 space-y-0.5 pl-4 text-xs text-[var(--c-warning)]">
             {errors.map((e, i) => (

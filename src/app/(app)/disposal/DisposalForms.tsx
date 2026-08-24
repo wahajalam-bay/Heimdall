@@ -202,7 +202,7 @@ export function DisposalForm({
 
       <FormSection title="Items" columns={1}>
         <div className="space-y-2.5 sm:col-span-full">
-          <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--c-border)]">
+          <div className="overflow-hidden rounded-xl border border-border">
             <table className="dt">
               <thead>
                 <tr>
@@ -340,11 +340,11 @@ export function DisposalForm({
             </button>
             <div className="flex flex-wrap items-baseline gap-4 text-xs">
               <span>
-                <span className="text-[var(--c-text-secondary)]">Book value </span>
+                <span className="text-muted">Book value </span>
                 <span className="tnum font-600">{money(bookTotal)}</span>
               </span>
               <span>
-                <span className="text-[var(--c-text-secondary)]">Estimated realisation </span>
+                <span className="text-muted">Estimated realisation </span>
                 <span className="tnum font-600">{money(estimated)}</span>
               </span>
             </div>
@@ -478,8 +478,8 @@ export function AdvanceDisposalForm({
                 {bids.map((b) => (
                   <label
                     key={b.id}
-                    className={`flex cursor-pointer items-center justify-between gap-3 rounded-[var(--radius-md)] border px-3 py-2 ${
-                      winningBidId === b.id ? "border-[var(--c-accent)] bg-[var(--c-accent-soft)]" : "border-[var(--c-border)]"
+                    className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-3 py-2 ${
+                      winningBidId === b.id ? "border-[var(--c-accent)] bg-[var(--c-accent-soft)]" : "border-border"
                     }`}
                   >
                     <span className="flex items-center gap-2.5">

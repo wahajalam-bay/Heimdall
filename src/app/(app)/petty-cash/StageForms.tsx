@@ -146,10 +146,10 @@ export function SelectQuoteForm({
               return (
                 <label
                   key={q.id}
-                  className={`flex cursor-pointer items-center justify-between gap-3 rounded-[var(--radius-md)] border px-3 py-2.5 ${
+                  className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-3 py-2.5 ${
                     quoteId === q.id
                       ? "border-[var(--c-accent)] bg-[var(--c-accent-soft)]"
-                      : "border-[var(--c-border)]"
+                      : "border-border"
                   }`}
                 >
                   <span className="flex items-center gap-2.5">
@@ -285,7 +285,7 @@ export function RecordPurchaseForm({
             </Field>
           </FormSection>
 
-          <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--c-border)]">
+          <div className="overflow-hidden rounded-xl border border-border">
             <table className="dt">
               <thead>
                 <tr>
@@ -436,7 +436,7 @@ export function StoreEntryForm({
             </Field>
           </FormSection>
 
-          <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--c-border)]">
+          <div className="overflow-hidden rounded-xl border border-border">
             <table className="dt">
               <thead>
                 <tr>

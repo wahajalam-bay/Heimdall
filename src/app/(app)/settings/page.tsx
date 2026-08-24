@@ -98,7 +98,7 @@ export default async function SettingsPage() {
                 <h4 className="label mb-1.5">{group}</h4>
                 <ul className="space-y-0.5">
                   {perms.sort().map((p) => (
-                    <li key={p} className="flex items-start gap-1.5 text-xs leading-5 text-[var(--c-text-secondary)]">
+                    <li key={p} className="flex items-start gap-1.5 text-xs leading-5 text-muted">
                       <span className="mt-1.5 size-1 shrink-0 rounded-full bg-[var(--c-success)]" aria-hidden />
                       {p}
                     </li>
@@ -130,7 +130,7 @@ export default async function SettingsPage() {
                   <td className="text-xs">{fmtDateTime(s.createdAt)}</td>
                   <td className="text-xs">{fmtDateTime(s.expiresAt)}</td>
                   <td className="mono text-2xs">{s.ip ?? "—"}</td>
-                  <td className="max-w-[28rem] truncate text-2xs text-[var(--c-text-secondary)]" title={s.userAgent ?? ""}>
+                  <td className="max-w-[28rem] truncate text-2xs text-muted" title={s.userAgent ?? ""}>
                     {s.userAgent ?? "—"}
                   </td>
                 </tr>

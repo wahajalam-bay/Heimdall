@@ -79,7 +79,7 @@ export function RecommendForm({
             </button>
           }
         >
-          <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--c-border)]">
+          <div className="overflow-hidden rounded-xl border border-border">
             <div className="table-wrap">
               <table className="dt">
                 <thead>

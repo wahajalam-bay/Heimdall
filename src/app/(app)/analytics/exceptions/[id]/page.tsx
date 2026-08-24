@@ -122,7 +122,7 @@ export default async function ExceptionDetailPage({ params }: { params: Promise<
         eyebrow={`${entity?.code ?? "All entities"} · ${humanize(exception.type)}`}
         title={
           <span className="flex flex-wrap items-baseline gap-2.5">
-            <span className="mono text-[1rem] text-[var(--c-text-secondary)]">{exception.number}</span>
+            <span className="mono text-[1rem] text-muted">{exception.number}</span>
             <span>{exception.title}</span>
           </span>
         }
@@ -206,9 +206,9 @@ export default async function ExceptionDetailPage({ params }: { params: Promise<
               {exception.description ?? exception.title}
             </p>
             {exception.reason && (
-              <div className="mt-3 border-t border-[var(--c-border-subtle)] pt-3">
+              <div className="mt-3 border-t border-separator pt-3">
                 <span className="label mb-1 block">Recorded reason</span>
-                <p className="whitespace-pre-wrap text-xs leading-5 text-[var(--c-text-secondary)]">
+                <p className="whitespace-pre-wrap text-xs leading-5 text-muted">
                   {exception.reason}
                 </p>
               </div>

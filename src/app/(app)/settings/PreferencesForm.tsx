@@ -22,7 +22,7 @@ export function NotificationPreferencesForm({
     >
       <div>
         <h3 className="text-[0.875rem] font-600">Notification preferences</h3>
-        <p className="mt-0.5 text-xs leading-5 text-[var(--c-text-secondary)]">
+        <p className="mt-0.5 text-xs leading-5 text-muted">
           Control how the system reaches you. Approval requests and blocking exceptions are always recorded against your
           workspace regardless of these settings, so nothing is ever lost.
         </p>
@@ -50,14 +50,14 @@ export function NotificationPreferencesForm({
       </div>
 
       {counts.length > 0 && (
-        <div className="border-t border-[var(--c-border-subtle)] pt-3.5">
+        <div className="border-t border-separator pt-3.5">
           <h4 className="label mb-2">Notifications received to date</h4>
           <ul className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
             {counts
               .sort((a, b) => b.count - a.count)
               .map((c) => (
                 <li key={c.type} className="flex items-baseline justify-between gap-3 text-xs">
-                  <span className="text-[var(--c-text-secondary)]">{humanize(c.type)}</span>
+                  <span className="text-muted">{humanize(c.type)}</span>
                   <span className="tnum font-500">{c.count}</span>
                 </li>
               ))}

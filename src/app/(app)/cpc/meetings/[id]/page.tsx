@@ -114,7 +114,7 @@ export default async function CpcMeetingDetailPage({ params }: { params: Promise
         eyebrow={`${meeting.entity.code} · ${humanize(meeting.meetingType)}`}
         title={
           <span className="flex flex-wrap items-baseline gap-2.5">
-            <span className="mono text-[1rem] text-[var(--c-text-secondary)]">{meeting.number}</span>
+            <span className="mono text-[1rem] text-muted">{meeting.number}</span>
             <span>{meeting.title}</span>
           </span>
         }
@@ -262,7 +262,7 @@ export default async function CpcMeetingDetailPage({ params }: { params: Promise
             {meeting.minutes ? (
               <p className="whitespace-pre-wrap text-[0.8125rem] leading-6">{meeting.minutes}</p>
             ) : (
-              <p className="text-xs text-[var(--c-text-secondary)]">
+              <p className="text-xs text-muted">
                 No minutes recorded yet.
                 {canManage ? " Use the button above to record them." : ""}
               </p>

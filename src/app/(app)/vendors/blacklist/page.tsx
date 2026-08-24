@@ -171,7 +171,7 @@ export default async function BlacklistPage() {
               .map((s) => (
                 <span
                   key={s.stage}
-                  className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--c-border)] px-2.5 py-1.5 text-xs"
+                  className="flex items-center gap-2 rounded-lg border border-border px-2.5 py-1.5 text-xs"
                 >
                   <StatusBadge status={s.stage} />
                   <span className="tnum font-600">{s.count}</span>
@@ -204,7 +204,7 @@ export default async function BlacklistPage() {
                       <RefLink href={`/vendors/${v.id}`}>{v.name}</RefLink>
                       <span className="mono mt-0.5 block text-2xs text-[var(--c-text-tertiary)]">{v.code}</span>
                     </td>
-                    <td className="max-w-[30rem] text-xs text-[var(--c-text-secondary)]">{v.statusReason ?? "—"}</td>
+                    <td className="max-w-[30rem] text-xs text-muted">{v.statusReason ?? "—"}</td>
                     <td className="num text-xs">{v.totalSpend.toLocaleString("en-PK")}</td>
                     <td className="text-xs">{v.blacklistedAt ? fmtDate(v.blacklistedAt) : "—"}</td>
                   </tr>

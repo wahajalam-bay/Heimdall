@@ -105,7 +105,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
                 return (
                   <div
                     key={r.key}
-                    className="flex flex-col justify-between gap-2.5 rounded-[var(--radius-md)] border border-[var(--c-border)] px-3.5 py-3"
+                    className="flex flex-col justify-between gap-2.5 rounded-xl border border-border px-3.5 py-3"
                   >
                     <div>
                       <div className="flex items-start justify-between gap-2">
@@ -116,7 +116,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
                           <Badge tone="neutral">Snapshot</Badge>
                         )}
                       </div>
-                      <p className="mt-1 text-2xs leading-4 text-[var(--c-text-secondary)]">{r.description}</p>
+                      <p className="mt-1 text-2xs leading-4 text-muted">{r.description}</p>
                     </div>
                     {allowed ? (
                       <a
@@ -159,7 +159,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             <Link
               key={l.href}
               href={l.href}
-              className="rounded-[var(--radius-md)] border border-[var(--c-border)] px-3 py-2 text-xs transition-colors hover:bg-[var(--c-surface-hover)]"
+              className="rounded-xl border border-border px-3 py-2 text-xs transition-colors hover:bg-[var(--c-surface-hover)]"
             >
               {l.label}
             </Link>

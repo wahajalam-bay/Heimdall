@@ -79,7 +79,7 @@ export function FieldDiff({ changes, emptyLabel }: { changes: ChangeSet; emptyLa
   const entries = Object.entries(changes ?? {});
   if (!entries.length) {
     return (
-      <p className="px-4 py-6 text-center text-xs text-[var(--c-text-secondary)]">
+      <p className="px-4 py-6 text-center text-xs text-muted">
         {emptyLabel ?? "This event recorded no field-level changes."}
       </p>
     );
@@ -108,7 +108,7 @@ export function FieldDiff({ changes, emptyLabel }: { changes: ChangeSet; emptyLa
                   <span
                     className={
                       moved
-                        ? "block rounded-[var(--radius-xs)] bg-[var(--c-danger-soft)] px-1.5 py-1 line-through decoration-[var(--c-danger)]/40"
+                        ? "block rounded-sm bg-[var(--c-danger-soft)] px-1.5 py-1 line-through decoration-[var(--c-danger)]/40"
                         : "block px-1.5 py-1"
                     }
                   >
@@ -119,7 +119,7 @@ export function FieldDiff({ changes, emptyLabel }: { changes: ChangeSet; emptyLa
                   <span
                     className={
                       moved
-                        ? "block rounded-[var(--radius-xs)] bg-[var(--c-success-soft)] px-1.5 py-1"
+                        ? "block rounded-sm bg-[var(--c-success-soft)] px-1.5 py-1"
                         : "block px-1.5 py-1 text-[var(--c-text-tertiary)]"
                     }
                   >

@@ -108,7 +108,7 @@ export default async function GrnDetailPage({ params }: { params: Promise<{ id: 
         eyebrow={`${g.po.entity.code} · ${g.store.name}`}
         title={
           <span className="flex flex-wrap items-baseline gap-2.5">
-            <span className="mono text-[1rem] text-[var(--c-text-secondary)]">{g.number}</span>
+            <span className="mono text-[1rem] text-muted">{g.number}</span>
             <span>{g.vendor.name}</span>
           </span>
         }
@@ -382,7 +382,7 @@ export default async function GrnDetailPage({ params }: { params: Promise<{ id: 
                   <td className="align-top">
                     <Badge tone="neutral">{humanize(i.disposition)}</Badge>
                   </td>
-                  <td className="align-top text-2xs text-[var(--c-text-secondary)]">{i.remarks ?? "—"}</td>
+                  <td className="align-top text-2xs text-muted">{i.remarks ?? "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -506,7 +506,7 @@ export default async function GrnDetailPage({ params }: { params: Promise<{ id: 
                         {humanize(s.goodsClass)}
                       </Badge>
                     </td>
-                    <td className="text-2xs leading-4 text-[var(--c-text-secondary)]">
+                    <td className="text-2xs leading-4 text-muted">
                       {s.handlingRequirements ?? "—"}
                     </td>
                     <td className="text-xs">{s.stackedBy.name}</td>

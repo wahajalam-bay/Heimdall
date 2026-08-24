@@ -192,7 +192,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
       {(belowReorder.length > 0 || expiring.length > 0 || zeroValue.length > 0) && (
         <SectionCard title="Requires attention" bodyClassName="px-0 py-0">
           <div className="grid gap-0 lg:grid-cols-3">
-            <div className="border-b border-[var(--c-border-subtle)] px-4 py-3 lg:border-r lg:border-b-0">
+            <div className="border-b border-separator px-4 py-3 lg:border-r lg:border-b-0">
               <div className="label mb-2">Below reorder level</div>
               {belowReorder.length === 0 ? (
                 <p className="text-2xs text-[var(--c-text-tertiary)]">Nothing below its reorder level.</p>
@@ -212,7 +212,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                 </ul>
               )}
             </div>
-            <div className="border-b border-[var(--c-border-subtle)] px-4 py-3 lg:border-r lg:border-b-0">
+            <div className="border-b border-separator px-4 py-3 lg:border-r lg:border-b-0">
               <div className="label mb-2">Expiring soon</div>
               {expiring.length === 0 ? (
                 <p className="text-2xs text-[var(--c-text-tertiary)]">Nothing expiring within 60 days.</p>

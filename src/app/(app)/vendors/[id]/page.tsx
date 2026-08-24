@@ -222,13 +222,13 @@ export default async function VendorDetailPage({
       )}
 
       {openCase && (
-        <div className="rounded-[var(--radius-md)] border border-[var(--c-warning-border)] bg-[var(--c-warning-soft)] px-3.5 py-3">
+        <div className="rounded-2xl alert-warning px-3.5 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <span className="text-[0.8125rem] font-600 text-[var(--c-warning)]">
                 Investigation {openCase.number} is open
               </span>
-              <p className="mt-0.5 text-xs text-[var(--c-text-secondary)]">
+              <p className="mt-0.5 text-xs text-muted">
                 Stage: {humanize(openCase.stage)} · {humanize(openCase.reasonCode)} · raised {fmtDate(openCase.raisedAt)}
               </p>
             </div>
@@ -361,7 +361,7 @@ export default async function VendorDetailPage({
               </SectionCard>
             ) : (
               <SectionCard title="Banking">
-                <p className="text-xs text-[var(--c-text-secondary)]">
+                <p className="text-xs text-muted">
                   Banking details are withheld. They are visible only to roles holding the vendor financials permission —
                   this is enforced on the server, not by hiding the section.
                 </p>
@@ -382,7 +382,7 @@ export default async function VendorDetailPage({
                       label={`${round2(vendor.currentScore ?? 0)} of ${round2(vendor.maxScore ?? configuredMax)} · pass mark ${passMark}`}
                     />
                   ) : (
-                    <p className="text-xs text-[var(--c-text-secondary)]">No evaluation on file.</p>
+                    <p className="text-xs text-muted">No evaluation on file.</p>
                   )}
                 </div>
                 {vendor.performanceScore !== null && (
@@ -411,7 +411,7 @@ export default async function VendorDetailPage({
 
             <SectionCard title="Entity access">
               {vendor.entityLinks.length === 0 ? (
-                <p className="text-xs text-[var(--c-text-secondary)]">Not linked to any entity yet.</p>
+                <p className="text-xs text-muted">Not linked to any entity yet.</p>
               ) : (
                 <ul className="space-y-2">
                   {vendor.entityLinks.map((l) => (
@@ -484,7 +484,7 @@ export default async function VendorDetailPage({
 
           <SectionCard title="Purchase orders" bodyClassName="px-0 py-0">
             {history.recentPos.length === 0 ? (
-              <p className="px-4 py-6 text-center text-xs text-[var(--c-text-secondary)]">
+              <p className="px-4 py-6 text-center text-xs text-muted">
                 No purchase orders placed with this vendor.
               </p>
             ) : (
@@ -524,7 +524,7 @@ export default async function VendorDetailPage({
           <div className="grid gap-4 lg:grid-cols-2">
             <SectionCard title="Quotations" bodyClassName="px-0 py-0">
               {history.recentQuotes.length === 0 ? (
-                <p className="px-4 py-6 text-center text-xs text-[var(--c-text-secondary)]">No quotations on file.</p>
+                <p className="px-4 py-6 text-center text-xs text-muted">No quotations on file.</p>
               ) : (
                 <div className="table-wrap max-h-[20rem] overflow-y-auto">
                   <table className="dt">
@@ -559,7 +559,7 @@ export default async function VendorDetailPage({
 
             <SectionCard title="Goods receipts" bodyClassName="px-0 py-0">
               {history.recentGrns.length === 0 ? (
-                <p className="px-4 py-6 text-center text-xs text-[var(--c-text-secondary)]">No goods received.</p>
+                <p className="px-4 py-6 text-center text-xs text-muted">No goods received.</p>
               ) : (
                 <div className="table-wrap max-h-[20rem] overflow-y-auto">
                   <table className="dt">
@@ -700,7 +700,7 @@ export default async function VendorDetailPage({
                 description={`Scored by ${ev.evaluator.name} on ${fmtDateTime(ev.evaluatedAt)}`}
                 bodyClassName="px-0 py-0"
               >
-                <div className="flex flex-wrap items-center gap-4 border-b border-[var(--c-border-subtle)] px-4 py-3">
+                <div className="flex flex-wrap items-center gap-4 border-b border-separator px-4 py-3">
                   <div>
                     <span className="label block">Score</span>
                     <span className="tnum text-[1rem] font-600">
@@ -746,7 +746,7 @@ export default async function VendorDetailPage({
                           <td className="num text-xs">{round2(s.maxScore)}</td>
                           <td className="num text-xs">{s.weight}</td>
                           <td className="num text-xs">{round2(s.weightedScore)}</td>
-                          <td className="max-w-[20rem] truncate text-2xs text-[var(--c-text-secondary)]" title={s.comment ?? ""}>
+                          <td className="max-w-[20rem] truncate text-2xs text-muted" title={s.comment ?? ""}>
                             {s.comment ?? "—"}
                           </td>
                         </tr>
@@ -755,7 +755,7 @@ export default async function VendorDetailPage({
                   </table>
                 </div>
                 {(ev.recommendation || ev.notes) && (
-                  <div className="border-t border-[var(--c-border-subtle)] px-4 py-3">
+                  <div className="border-t border-separator px-4 py-3">
                     <DefList
                       columns={1}
                       items={[
@@ -779,7 +779,7 @@ export default async function VendorDetailPage({
             bodyClassName="px-0 py-0"
           >
             {vendor.documents.length === 0 ? (
-              <p className="px-4 py-6 text-center text-xs text-[var(--c-text-secondary)]">
+              <p className="px-4 py-6 text-center text-xs text-muted">
                 No vendor documents recorded.
               </p>
             ) : (
@@ -817,7 +817,7 @@ export default async function VendorDetailPage({
                               "—"
                             )}
                           </td>
-                          <td className="max-w-[18rem] truncate text-2xs text-[var(--c-text-secondary)]">
+                          <td className="max-w-[18rem] truncate text-2xs text-muted">
                             {d.notes ?? "—"}
                           </td>
                           <td className="text-xs">{fmtDate(d.createdAt)}</td>
@@ -857,7 +857,7 @@ export default async function VendorDetailPage({
 
           <SectionCard title="Issues raised" bodyClassName="px-0 py-0">
             {vendor.issues.length === 0 ? (
-              <p className="px-4 py-6 text-center text-xs text-[var(--c-text-secondary)]">
+              <p className="px-4 py-6 text-center text-xs text-muted">
                 No issues have been raised against this vendor.
               </p>
             ) : (
@@ -924,7 +924,7 @@ export default async function VendorDetailPage({
             bodyClassName="px-0 py-0"
           >
             {vendor.blacklistCases.length === 0 ? (
-              <p className="px-4 py-6 text-center text-xs text-[var(--c-text-secondary)]">
+              <p className="px-4 py-6 text-center text-xs text-muted">
                 No investigations have been opened.
               </p>
             ) : (

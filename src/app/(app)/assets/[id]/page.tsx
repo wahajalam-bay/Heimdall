@@ -104,7 +104,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
         eyebrow={`${asset.entity.code} · ${asset.category?.name ?? "Uncategorised"}`}
         title={
           <span className="flex flex-wrap items-baseline gap-2.5">
-            <span className="mono text-[1rem] text-[var(--c-text-secondary)]">{asset.tag}</span>
+            <span className="mono text-[1rem] text-muted">{asset.tag}</span>
             <span>{asset.name}</span>
           </span>
         }
@@ -251,7 +251,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
             bodyClassName="px-0 py-0"
           >
             {asset.transactions.length === 0 ? (
-              <p className="px-4 py-6 text-center text-xs text-[var(--c-text-secondary)]">
+              <p className="px-4 py-6 text-center text-xs text-muted">
                 No movements recorded beyond initial tagging.
               </p>
             ) : (
@@ -306,7 +306,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
                           )}
                         </td>
                         <td className="text-2xs">{t.reference ?? "—"}</td>
-                        <td className="max-w-[20rem] text-2xs text-[var(--c-text-secondary)]">{t.notes ?? "—"}</td>
+                        <td className="max-w-[20rem] text-2xs text-muted">{t.notes ?? "—"}</td>
                         <td className="text-2xs">{actorName.get(t.performedById) ?? "System"}</td>
                         <td className="text-2xs">{fmtDateTime(t.performedAt)}</td>
                       </tr>
@@ -333,7 +333,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
                 />
               </div>
             ) : (
-              <p className="text-xs text-[var(--c-text-secondary)]">
+              <p className="text-xs text-muted">
                 No custodian assigned. Assign one so the asset has a named owner.
               </p>
             )}
@@ -343,7 +343,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
             <SectionCard title="Disposal">
               <ul className="space-y-3">
                 {asset.disposalItems.map((d) => (
-                  <li key={d.id} className="rounded-[var(--radius-md)] border border-[var(--c-border)] px-3 py-2.5">
+                  <li key={d.id} className="rounded-xl border border-border px-3 py-2.5">
                     <div className="flex items-center justify-between gap-2">
                       <RefLink href={`/disposal/${d.case.id}`}>{d.case.number}</RefLink>
                       <StatusBadge status={d.case.stage} />

@@ -112,7 +112,7 @@ export default async function InspectionDetailPage({ params }: { params: Promise
         eyebrow={`${insp.po?.entity.code ?? ""} · ${template.label}`}
         title={
           <span className="flex flex-wrap items-baseline gap-2.5">
-            <span className="mono text-[1rem] text-[var(--c-text-secondary)]">{insp.number}</span>
+            <span className="mono text-[1rem] text-muted">{insp.number}</span>
             <span>{insp.po?.vendor.name ?? "Technical inspection"}</span>
           </span>
         }
@@ -222,7 +222,7 @@ export default async function InspectionDetailPage({ params }: { params: Promise
         <SectionCard title="Assignment">
           {isOpen ? (
             <div className="space-y-3">
-              <p className="text-xs leading-5 text-[var(--c-text-secondary)]">
+              <p className="text-xs leading-5 text-muted">
                 Assign a named inspector so the task appears on their workspace and the service-level clock is owned.
               </p>
               <div className="space-y-1.5">
@@ -281,7 +281,7 @@ export default async function InspectionDetailPage({ params }: { params: Promise
         <SectionCard title="Line results" bodyClassName="px-0 py-0">
           {insp.items.length === 0 ? (
             <Card>
-              <p className="text-xs text-[var(--c-text-secondary)]">No lines on this inspection.</p>
+              <p className="text-xs text-muted">No lines on this inspection.</p>
             </Card>
           ) : (
             <div className="divide-y divide-[var(--c-border-subtle)]">
@@ -302,7 +302,7 @@ export default async function InspectionDetailPage({ params }: { params: Promise
                         <Badge tone={i.verdict === "PASS" ? "success" : i.verdict === "FAIL" ? "danger" : "warning"}>
                           {humanize(i.verdict)}
                         </Badge>
-                        <span className="tnum text-2xs text-[var(--c-text-secondary)]">
+                        <span className="tnum text-2xs text-muted">
                           {qty(i.quantityPassed)} passed / {qty(i.quantityFailed)} failed of{" "}
                           {qty(i.quantityInspected)}
                         </span>
@@ -326,7 +326,7 @@ export default async function InspectionDetailPage({ params }: { params: Promise
                         ))}
                     </div>
                     {criteria.length > 0 && (
-                      <div className="mt-2.5 overflow-hidden rounded-[var(--radius-sm)] border border-[var(--c-border-subtle)]">
+                      <div className="mt-2.5 overflow-hidden rounded-lg border border-separator">
                         <table className="dt">
                           <thead>
                             <tr>
@@ -352,7 +352,7 @@ export default async function InspectionDetailPage({ params }: { params: Promise
                       </div>
                     )}
                     {i.performanceNotes && (
-                      <p className="mt-2 text-2xs leading-4 text-[var(--c-text-secondary)]">{i.performanceNotes}</p>
+                      <p className="mt-2 text-2xs leading-4 text-muted">{i.performanceNotes}</p>
                     )}
                     {i.notes && <p className="mt-1 text-2xs leading-4 text-[var(--c-text-tertiary)]">{i.notes}</p>}
                   </div>

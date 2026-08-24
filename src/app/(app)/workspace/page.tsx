@@ -173,7 +173,7 @@ export default async function WorkspacePage() {
                   </div>
                   <p className="mt-0.5 text-[0.8125rem] font-500">{pr.title}</p>
                   {pr.returnReason && (
-                    <p className="mt-1 max-w-3xl rounded-[var(--radius-sm)] border border-[var(--c-warning-border)] bg-[var(--c-warning-soft)] px-2.5 py-1.5 text-xs leading-5 text-[var(--c-warning)]">
+                    <p className="mt-1 max-w-3xl rounded-2xl alert-warning px-2.5 py-1.5 text-xs leading-5 text-[var(--c-warning)]">
                       {pr.returnReason}
                     </p>
                   )}
@@ -204,7 +204,7 @@ export default async function WorkspacePage() {
                   </div>
                   <p className="mt-0.5 text-[0.8125rem] font-500">{c.title}</p>
                   {c.recommendation && (
-                    <p className="mt-0.5 max-w-3xl text-xs leading-5 text-[var(--c-text-secondary)]">
+                    <p className="mt-0.5 max-w-3xl text-xs leading-5 text-muted">
                       {c.recommendation}
                     </p>
                   )}
@@ -261,7 +261,7 @@ export default async function WorkspacePage() {
                         <td>
                           <div className="font-500">{t.title}</div>
                           {t.description && (
-                            <div className="mt-0.5 text-2xs text-[var(--c-text-secondary)]">{t.description}</div>
+                            <div className="mt-0.5 text-2xs text-muted">{t.description}</div>
                           )}
                           {!t.assigneeId && t.assignedRoleCode && (
                             <div className="mt-0.5 text-2xs text-[var(--c-text-tertiary)]">
@@ -464,7 +464,7 @@ function NotificationBody({
             aria-label="Unread"
           />
         )}
-        <span className={n.read ? "text-xs text-[var(--c-text-secondary)]" : "text-xs font-500"}>{n.title}</span>
+        <span className={n.read ? "text-xs text-muted" : "text-xs font-500"}>{n.title}</span>
         <span className="ml-auto text-2xs text-[var(--c-text-tertiary)]">{relativeTime(n.createdAt)}</span>
       </div>
       {n.body && <p className="mt-0.5 text-2xs leading-4 text-[var(--c-text-tertiary)]">{n.body}</p>}

@@ -139,7 +139,7 @@ export default async function CpcCaseDetailPage({ params }: { params: Promise<{ 
         eyebrow={`${kase.pr.entity.code} · ${kase.pr.department.name}`}
         title={
           <span className="flex flex-wrap items-baseline gap-2.5">
-            <span className="mono text-[1rem] text-[var(--c-text-secondary)]">{kase.number}</span>
+            <span className="mono text-[1rem] text-muted">{kase.number}</span>
             <span>{kase.title}</span>
           </span>
         }
@@ -288,9 +288,9 @@ export default async function CpcCaseDetailPage({ params }: { params: Promise<{ 
                 </table>
               </div>
               {kase.comparative.nonLowestJustification && (
-                <div className="border-t border-[var(--c-border-subtle)] px-4 py-3">
+                <div className="border-t border-separator px-4 py-3">
                   <span className="label mb-1 block">Justification for not taking the lowest quote</span>
-                  <p className="text-xs leading-5 text-[var(--c-text-secondary)]">
+                  <p className="text-xs leading-5 text-muted">
                     {kase.comparative.nonLowestJustification}
                   </p>
                 </div>
@@ -341,7 +341,7 @@ export default async function CpcCaseDetailPage({ params }: { params: Promise<{ 
                     <tr key={i.id}>
                       <td className="text-xs">{i.description}</td>
                       <td className="num text-xs">{qty(i.quantity, i.unit)}</td>
-                      <td className="max-w-[24rem] truncate text-2xs text-[var(--c-text-secondary)]" title={i.specification ?? ""}>
+                      <td className="max-w-[24rem] truncate text-2xs text-muted" title={i.specification ?? ""}>
                         {i.specification ?? "—"}
                       </td>
                     </tr>
@@ -434,14 +434,14 @@ export default async function CpcCaseDetailPage({ params }: { params: Promise<{ 
                 </div>
               </div>
               {history.issues.length > 0 && (
-                <div className="mt-3 border-t border-[var(--c-border-subtle)] pt-3">
+                <div className="mt-3 border-t border-separator pt-3">
                   <span className="label mb-1.5 block">Recent issues</span>
                   <ul className="space-y-1.5">
                     {history.issues.slice(0, 5).map((i) => (
                       <li key={i.id} className="flex items-center justify-between gap-3 text-2xs">
                         <span className="min-w-0 truncate">
                           <RefLink href={`/vendors/issues/${i.id}`}>{i.number}</RefLink>
-                          <span className="ml-2 text-[var(--c-text-secondary)]">{i.title}</span>
+                          <span className="ml-2 text-muted">{i.title}</span>
                         </span>
                         <span className="flex shrink-0 items-center gap-1.5">
                           <Badge tone={i.severity === "CRITICAL" ? "danger" : i.severity === "HIGH" ? "warning" : "neutral"}>
@@ -467,7 +467,7 @@ export default async function CpcCaseDetailPage({ params }: { params: Promise<{ 
               {kase.members.map((m) => {
                 const vote = kase.decisions.find((d) => d.memberId === m.userId);
                 return (
-                  <li key={m.id} className="border-b border-[var(--c-border-subtle)] pb-3 last:border-0 last:pb-0">
+                  <li key={m.id} className="border-b border-separator pb-3 last:border-0 last:pb-0">
                     <div className="flex items-start justify-between gap-3">
                       <UserChip name={m.user.name} sub={m.roleLabel} />
                       <span className="shrink-0 text-right">
@@ -498,7 +498,7 @@ export default async function CpcCaseDetailPage({ params }: { params: Promise<{ 
                       </span>
                     </div>
                     {vote?.comment && (
-                      <p className="mt-1.5 whitespace-pre-wrap text-2xs leading-4 text-[var(--c-text-secondary)]">
+                      <p className="mt-1.5 whitespace-pre-wrap text-2xs leading-4 text-muted">
                         {vote.comment}
                       </p>
                     )}
@@ -507,7 +507,7 @@ export default async function CpcCaseDetailPage({ params }: { params: Promise<{ 
               })}
             </ul>
             {outstanding.length > 0 && !decided && (
-              <p className="mt-3 border-t border-[var(--c-border-subtle)] pt-2.5 text-2xs text-[var(--c-text-tertiary)]">
+              <p className="mt-3 border-t border-separator pt-2.5 text-2xs text-[var(--c-text-tertiary)]">
                 Waiting on {outstanding.map((m) => m.user.name).join(", ")}.
               </p>
             )}

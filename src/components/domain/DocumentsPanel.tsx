@@ -80,7 +80,7 @@ export async function DocumentsPanel({
       bodyClassName="px-0 py-0"
     >
       {canUpload && (
-        <div className="border-b border-[var(--c-border-subtle)] px-4 py-3.5">
+        <div className="border-b border-separator px-4 py-3.5">
           <DocumentUpload
             linkedType={linkedType}
             linkedId={linkedId}
@@ -114,7 +114,7 @@ export async function DocumentsPanel({
                 {items.map((d) => (
                   <li
                     key={d.id}
-                    className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[var(--radius-sm)] border border-[var(--c-border-subtle)] px-2.5 py-2"
+                    className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-separator px-2.5 py-2"
                   >
                     <span className="min-w-0 flex-1">
                       <span className="flex flex-wrap items-center gap-2">
@@ -176,7 +176,7 @@ export async function DocumentsPanel({
       )}
 
       {userHasPermission(user, P.AUDIT_VIEW) && docs.length > 0 && (
-        <div className="border-t border-[var(--c-border-subtle)] px-4 py-2">
+        <div className="border-t border-separator px-4 py-2">
           <Link href={`/analytics/audit?entityType=Document`} className="text-2xs text-[var(--c-accent-text)]">
             View document access history in the audit trail
           </Link>

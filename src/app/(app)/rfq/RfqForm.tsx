@@ -98,7 +98,7 @@ export function RfqForm({
       footerSticky
       secondary={
         <>
-          <label className="mr-auto flex cursor-pointer items-center gap-2 text-xs text-[var(--c-text-secondary)]">
+          <label className="mr-auto flex cursor-pointer items-center gap-2 text-xs text-muted">
             <input type="checkbox" checked={issueNow} onChange={(e) => setIssueNow(e.target.checked)} />
             Issue to vendors immediately
           </label>
@@ -175,7 +175,7 @@ export function RfqForm({
             aria-label="Filter vendors"
           />
 
-          <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--c-border)]">
+          <div className="overflow-hidden rounded-xl border border-border">
             <div className="table-wrap max-h-[24rem] overflow-y-auto">
               <table className="dt">
                 <thead>
@@ -256,7 +256,7 @@ export function RfqForm({
                   })}
                   {shown.length === 0 && (
                     <tr>
-                      <td colSpan={9} className="py-6 text-center text-xs text-[var(--c-text-secondary)]">
+                      <td colSpan={9} className="py-6 text-center text-xs text-muted">
                         No sourceable vendors match that filter. Vendors must be approved or conditionally approved
                         before they can be invited.
                       </td>
@@ -268,7 +268,7 @@ export function RfqForm({
           </div>
 
           {blocked.length > 0 && (
-            <div className="rounded-[var(--radius-md)] border border-[var(--c-border)]">
+            <div className="rounded-xl border border-border">
               <button
                 type="button"
                 className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
@@ -281,13 +281,13 @@ export function RfqForm({
                 <span className="text-2xs text-[var(--c-text-tertiary)]">{showBlocked ? "Hide" : "Show"}</span>
               </button>
               {showBlocked && (
-                <ul className="divide-y divide-[var(--c-border-subtle)] border-t border-[var(--c-border-subtle)]">
+                <ul className="divide-y divide-[var(--c-border-subtle)] border-t border-separator">
                   {blocked.map((v) => (
                     <li key={v.id} className="flex flex-wrap items-center gap-2 px-3 py-2">
                       <span className="text-xs font-500">{v.name}</span>
                       <Badge tone={toneFor(v.status)}>{humanize(v.status)}</Badge>
                       {v.statusReason && (
-                        <span className="text-2xs text-[var(--c-text-secondary)]">{v.statusReason}</span>
+                        <span className="text-2xs text-muted">{v.statusReason}</span>
                       )}
                     </li>
                   ))}

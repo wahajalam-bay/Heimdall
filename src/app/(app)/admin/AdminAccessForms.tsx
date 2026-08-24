@@ -276,7 +276,7 @@ export function RoleForm({
               const all = codes.every((c) => selected.includes(c));
               const some = codes.some((c) => selected.includes(c));
               return (
-                <div key={g.group} className="rounded-[var(--radius-md)] border border-[var(--c-border)] px-3 py-2.5">
+                <div key={g.group} className="rounded-xl border border-border px-3 py-2.5">
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <span className="text-xs font-600">
                       {g.group}
@@ -648,7 +648,7 @@ export function ApprovalRuleForm({
 
           <FormSection title="Approval chain" columns={1} description="Steps run in order. An optional step can be skipped; a required one cannot.">
             <div className="space-y-2.5 sm:col-span-full">
-              <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--c-border)]">
+              <div className="overflow-hidden rounded-xl border border-border">
                 <table className="dt">
                   <thead>
                     <tr>

@@ -74,7 +74,7 @@ export function DocumentUpload({
     <div className="space-y-2.5">
       <div className="grid gap-2.5 sm:grid-cols-[1fr_11rem_9rem_auto] sm:items-end">
         <label className="block">
-          <span className="mb-1 block text-2xs font-500 text-[var(--c-text-secondary)]">File</span>
+          <span className="mb-1 block text-2xs font-500 text-muted">File</span>
           <input
             type="file"
             className="field py-1.5"
@@ -86,7 +86,7 @@ export function DocumentUpload({
           />
         </label>
         <label className="block">
-          <span className="mb-1 block text-2xs font-500 text-[var(--c-text-secondary)]">Document type</span>
+          <span className="mb-1 block text-2xs font-500 text-muted">Document type</span>
           <select className="field" value={docType} onChange={(e) => setDocType(e.target.value)}>
             {documentTypes.map((d) => (
               <option key={d.code} value={d.code}>
@@ -96,7 +96,7 @@ export function DocumentUpload({
           </select>
         </label>
         <label className="block">
-          <span className="mb-1 block text-2xs font-500 text-[var(--c-text-secondary)]">Access</span>
+          <span className="mb-1 block text-2xs font-500 text-muted">Access</span>
           <select className="field" value={confidentiality} onChange={(e) => setConfidentiality(e.target.value)}>
             {CONFIDENTIALITY_LEVELS.map((c) => (
               <option key={c} value={c}>
@@ -117,12 +117,12 @@ export function DocumentUpload({
         onChange={(e) => setDescription(e.target.value)}
       />
       {error && (
-        <p className="rounded-[var(--radius-sm)] border border-[var(--c-danger-border)] bg-[var(--c-danger-soft)] px-2.5 py-1.5 text-2xs text-[var(--c-danger)]">
+        <p className="rounded-2xl alert-danger px-2.5 py-1.5 text-2xs text-[var(--c-danger)]">
           {error}
         </p>
       )}
       {ok && (
-        <p className="rounded-[var(--radius-sm)] border border-[var(--c-success-border)] bg-[var(--c-success-soft)] px-2.5 py-1.5 text-2xs text-[var(--c-success)]">
+        <p className="rounded-2xl alert-success px-2.5 py-1.5 text-2xs text-[var(--c-success)]">
           {ok}
         </p>
       )}

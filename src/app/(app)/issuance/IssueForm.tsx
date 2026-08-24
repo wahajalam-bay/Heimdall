@@ -58,7 +58,7 @@ export function IssueForm({
       footerSticky
       secondary={
         <>
-          <label className="mr-auto flex cursor-pointer items-center gap-2 text-xs text-[var(--c-text-secondary)]">
+          <label className="mr-auto flex cursor-pointer items-center gap-2 text-xs text-muted">
             <input type="checkbox" checked={submit} onChange={(e) => setSubmit(e.target.checked)} />
             Submit for approval immediately
           </label>
@@ -116,7 +116,7 @@ export function IssueForm({
       <FormSection title="Items to issue" columns={1}>
         <div className="sm:col-span-full">
           {loading ? (
-            <p className="text-xs text-[var(--c-text-secondary)]">Loading availability for the selected store…</p>
+            <p className="text-xs text-muted">Loading availability for the selected store…</p>
           ) : (
             <MovementEditor
               stock={stock}

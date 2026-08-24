@@ -63,11 +63,19 @@ test("a document opens in place rather than in a new tab", async ({ page }) => {
   await ready(page);
   const entity = page.getByLabel("Active entity");
   const zd = entity.locator("option", { hasText: "ZD" }).first();
-  await entity.selectOption(await zd.getAttribute("value") ?? "");
-  await expect(page.locator("html")).toHaveAttribute("data-module", "procurement");
-  await page.getByLabel("Search table").fill("MD-2026-00001");
-  const caseLink = page.getByRole("link", { name: "MD-2026-00001" }).first();
-  await expect(caseLink).toBeVisible();
+  const zdValue = (await zd.getAttribute("value")) ?? "";
+  await entity.selectOption(zdValue);
+  // Switching entity is a server round trip, and the control disables itself
+  // while it runs. Wait for it to come back rather than racing the register.
+  await expect(entity).toBeEnabled({ timeout: 60_000 });
+  await expect(entity).toHaveValue(zdValue);
+  await ready(page);
+  // Any material demand will do: none can be submitted without its BOQ and
+  // drawings, so they all carry documents. Waiting for one to appear also proves
+  // the entity switch landed.
+  await page.getByLabel("Search table").fill("MD-");
+  const caseLink = page.getByRole("link", { name: /^MD-\d{4}-\d+$/ }).first();
+  await expect(caseLink).toBeVisible({ timeout: 20_000 });
   const caseHref = await caseLink.getAttribute("href");
   expect(caseHref).toMatch(/\/pr\/.+/);
 

@@ -49,13 +49,13 @@ export function LoginForm({ accounts }: { accounts: DemoAccount[] }) {
         {state && !state.ok && (
           <div
             role="alert"
-            className="rounded-[var(--radius-sm)] border border-[var(--c-danger-border)] bg-[var(--c-danger-soft)] px-3 py-2 text-xs text-[var(--c-danger)]"
+            className="rounded-2xl alert-danger px-3 py-2 text-xs text-[var(--c-danger)]"
           >
             {state.error}
           </div>
         )}
         <div>
-          <label htmlFor="email" className="mb-1 block text-xs font-500 text-[var(--c-text-secondary)]">
+          <label htmlFor="email" className="mb-1 block text-xs font-500 text-muted">
             Work email
           </label>
           <input
@@ -71,7 +71,7 @@ export function LoginForm({ accounts }: { accounts: DemoAccount[] }) {
           />
         </div>
         <div>
-          <label htmlFor="password" className="mb-1 block text-xs font-500 text-[var(--c-text-secondary)]">
+          <label htmlFor="password" className="mb-1 block text-xs font-500 text-muted">
             Password
           </label>
           <input
@@ -93,7 +93,7 @@ export function LoginForm({ accounts }: { accounts: DemoAccount[] }) {
       </form>
 
       {accounts.length > 0 && (
-        <div className="mt-7 rounded-[var(--radius-md)] border border-[var(--c-border)] bg-[var(--c-surface)]">
+        <div className="mt-7 card">
           <button
             type="button"
             className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
@@ -104,13 +104,13 @@ export function LoginForm({ accounts }: { accounts: DemoAccount[] }) {
               <span className="block text-xs font-600">Role directory</span>
               <span className="block text-2xs text-[var(--c-text-tertiary)]">
                 {accounts.length} seeded accounts · password{" "}
-                <code className="mono rounded bg-[var(--c-surface-sunken)] px-1">Passw0rd!</code>
+                <code className="mono rounded bg-surface-secondary px-1">Passw0rd!</code>
               </span>
             </span>
             <span className="text-xs text-[var(--c-text-tertiary)]">{showDirectory ? "▲" : "▼"}</span>
           </button>
           {showDirectory && (
-            <div className="border-t border-[var(--c-border-subtle)]">
+            <div className="border-t border-separator">
               <div className="p-2">
                 <input
                   className="field"
@@ -125,7 +125,7 @@ export function LoginForm({ accounts }: { accounts: DemoAccount[] }) {
                   <li key={a.email}>
                     <button
                       type="button"
-                      className="flex w-full items-center gap-2 rounded-[var(--radius-xs)] px-2 py-1.5 text-left hover:bg-[var(--c-surface-hover)]"
+                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-[var(--c-surface-hover)]"
                       onClick={() => {
                         setEmail(a.email);
                         setPassword("Passw0rd!");

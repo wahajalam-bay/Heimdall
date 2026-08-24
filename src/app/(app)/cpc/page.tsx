@@ -282,13 +282,13 @@ export default async function CpcPage() {
         <div className="space-y-4">
           <SectionCard title="Upcoming sittings">
             {upcoming.length === 0 ? (
-              <p className="text-xs text-[var(--c-text-secondary)]">
+              <p className="text-xs text-muted">
                 No meetings scheduled. Cases can still be decided individually, but a sitting keeps the record tidy.
               </p>
             ) : (
               <ul className="space-y-2.5">
                 {upcoming.map((m) => (
-                  <li key={m.id} className="rounded-[var(--radius-md)] border border-[var(--c-border)] px-3 py-2.5">
+                  <li key={m.id} className="rounded-xl border border-border px-3 py-2.5">
                     <div className="flex items-center justify-between gap-2">
                       <RefLink href={`/cpc/meetings/${m.id}`}>{m.number}</RefLink>
                       <StatusBadge status={m.status} />
@@ -320,7 +320,7 @@ export default async function CpcPage() {
                 <li key={e.code} className="flex items-baseline justify-between gap-3 text-xs">
                   <span>
                     <Mono>{e.code}</Mono>
-                    <span className="ml-2 text-[var(--c-text-secondary)]">{e.name}</span>
+                    <span className="ml-2 text-muted">{e.name}</span>
                   </span>
                   <span className="text-right">
                     {e.enabled ? (

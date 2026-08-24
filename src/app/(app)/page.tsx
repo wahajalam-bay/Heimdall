@@ -271,19 +271,19 @@ export default async function DashboardPage() {
                 </div>
               ))}
             </div>
-            <div className="mt-3 space-y-1 border-t border-[var(--c-border-subtle)] pt-3">
+            <div className="mt-3 space-y-1 border-t border-separator pt-3">
               <div className="flex items-baseline justify-between text-xs">
-                <span className="text-[var(--c-text-secondary)]">Value reviewed</span>
+                <span className="text-muted">Value reviewed</span>
                 <span className="tnum font-500">{money(cpc.totalValue, "PKR", { compact: true })}</span>
               </div>
               <div className="flex items-baseline justify-between text-xs">
-                <span className="text-[var(--c-text-secondary)]">Savings endorsed</span>
+                <span className="text-muted">Savings endorsed</span>
                 <span className="tnum font-500 text-[var(--c-success)]">
                   {money(cpc.totalSavings, "PKR", { compact: true })}
                 </span>
               </div>
               <div className="flex items-baseline justify-between text-xs">
-                <span className="text-[var(--c-text-secondary)]">Average decision time</span>
+                <span className="text-muted">Average decision time</span>
                 <span className="tnum font-500">
                   {cpc.avgApprovalHours ? `${(cpc.avgApprovalHours / 24).toFixed(1)}d` : "—"}
                 </span>
@@ -321,7 +321,7 @@ export default async function DashboardPage() {
                         {Math.floor(b.ageHours / 24)}d {b.ageHours % 24}h
                       </span>
                     </div>
-                    <p className="mt-0.5 text-xs leading-5 text-[var(--c-text-secondary)]">{b.reason}</p>
+                    <p className="mt-0.5 text-xs leading-5 text-muted">{b.reason}</p>
                     <p className="mt-0.5 text-2xs text-[var(--c-text-tertiary)]">
                       Owner: {b.owner} · Next: {b.nextAction}
                     </p>
@@ -468,7 +468,7 @@ export default async function DashboardPage() {
                 {kpis.blacklistedVendors} blacklisted and blocked from sourcing
               </p>
             </div>
-            <div className="space-y-1 border-t border-[var(--c-border-subtle)] pt-3">
+            <div className="space-y-1 border-t border-separator pt-3">
               {[
                 ["Inventory value", money(kpis.inventoryValue, "PKR", { compact: true }), "/inventory"],
                 ["Assets on register", String(kpis.assetCount), "/assets"],
@@ -486,7 +486,7 @@ export default async function DashboardPage() {
                   href={String(href)}
                   className="flex items-baseline justify-between gap-3 py-0.5 text-xs hover:text-[var(--c-accent-text)]"
                 >
-                  <span className="text-[var(--c-text-secondary)]">{String(label)}</span>
+                  <span className="text-muted">{String(label)}</span>
                   <span className={`tnum font-500 ${danger ? "text-[var(--c-danger)]" : ""}`}>{String(value)}</span>
                 </Link>
               ))}

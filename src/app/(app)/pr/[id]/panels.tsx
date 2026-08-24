@@ -105,7 +105,7 @@ export function OverviewPanel({
             ]}
           />
           {pr.procurementType === "MATERIAL_DEMAND" && (
-            <div className="mt-4 rounded-[var(--radius-md)] border border-[var(--c-border)] bg-[var(--c-surface-sunken)] px-3.5 py-3">
+            <div className="mt-4 rounded-xl border border-border bg-surface-secondary px-3.5 py-3">
               <h4 className="label mb-2">Material Demand technical pack</h4>
               <DefList
                 columns={2}
@@ -134,7 +134,7 @@ export function OverviewPanel({
                 "—"
               )}
             </KeyValueRow>
-            <p className="mt-2 border-t border-[var(--c-border-subtle)] pt-2 text-2xs leading-4 text-[var(--c-text-tertiary)]">
+            <p className="mt-2 border-t border-separator pt-2 text-2xs leading-4 text-[var(--c-text-tertiary)]">
               {cpcInfo.reason}
             </p>
           </SectionCard>
@@ -157,7 +157,7 @@ export function OverviewPanel({
                 </div>
               </>
             ) : (
-              <p className="py-2 text-xs text-[var(--c-text-secondary)]">
+              <p className="py-2 text-xs text-muted">
                 Nothing ordered yet — fulfilment tracking starts when a purchase order is issued.
               </p>
             )}
@@ -207,13 +207,13 @@ export function ItemsPanel({ pr }: { pr: ProcurementCase }) {
                   <td className="align-top">
                     <div className="font-500">{it.description}</div>
                     {(it.brand || it.model || it.make) && (
-                      <div className="mt-0.5 text-2xs text-[var(--c-text-secondary)]">
+                      <div className="mt-0.5 text-2xs text-muted">
                         {[it.brand, it.model, it.make].filter(Boolean).join(" · ")}
                       </div>
                     )}
                     {it.item && <div className="mono mt-0.5 text-[var(--c-text-tertiary)]">{it.item.sku}</div>}
                     {it.specification && (
-                      <p className="mt-1 max-w-2xl rounded-[var(--radius-xs)] border-l-2 border-[var(--c-border-strong)] bg-[var(--c-surface-sunken)] px-2 py-1 text-2xs leading-4 text-[var(--c-text-secondary)]">
+                      <p className="mt-1 max-w-2xl rounded-sm border-l-2 border-[var(--c-border-strong)] bg-surface-secondary px-2 py-1 text-2xs leading-4 text-muted">
                         {it.specification}
                       </p>
                     )}
@@ -353,7 +353,7 @@ export function RfqPanel({ pr }: { pr: ProcurementCase }) {
           bodyClassName="px-0 py-0"
         >
           {rfq.scope && (
-            <p className="border-b border-[var(--c-border-subtle)] px-4 py-2.5 text-xs leading-5 text-[var(--c-text-secondary)]">
+            <p className="border-b border-separator px-4 py-2.5 text-xs leading-5 text-muted">
               {rfq.scope}
             </p>
           )}
@@ -386,7 +386,7 @@ export function RfqPanel({ pr }: { pr: ProcurementCase }) {
                     <td className="text-xs">{humanize(v.channel)}</td>
                     <td className="text-xs">{fmtDate(v.invitedAt)}</td>
                     <td className="text-xs">{v.respondedAt ? fmtDate(v.respondedAt) : "—"}</td>
-                    <td className="text-xs text-[var(--c-text-secondary)]">{v.notes ?? "—"}</td>
+                    <td className="text-xs text-muted">{v.notes ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -452,7 +452,7 @@ export function QuotesPanel({ pr }: { pr: ProcurementCase }) {
             }
             bodyClassName="px-0 py-0"
           >
-            <div className="grid gap-x-6 gap-y-2 border-b border-[var(--c-border-subtle)] px-4 py-3 sm:grid-cols-3 lg:grid-cols-6">
+            <div className="grid gap-x-6 gap-y-2 border-b border-separator px-4 py-3 sm:grid-cols-3 lg:grid-cols-6">
               {[
                 ["Subtotal", money(q.subtotal)],
                 ["Tax", money(q.taxAmount)],
@@ -522,7 +522,7 @@ export function QuotesPanel({ pr }: { pr: ProcurementCase }) {
             </div>
 
             {(q.complianceNotes || q.exceptions || q.notes) && (
-              <div className="space-y-1.5 border-t border-[var(--c-border-subtle)] px-4 py-3">
+              <div className="space-y-1.5 border-t border-separator px-4 py-3">
                 {q.complianceNotes && (
                   <p className="text-xs leading-5">
                     <span className="label mr-2">Compliance</span>
@@ -536,7 +536,7 @@ export function QuotesPanel({ pr }: { pr: ProcurementCase }) {
                   </p>
                 )}
                 {q.notes && (
-                  <p className="text-xs leading-5 text-[var(--c-text-secondary)]">
+                  <p className="text-xs leading-5 text-muted">
                     <span className="label mr-2">Notes</span>
                     {q.notes}
                   </p>
@@ -598,7 +598,7 @@ export function ComparisonPanel({ pr }: { pr: ProcurementCase }) {
             }
             bodyClassName="px-0 py-0"
           >
-            <div className="grid gap-x-6 gap-y-2 border-b border-[var(--c-border-subtle)] px-4 py-3 sm:grid-cols-4">
+            <div className="grid gap-x-6 gap-y-2 border-b border-separator px-4 py-3 sm:grid-cols-4">
               <div>
                 <div className="label">Previous purchase price</div>
                 <div className="tnum text-[0.8125rem]">{c.previousPrice ? money(c.previousPrice) : "No history"}</div>
@@ -720,7 +720,7 @@ export function ComparisonPanel({ pr }: { pr: ProcurementCase }) {
               </table>
             </div>
 
-            <div className="space-y-2.5 border-t border-[var(--c-border-subtle)] px-4 py-3">
+            <div className="space-y-2.5 border-t border-separator px-4 py-3">
               {criteria.length > 0 && (
                 <p className="text-2xs text-[var(--c-text-tertiary)]">
                   <span className="label mr-2">Evaluation weighting</span>
@@ -734,7 +734,7 @@ export function ComparisonPanel({ pr }: { pr: ProcurementCase }) {
                 </p>
               )}
               {c.nonLowestJustification && (
-                <div className="rounded-[var(--radius-sm)] border border-[var(--c-warning-border)] bg-[var(--c-warning-soft)] px-3 py-2">
+                <div className="rounded-2xl alert-warning px-3 py-2">
                   <p className="text-2xs font-600 text-[var(--c-warning)]">
                     Awarded above the lowest compliant quotation — justification recorded
                   </p>
@@ -750,7 +750,7 @@ export function ComparisonPanel({ pr }: { pr: ProcurementCase }) {
                   )}
                 </div>
               )}
-              {c.notes && <p className="text-xs leading-5 text-[var(--c-text-secondary)]">{c.notes}</p>}
+              {c.notes && <p className="text-xs leading-5 text-muted">{c.notes}</p>}
             </div>
           </SectionCard>
         );
@@ -830,7 +830,7 @@ export function NegotiationPanel({ pr }: { pr: ProcurementCase }) {
                   <StatusBadge status={n.outcome} />
                 </td>
                 <td className="text-xs">{n.negotiatedBy.name}</td>
-                <td className="text-xs leading-5 text-[var(--c-text-secondary)]">{n.notes ?? "—"}</td>
+                <td className="text-xs leading-5 text-muted">{n.notes ?? "—"}</td>
               </tr>
             ))}
           </tbody>

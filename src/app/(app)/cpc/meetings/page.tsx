@@ -164,7 +164,7 @@ export default async function CpcMeetingsPage() {
                 ["APPROVED", "REJECTED", "RETURNED", "CLARIFICATION"].includes(c.status),
               ).length;
               return (
-                <div key={m.id} className="rounded-[var(--radius-md)] border border-[var(--c-border)] px-3 py-2.5">
+                <div key={m.id} className="rounded-xl border border-border px-3 py-2.5">
                   <div className="flex items-center justify-between gap-2">
                     <RefLink href={`/cpc/meetings/${m.id}`}>{m.number}</RefLink>
                     <Badge tone="neutral">{m.entity.code}</Badge>

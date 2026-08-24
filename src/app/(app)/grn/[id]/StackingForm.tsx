@@ -120,7 +120,7 @@ export function StackingForm({
           )}
 
           <FormSection columns={1}>
-            <div className="sm:col-span-full overflow-hidden rounded-[var(--radius-md)] border border-[var(--c-border)]">
+            <div className="sm:col-span-full overflow-hidden rounded-xl border border-border">
               <div className="table-wrap">
                 <table className="dt">
                   <thead>

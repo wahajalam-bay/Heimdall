@@ -64,17 +64,17 @@ export async function ExceptionsPanel({
                   </div>
                   <p className="mt-1 text-[0.8125rem] leading-5">{e.title}</p>
                   {e.description && (
-                    <p className="mt-0.5 text-xs leading-5 text-[var(--c-text-secondary)]">{e.description}</p>
+                    <p className="mt-0.5 text-xs leading-5 text-muted">{e.description}</p>
                   )}
                   {e.resolution && (
-                    <p className="mt-1 rounded-[var(--radius-xs)] border-l-2 border-[var(--c-success-border)] bg-[var(--c-success-soft)] px-2 py-1 text-xs text-[var(--c-success)]">
+                    <p className="mt-1 rounded-sm border-l-2 border-[var(--c-success-border)] bg-[var(--c-success-soft)] px-2 py-1 text-xs text-[var(--c-success)]">
                       {e.resolution}
                     </p>
                   )}
                 </div>
                 <div className="shrink-0 text-right text-2xs text-[var(--c-text-tertiary)]">
                   <div>{fmtDateTime(e.createdAt)}</div>
-                  {e.owner && <div className="text-[var(--c-text-secondary)]">Owner: {e.owner.name}</div>}
+                  {e.owner && <div className="text-muted">Owner: {e.owner.name}</div>}
                   {e.dueAt && !e.resolvedAt && (
                     <div className={e.dueAt < new Date() ? "text-[var(--c-danger)]" : undefined}>
                       Due {relativeTime(e.dueAt)}

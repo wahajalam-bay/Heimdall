@@ -138,7 +138,7 @@ export default async function BlacklistCasePage({ params }: { params: Promise<{ 
         eyebrow={`${kase.vendor.code} · ${kase.vendor.name}`}
         title={
           <span className="flex flex-wrap items-baseline gap-2.5">
-            <span className="mono text-[1rem] text-[var(--c-text-secondary)]">{kase.number}</span>
+            <span className="mono text-[1rem] text-muted">{kase.number}</span>
             <span>{humanize(kase.reasonCode)}</span>
           </span>
         }
@@ -247,11 +247,11 @@ export default async function BlacklistCasePage({ params }: { params: Promise<{ 
             <div className="space-y-3.5">
               <div>
                 <span className="label mb-1 block">Investigation findings</span>
-                <p className="whitespace-pre-wrap text-xs leading-5 text-[var(--c-text-secondary)]">
+                <p className="whitespace-pre-wrap text-xs leading-5 text-muted">
                   {kase.investigationNotes ?? "Not yet recorded."}
                 </p>
               </div>
-              <div className="border-t border-[var(--c-border-subtle)] pt-3">
+              <div className="border-t border-separator pt-3">
                 <span className="label mb-1 block">
                   Vendor response
                   {kase.vendorRespondedAt && (
@@ -260,31 +260,31 @@ export default async function BlacklistCasePage({ params }: { params: Promise<{ 
                     </span>
                   )}
                 </span>
-                <p className="whitespace-pre-wrap text-xs leading-5 text-[var(--c-text-secondary)]">
+                <p className="whitespace-pre-wrap text-xs leading-5 text-muted">
                   {kase.vendorResponse ?? "The vendor has not replied."}
                 </p>
               </div>
-              <div className="border-t border-[var(--c-border-subtle)] pt-3">
+              <div className="border-t border-separator pt-3">
                 <span className="label mb-1 block">Procurement review</span>
-                <p className="whitespace-pre-wrap text-xs leading-5 text-[var(--c-text-secondary)]">
+                <p className="whitespace-pre-wrap text-xs leading-5 text-muted">
                   {kase.procurementReview ?? "Not yet recorded."}
                 </p>
               </div>
-              <div className="border-t border-[var(--c-border-subtle)] pt-3">
+              <div className="border-t border-separator pt-3">
                 <span className="label mb-1 block">Audit review</span>
-                <p className="whitespace-pre-wrap text-xs leading-5 text-[var(--c-text-secondary)]">
+                <p className="whitespace-pre-wrap text-xs leading-5 text-muted">
                   {kase.auditReview ??
                     (kase.auditRequired ? "Required but not yet recorded." : "Not required on this case.")}
                 </p>
               </div>
-              <div className="border-t border-[var(--c-border-subtle)] pt-3">
+              <div className="border-t border-separator pt-3">
                 <span className="label mb-1 block">Decision</span>
                 {kase.decision ? (
                   <>
                     <Badge tone={kase.decision === "BLACKLIST" ? "danger" : kase.decision === "RETAIN" ? "success" : "warning"}>
                       {humanize(kase.decision)}
                     </Badge>
-                    <p className="mt-1.5 whitespace-pre-wrap text-xs leading-5 text-[var(--c-text-secondary)]">
+                    <p className="mt-1.5 whitespace-pre-wrap text-xs leading-5 text-muted">
                       {kase.decisionNotes ?? "No notes recorded."}
                     </p>
                     <p className="mt-1 text-2xs text-[var(--c-text-tertiary)]">
@@ -294,7 +294,7 @@ export default async function BlacklistCasePage({ params }: { params: Promise<{ 
                     </p>
                   </>
                 ) : (
-                  <p className="text-xs text-[var(--c-text-secondary)]">No decision has been taken.</p>
+                  <p className="text-xs text-muted">No decision has been taken.</p>
                 )}
               </div>
             </div>
@@ -306,7 +306,7 @@ export default async function BlacklistCasePage({ params }: { params: Promise<{ 
             bodyClassName="px-0 py-0"
           >
             {issues.length === 0 ? (
-              <p className="px-4 py-6 text-center text-xs text-[var(--c-text-secondary)]">
+              <p className="px-4 py-6 text-center text-xs text-muted">
                 No issues are on record for this vendor.
               </p>
             ) : (

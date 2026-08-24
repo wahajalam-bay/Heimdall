@@ -125,7 +125,7 @@ export default async function AdminEmailPage() {
           />
         }
         meta={
-          <span className="text-xs text-[var(--c-text-secondary)]">
+          <span className="text-xs text-muted">
             Transport <Mono>{summary.transport}</Mono> · {emailOptIn} user
             {emailOptIn === 1 ? "" : "s"} opted into email
           </span>

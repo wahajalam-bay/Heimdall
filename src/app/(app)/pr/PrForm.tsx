@@ -111,7 +111,7 @@ export function PrForm({
       footerSticky
       secondary={
         <>
-          <label className="mr-auto flex cursor-pointer items-center gap-2 text-xs text-[var(--c-text-secondary)]">
+          <label className="mr-auto flex cursor-pointer items-center gap-2 text-xs text-muted">
             <input type="checkbox" checked={submitNow} onChange={(e) => setSubmitNow(e.target.checked)} />
             Submit for approval immediately
           </label>

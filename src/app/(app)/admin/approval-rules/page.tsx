@@ -243,7 +243,7 @@ export default async function AdminApprovalRulesPage({ searchParams }: { searchP
                   </div>
 
                   {r.description && (
-                    <p className="text-xs leading-5 text-[var(--c-text-secondary)]">{r.description}</p>
+                    <p className="text-xs leading-5 text-muted">{r.description}</p>
                   )}
 
                   {r.steps.length === 0 ? (
@@ -251,7 +251,7 @@ export default async function AdminApprovalRulesPage({ searchParams }: { searchP
                       This rule has no steps. Any matching document would be left without an approver.
                     </InlineAlert>
                   ) : (
-                    <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--c-border)]">
+                    <div className="overflow-hidden rounded-xl border border-border">
                       <table className="dt">
                         <thead>
                           <tr>

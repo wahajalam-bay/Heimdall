@@ -42,9 +42,9 @@ export function AnalyticsFilters({
   const active = ["entity", "department", "category", "vendor", "project", "from", "to"].filter((k) => params.get(k));
 
   return (
-    <div className="card flex flex-wrap items-end gap-3 px-3.5 py-3">
+    <div className="card card-pad grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] items-end gap-3">
       {show.includes("entity") && entities && (
-        <label className="min-w-[10rem] flex-1">
+        <label>
           <span className="label mb-1 block">Entity</span>
           <Select
             options={entities}
@@ -55,7 +55,7 @@ export function AnalyticsFilters({
         </label>
       )}
       {show.includes("department") && departments && (
-        <label className="min-w-[10rem] flex-1">
+        <label>
           <span className="label mb-1 block">Department</span>
           <Select
             options={departments}
@@ -66,7 +66,7 @@ export function AnalyticsFilters({
         </label>
       )}
       {show.includes("category") && categories && (
-        <label className="min-w-[10rem] flex-1">
+        <label>
           <span className="label mb-1 block">Category</span>
           <Select
             options={categories}
@@ -77,7 +77,7 @@ export function AnalyticsFilters({
         </label>
       )}
       {show.includes("vendor") && vendors && (
-        <label className="min-w-[10rem] flex-1">
+        <label>
           <span className="label mb-1 block">Vendor</span>
           <Select
             options={vendors}
@@ -88,7 +88,7 @@ export function AnalyticsFilters({
         </label>
       )}
       {show.includes("project") && projects && (
-        <label className="min-w-[10rem] flex-1">
+        <label>
           <span className="label mb-1 block">Project</span>
           <Select
             options={projects}

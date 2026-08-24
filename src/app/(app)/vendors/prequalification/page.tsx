@@ -181,7 +181,7 @@ export default async function PrequalificationPage() {
                         </span>
                       </>
                     ) : (
-                      <p className="text-xs text-[var(--c-text-secondary)]">
+                      <p className="text-xs text-muted">
                         No evaluation recorded. Approval will be refused until one exists.
                       </p>
                     )}
@@ -196,13 +196,13 @@ export default async function PrequalificationPage() {
                       <Badge tone="neutral">Unscored</Badge>
                     )}
                     {ev?.recommendation && (
-                      <p className="mt-1.5 text-2xs leading-4 text-[var(--c-text-secondary)]">{ev.recommendation}</p>
+                      <p className="mt-1.5 text-2xs leading-4 text-muted">{ev.recommendation}</p>
                     )}
                   </div>
                   <div>
                     <span className="label mb-1 block">Documents</span>
                     {v.documents.length === 0 ? (
-                      <p className="text-xs text-[var(--c-text-secondary)]">None on file.</p>
+                      <p className="text-xs text-muted">None on file.</p>
                     ) : (
                       <ul className="space-y-1">
                         {v.documents.slice(0, 5).map((d) => (
@@ -242,13 +242,13 @@ export default async function PrequalificationPage() {
                   <td className="text-xs font-500">{c.name}</td>
                   <td className="num text-xs">{c.maxScore}</td>
                   <td className="num text-xs">{c.weight}</td>
-                  <td className="text-2xs text-[var(--c-text-secondary)]">{c.description ?? "—"}</td>
+                  <td className="text-2xs text-muted">{c.description ?? "—"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <div className="border-t border-[var(--c-border-subtle)] px-4 py-2.5 text-2xs text-[var(--c-text-tertiary)]">
+        <div className="border-t border-separator px-4 py-2.5 text-2xs text-[var(--c-text-tertiary)]">
           <RefLink href="/admin/evaluation-criteria">Maintain criteria</RefLink>
         </div>
       </SectionCard>

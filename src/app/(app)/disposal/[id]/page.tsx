@@ -156,7 +156,7 @@ export default async function DisposalDetailPage({ params }: { params: Promise<{
         eyebrow={`${kase.entity.code} · ${humanize(kase.disposalCategory)}`}
         title={
           <span className="flex flex-wrap items-baseline gap-2.5">
-            <span className="mono text-[1rem] text-[var(--c-text-secondary)]">{kase.number}</span>
+            <span className="mono text-[1rem] text-muted">{kase.number}</span>
             <span>{kase.title}</span>
           </span>
         }
@@ -287,7 +287,7 @@ export default async function DisposalDetailPage({ params }: { params: Promise<{
                           )}
                         </span>
                         {i.notes && (
-                          <span className="mt-0.5 block text-2xs text-[var(--c-text-secondary)]">{i.notes}</span>
+                          <span className="mt-0.5 block text-2xs text-muted">{i.notes}</span>
                         )}
                       </td>
                       <td className="num text-xs">{qty(i.quantity, i.unit)}</td>
@@ -338,7 +338,7 @@ export default async function DisposalDetailPage({ params }: { params: Promise<{
             bodyClassName="px-0 py-0"
           >
             {kase.bids.length === 0 ? (
-              <p className="px-4 py-6 text-center text-xs text-[var(--c-text-secondary)]">
+              <p className="px-4 py-6 text-center text-xs text-muted">
                 No bids recorded{kase.biddingRequired ? " — required before management approval." : "."}
               </p>
             ) : (
@@ -384,7 +384,7 @@ export default async function DisposalDetailPage({ params }: { params: Promise<{
                             <StatusBadge status={b.status} />
                           </td>
                           <td className="text-xs">{fmtDate(b.bidDate)}</td>
-                          <td className="max-w-[18rem] truncate text-2xs text-[var(--c-text-secondary)]" title={b.notes ?? ""}>
+                          <td className="max-w-[18rem] truncate text-2xs text-muted" title={b.notes ?? ""}>
                             {b.notes ?? "—"}
                           </td>
                         </tr>
@@ -506,19 +506,19 @@ export default async function DisposalDetailPage({ params }: { params: Promise<{
           <SectionCard title="Value recovery">
             <div className="space-y-2 text-xs">
               <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[var(--c-text-secondary)]">Book value</span>
+                <span className="text-muted">Book value</span>
                 <span className="tnum">{money(bookValue)}</span>
               </div>
               <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[var(--c-text-secondary)]">Estimated realisation</span>
+                <span className="text-muted">Estimated realisation</span>
                 <span className="tnum">{money(estimated)}</span>
               </div>
               <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[var(--c-text-secondary)]">Highest bid</span>
+                <span className="text-muted">Highest bid</span>
                 <span className="tnum">{highestBid > 0 ? money(highestBid) : "—"}</span>
               </div>
-              <div className="flex items-baseline justify-between gap-3 border-t border-[var(--c-border-subtle)] pt-2">
-                <span className="text-[var(--c-text-secondary)]">Actually realised</span>
+              <div className="flex items-baseline justify-between gap-3 border-t border-separator pt-2">
+                <span className="text-muted">Actually realised</span>
                 <span className="tnum font-600">{kase.realisedValue ? money(kase.realisedValue) : "—"}</span>
               </div>
               {recovery !== null && (

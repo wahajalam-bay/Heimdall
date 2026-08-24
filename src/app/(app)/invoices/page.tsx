@@ -252,7 +252,7 @@ export default async function InvoicesPage() {
                     <td className="num text-xs font-600 text-[var(--c-danger)]">
                       {i.items.filter((x) => x.matchFlag !== "OK").length}
                     </td>
-                    <td className="max-w-[24rem] text-2xs text-[var(--c-text-secondary)]">{i.matchNotes ?? "—"}</td>
+                    <td className="max-w-[24rem] text-2xs text-muted">{i.matchNotes ?? "—"}</td>
                     <td>
                       <Link href={`/invoices/${i.id}`} className="btn btn-primary btn-xs">
                         Review

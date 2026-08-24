@@ -133,7 +133,7 @@ export function ActionForm({
         {state && !state.ok && (
           <div
             role="alert"
-            className="rounded-[var(--radius-sm)] border border-[var(--c-danger-border)] bg-[var(--c-danger-soft)] px-3 py-2.5"
+            className="rounded-2xl alert-danger px-3 py-2.5"
           >
             <p className="text-xs font-600 text-[var(--c-danger)]">Could not complete this action</p>
             <p className="mt-0.5 text-xs leading-5 text-[var(--c-danger)]">{state.error}</p>
@@ -151,7 +151,7 @@ export function ActionForm({
         {state?.ok && (successMessage || state.message) && (
           <div
             role="status"
-            className="rounded-[var(--radius-sm)] border border-[var(--c-success-border)] bg-[var(--c-success-soft)] px-3 py-2 text-xs text-[var(--c-success)]"
+            className="rounded-2xl alert-success px-3 py-2 text-xs text-[var(--c-success)]"
           >
             {state.message ?? successMessage}
           </div>
@@ -161,7 +161,7 @@ export function ActionForm({
 
       <div
         className={classNames(
-          "flex flex-wrap items-center justify-end gap-2 border-t border-[var(--c-border)] px-4 py-3",
+          "flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-3",
           footerSticky && "sticky bottom-0 z-10 bg-[var(--c-surface)]",
           layout === "bare" && "-mx-0 mt-4",
         )}
@@ -326,9 +326,9 @@ export function ActionButton({
             style={{ background: "var(--c-overlay)" }}
             onClick={() => setReasonOpen(false)}
           />
-          <div className="relative w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--c-border)] bg-[var(--c-surface)] p-4 shadow-[var(--shadow-lg)]">
+          <div className="relative w-full max-w-md card p-4 shadow-overlay">
             <h3 className="text-[0.875rem] font-600">{label}</h3>
-            <label htmlFor={fieldId} className="mt-3 mb-1 block text-xs font-500 text-[var(--c-text-secondary)]">
+            <label htmlFor={fieldId} className="mt-3 mb-1 block text-xs font-500 text-muted">
               {reasonLabel}
               {reasonRequired && <span className="text-[var(--c-danger)]"> *</span>}
             </label>
@@ -361,7 +361,7 @@ export function ActionButton({
       )}
 
       {error && !reasonOpen && (
-        <span className="absolute left-0 top-full z-20 mt-1 w-max max-w-xs rounded-[var(--radius-sm)] border border-[var(--c-danger-border)] bg-[var(--c-danger-soft)] px-2 py-1 text-2xs leading-4 text-[var(--c-danger)] shadow-[var(--shadow-md)]">
+        <span className="absolute left-0 top-full z-20 mt-1 w-max max-w-xs rounded-2xl alert-danger px-2 py-1 text-2xs leading-4 text-[var(--c-danger)] shadow-overlay">
           {error}
           <button
             type="button"
@@ -417,15 +417,15 @@ export function Modal({
       <div className="fixed inset-0" style={{ background: "var(--c-overlay)" }} onClick={onClose} />
       <div
         className={classNames(
-          "relative my-auto w-full rounded-[var(--radius-xl)] border border-[var(--c-border)] bg-[var(--c-surface)] shadow-[var(--shadow-lg)]",
+          "relative my-auto w-full overlay-panel",
           w,
         )}
       >
-        <header className="flex items-start justify-between gap-3 border-b border-[var(--c-border-subtle)] px-4 py-3">
+        <header className="flex items-start justify-between gap-3 border-b border-separator px-4 py-3">
           <div>
             <h2 className="text-[0.9375rem] font-600">{title}</h2>
             {description && (
-              <p className="mt-0.5 text-xs leading-5 text-[var(--c-text-secondary)]">{description}</p>
+              <p className="mt-0.5 text-xs leading-5 text-muted">{description}</p>
             )}
           </div>
           <button type="button" className="btn btn-ghost btn-xs" onClick={onClose} aria-label="Close">
@@ -434,7 +434,7 @@ export function Modal({
         </header>
         <div className="max-h-[70vh] overflow-y-auto px-4 py-4">{children}</div>
         {footer && (
-          <footer className="flex justify-end gap-2 border-t border-[var(--c-border-subtle)] px-4 py-3">
+          <footer className="flex justify-end gap-2 border-t border-separator px-4 py-3">
             {footer}
           </footer>
         )}
@@ -470,10 +470,10 @@ export function Drawer({
     <div className="fixed inset-0 z-50" role="dialog" aria-modal aria-label={title}>
       <div className="absolute inset-0" style={{ background: "var(--c-overlay)" }} onClick={onClose} />
       <aside
-        className="absolute inset-y-0 right-0 flex flex-col border-l border-[var(--c-border)] bg-[var(--c-surface)] shadow-[var(--shadow-lg)]"
+        className="absolute inset-y-0 right-0 flex flex-col border-l border-border bg-[var(--c-surface)] shadow-overlay"
         style={{ width: `min(${width}, 100vw)` }}
       >
-        <header className="flex items-center justify-between gap-3 border-b border-[var(--c-border-subtle)] px-4 py-3">
+        <header className="flex items-center justify-between gap-3 border-b border-separator px-4 py-3">
           <h2 className="text-[0.9375rem] font-600">{title}</h2>
           <button type="button" className="btn btn-ghost btn-xs" onClick={onClose} aria-label="Close">
             ✕
@@ -481,7 +481,7 @@ export function Drawer({
         </header>
         <div className="flex-1 overflow-y-auto px-4 py-4">{children}</div>
         {footer && (
-          <footer className="flex justify-end gap-2 border-t border-[var(--c-border-subtle)] px-4 py-3">
+          <footer className="flex justify-end gap-2 border-t border-separator px-4 py-3">
             {footer}
           </footer>
         )}
@@ -504,7 +504,7 @@ export function Disclosure({
 }) {
   const [open, setOpen] = useState(defaultOpen ?? false);
   return (
-    <div className="rounded-[var(--radius-md)] border border-[var(--c-border)]">
+    <div className="rounded-xl border border-border">
       <button
         type="button"
         className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
@@ -517,7 +517,7 @@ export function Disclosure({
         </span>
         <span className="text-xs text-[var(--c-text-tertiary)]">{open ? "▲" : "▼"}</span>
       </button>
-      {open && <div className="border-t border-[var(--c-border-subtle)] px-3 py-3.5">{children}</div>}
+      {open && <div className="border-t border-separator px-3 py-3.5">{children}</div>}
     </div>
   );
 }

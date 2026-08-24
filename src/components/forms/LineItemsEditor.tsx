@@ -162,7 +162,7 @@ export function LineItemsEditor({
     <div className="space-y-2.5">
       <input type="hidden" name={name} value={payload} />
 
-      <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--c-border)]">
+      <div className="overflow-hidden rounded-xl border border-border">
         <table className="dt">
           <thead>
             <tr>
@@ -310,22 +310,22 @@ export function LineItemsEditor({
                   {isOpen && (
                     <tr key={`${l.key}-detail`}>
                       <td />
-                      <td colSpan={7} className="bg-[var(--c-surface-sunken)]">
+                      <td colSpan={7} className="bg-surface-secondary">
                         <div className="grid gap-3 py-1 sm:grid-cols-3">
                           <label className="block">
-                            <span className="mb-1 block text-2xs font-500 text-[var(--c-text-secondary)]">Brand</span>
+                            <span className="mb-1 block text-2xs font-500 text-muted">Brand</span>
                             <input className="field" value={l.brand} onChange={(e) => patch(l.key, { brand: e.target.value })} />
                           </label>
                           <label className="block">
-                            <span className="mb-1 block text-2xs font-500 text-[var(--c-text-secondary)]">Model</span>
+                            <span className="mb-1 block text-2xs font-500 text-muted">Model</span>
                             <input className="field" value={l.model} onChange={(e) => patch(l.key, { model: e.target.value })} />
                           </label>
                           <label className="block">
-                            <span className="mb-1 block text-2xs font-500 text-[var(--c-text-secondary)]">Make</span>
+                            <span className="mb-1 block text-2xs font-500 text-muted">Make</span>
                             <input className="field" value={l.make} onChange={(e) => patch(l.key, { make: e.target.value })} />
                           </label>
                           <label className="block sm:col-span-2">
-                            <span className="mb-1 block text-2xs font-500 text-[var(--c-text-secondary)]">
+                            <span className="mb-1 block text-2xs font-500 text-muted">
                               Technical specification {requireSpecification && <span className="text-[var(--c-danger)]">*</span>}
                             </span>
                             <textarea
@@ -338,7 +338,7 @@ export function LineItemsEditor({
                           </label>
                           <div className="space-y-3">
                             <label className="block">
-                              <span className="mb-1 block text-2xs font-500 text-[var(--c-text-secondary)]">Disposition</span>
+                              <span className="mb-1 block text-2xs font-500 text-muted">Disposition</span>
                               <select
                                 className="field"
                                 value={l.disposition}
@@ -355,7 +355,7 @@ export function LineItemsEditor({
                               </span>
                             </label>
                             <label className="block">
-                              <span className="mb-1 block text-2xs font-500 text-[var(--c-text-secondary)]">Notes</span>
+                              <span className="mb-1 block text-2xs font-500 text-muted">Notes</span>
                               <input className="field" value={l.notes} onChange={(e) => patch(l.key, { notes: e.target.value })} />
                             </label>
                           </div>

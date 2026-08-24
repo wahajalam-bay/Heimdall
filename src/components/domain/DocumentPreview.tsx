@@ -81,7 +81,7 @@ export function DocumentPreview({
           <img
             src={`/api/documents/${id}`}
             alt={name}
-            className="mx-auto max-h-[70vh] w-auto max-w-full rounded-[var(--radius-sm)] border border-[var(--c-border)]"
+            className="mx-auto max-h-[70vh] w-auto max-w-full rounded-lg border border-border"
           />
         )}
 
@@ -89,12 +89,12 @@ export function DocumentPreview({
           <iframe
             src={`/api/documents/${id}`}
             title={name}
-            className="h-[70vh] w-full rounded-[var(--radius-sm)] border border-[var(--c-border)] bg-[var(--c-surface-sunken)]"
+            className="h-[70vh] w-full rounded-lg border border-border bg-surface-secondary"
           />
         )}
 
         {kind === "other" && (
-          <p className="px-2 py-10 text-center text-xs text-[var(--c-text-secondary)]">
+          <p className="px-2 py-10 text-center text-xs text-muted">
             This file type cannot be shown in the browser. Download it to open in the right application.
           </p>
         )}

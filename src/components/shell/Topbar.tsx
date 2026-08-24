@@ -169,7 +169,7 @@ export function Topbar({
   };
 
   return (
-    <header className="relative sticky top-0 z-20 flex h-[var(--topbar-h)] items-center gap-2 border-b border-[var(--c-border)] bg-[var(--c-surface)]/95 px-3 backdrop-blur-sm sm:px-4">
+    <header className="relative sticky top-0 z-20 flex h-[var(--topbar-h)] items-center gap-2 border-b border-border bg-[var(--c-surface)]/95 px-3 backdrop-blur-sm sm:px-4">
       {/* Which part of the system you are in, as a hairline. */}
       <span
         className="pointer-events-none absolute inset-x-0 bottom-[-1px] h-[2px]"
@@ -207,7 +207,7 @@ export function Topbar({
             aria-activedescendant={hits[cursor] ? `search-hit-${hits[cursor].type}-${hits[cursor].id}` : undefined}
             autoComplete="off"
           />
-          <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-[var(--c-border)] bg-[var(--c-surface-sunken)] px-1 text-2xs text-[var(--c-text-tertiary)]">
+          <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border bg-surface-secondary px-1 text-2xs text-[var(--c-text-tertiary)]">
             ⌘K
           </kbd>
 
@@ -216,15 +216,15 @@ export function Topbar({
               id="global-search-results"
               role="listbox"
               aria-label="Search results"
-              className="scroll-y absolute left-0 right-0 top-full z-30 mt-1 max-h-[26rem] rounded-[var(--radius-md)] border border-[var(--c-border)] bg-[var(--c-surface-raised)] py-1 shadow-[var(--shadow-lg)]"
+              className="scroll-y absolute left-0 right-0 top-full z-30 mt-1 max-h-[26rem] overlay-panel py-1"
             >
               {searching && (
-                <div className="flex items-center gap-2 px-3 py-2.5 text-xs text-[var(--c-text-secondary)]">
+                <div className="flex items-center gap-2 px-3 py-2.5 text-xs text-muted">
                   <Spinner size={12} /> Searching…
                 </div>
               )}
               {!searching && hits.length === 0 && (
-                <div className="px-3 py-3 text-xs text-[var(--c-text-secondary)]">
+                <div className="px-3 py-3 text-xs text-muted">
                   No records match “{q.trim()}”.
                 </div>
               )}
@@ -266,7 +266,7 @@ export function Topbar({
                 </Link>
               ))}
               {hits.length > 0 && (
-                <div className="mt-1 flex items-center gap-3 border-t border-[var(--c-border-subtle)] px-3 pt-1.5 text-2xs text-[var(--c-text-tertiary)]">
+                <div className="mt-1 flex items-center gap-3 border-t border-separator px-3 pt-1.5 text-2xs text-[var(--c-text-tertiary)]">
                   <span>
                     <kbd className="mono">↑</kbd> <kbd className="mono">↓</kbd> to move
                   </span>
@@ -330,8 +330,8 @@ export function Topbar({
         </button>
 
         {bellOpen && (
-          <div className="absolute right-0 z-30 mt-1 w-[22rem] rounded-[var(--radius-md)] border border-[var(--c-border)] bg-[var(--c-surface-raised)] shadow-[var(--shadow-lg)]">
-            <div className="flex items-center justify-between border-b border-[var(--c-border-subtle)] px-3 py-2">
+          <div className="absolute right-0 z-30 mt-1 w-[22rem] overlay-panel">
+            <div className="flex items-center justify-between border-b border-separator px-3 py-2">
               <span className="text-xs font-600">Notifications</span>
               {unreadCount > 0 && (
                 <button type="button" className="btn btn-ghost btn-xs" onClick={() => markRead()} disabled={pending}>
@@ -341,7 +341,7 @@ export function Topbar({
             </div>
             <div className="max-h-[22rem] overflow-y-auto">
               {notifications.length === 0 ? (
-                <p className="px-3 py-6 text-center text-xs text-[var(--c-text-secondary)]">
+                <p className="px-3 py-6 text-center text-xs text-muted">
                   You&apos;re all caught up.
                 </p>
               ) : (
@@ -366,7 +366,7 @@ export function Topbar({
                           <span
                             className={classNames(
                               "block text-xs leading-4",
-                              n.read ? "text-[var(--c-text-secondary)]" : "font-500 text-[var(--c-text)]",
+                              n.read ? "text-muted" : "font-500 text-[var(--c-text)]",
                             )}
                           >
                             {n.title}
@@ -387,7 +387,7 @@ export function Topbar({
                     <Link
                       key={n.id}
                       href={n.linkUrl}
-                      className="block border-b border-[var(--c-border-subtle)] px-3 py-2.5 last:border-0 hover:bg-[var(--c-surface-hover)]"
+                      className="block border-b border-separator px-3 py-2.5 last:border-0 hover:bg-[var(--c-surface-hover)]"
                       onClick={() => {
                         if (!n.read) markRead(n.id);
                         setBellOpen(false);
@@ -396,14 +396,14 @@ export function Topbar({
                       {inner}
                     </Link>
                   ) : (
-                    <div key={n.id} className="border-b border-[var(--c-border-subtle)] px-3 py-2.5 last:border-0">
+                    <div key={n.id} className="border-b border-separator px-3 py-2.5 last:border-0">
                       {inner}
                     </div>
                   );
                 })
               )}
             </div>
-            <div className="border-t border-[var(--c-border-subtle)] px-3 py-2 text-center">
+            <div className="border-t border-separator px-3 py-2 text-center">
               <Link href="/alerts" className="text-xs text-[var(--c-accent-text)]" onClick={() => setBellOpen(false)}>
                 View all alerts
               </Link>
@@ -415,7 +415,7 @@ export function Topbar({
       <div className="relative" ref={userRef}>
         <button
           type="button"
-          className="flex items-center gap-2 rounded-[var(--radius-sm)] px-1 py-1 hover:bg-[var(--c-surface-active)]"
+          className="flex items-center gap-2 rounded-lg px-1 py-1 hover:bg-[var(--c-surface-active)]"
           onClick={() => setUserOpen((v) => !v)}
           aria-expanded={userOpen}
           aria-label="Account menu"
@@ -430,11 +430,11 @@ export function Topbar({
         </button>
 
         {userOpen && (
-          <div className="absolute right-0 z-30 mt-1 w-64 rounded-[var(--radius-md)] border border-[var(--c-border)] bg-[var(--c-surface-raised)] py-1 shadow-[var(--shadow-lg)]">
-            <div className="border-b border-[var(--c-border-subtle)] px-3 py-2.5">
+          <div className="absolute right-0 z-30 mt-1 w-64 overlay-panel py-1">
+            <div className="border-b border-separator px-3 py-2.5">
               <p className="text-[0.8125rem] font-600">{user.name}</p>
               <p className="truncate text-2xs text-[var(--c-text-tertiary)]">{user.email}</p>
-              {user.title && <p className="mt-0.5 text-2xs text-[var(--c-text-secondary)]">{user.title}</p>}
+              {user.title && <p className="mt-0.5 text-2xs text-muted">{user.title}</p>}
               <div className="mt-1.5 flex flex-wrap gap-1">
                 {user.roleNames.map((r) => (
                   <span key={r} className="badge badge-neutral">
@@ -457,7 +457,7 @@ export function Topbar({
             >
               Notification preferences
             </Link>
-            <div className="my-1 border-t border-[var(--c-border-subtle)]" />
+            <div className="my-1 border-t border-separator" />
             <button
               type="button"
               className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-[var(--c-danger)] hover:bg-[var(--c-surface-hover)]"

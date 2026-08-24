@@ -95,7 +95,7 @@ export function PettyCashForm({
       footerSticky
       secondary={
         <>
-          <label className="mr-auto flex cursor-pointer items-center gap-2 text-xs text-[var(--c-text-secondary)]">
+          <label className="mr-auto flex cursor-pointer items-center gap-2 text-xs text-muted">
             <input type="checkbox" checked={submit} onChange={(e) => setSubmit(e.target.checked)} />
             Submit immediately
           </label>
@@ -160,7 +160,7 @@ export function PettyCashForm({
 
       <FormSection title="Items" columns={1}>
         <div className="space-y-2.5 sm:col-span-full">
-          <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--c-border)]">
+          <div className="overflow-hidden rounded-xl border border-border">
             <table className="dt">
               <thead>
                 <tr>
@@ -281,7 +281,7 @@ export function PettyCashForm({
               + Add line
             </button>
             <div className="text-xs">
-              <span className="text-[var(--c-text-secondary)]">Estimated total </span>
+              <span className="text-muted">Estimated total </span>
               <span className="tnum font-600">{money(estimate)}</span>
               {limit > 0 && (
                 <span className="ml-2 text-[var(--c-text-tertiary)]">

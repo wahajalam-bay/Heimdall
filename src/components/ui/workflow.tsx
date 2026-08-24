@@ -33,7 +33,7 @@ export function LifecycleRail({ steps, title }: { steps: RailStep[]; title?: str
   return (
     <div className="card overflow-hidden">
       {title && (
-        <div className="border-b border-[var(--c-border-subtle)] px-4 py-2.5">
+        <div className="border-b border-separator px-4 py-2.5">
           <h3 className="text-[0.8125rem] font-600">{title}</h3>
         </div>
       )}
@@ -60,7 +60,7 @@ export function LifecycleRail({ steps, title }: { steps: RailStep[]; title?: str
                 <div className="text-2xs text-[var(--c-text-tertiary)]">{fmtDateTime(s.at)}</div>
               )}
               {s.owner && (
-                <div className="truncate text-2xs text-[var(--c-text-secondary)]" title={s.owner}>
+                <div className="truncate text-2xs text-muted" title={s.owner}>
                   {s.owner}
                 </div>
               )}
@@ -160,7 +160,7 @@ export type TimelineEvent = {
 export function Timeline({ events, emptyLabel }: { events: TimelineEvent[]; emptyLabel?: string }) {
   if (!events.length) {
     return (
-      <p className="px-1 py-6 text-center text-xs text-[var(--c-text-secondary)]">
+      <p className="px-1 py-6 text-center text-xs text-muted">
         {emptyLabel ?? "No activity recorded yet."}
       </p>
     );
@@ -194,12 +194,12 @@ export function Timeline({ events, emptyLabel }: { events: TimelineEvent[]; empt
             </span>
           </div>
           {e.detail && (
-            <div className="mt-0.5 text-xs leading-5 text-[var(--c-text-secondary)]">{e.detail}</div>
+            <div className="mt-0.5 text-xs leading-5 text-muted">{e.detail}</div>
           )}
           {e.actor && (
             <div className="mt-1 flex items-center gap-1.5">
               <Avatar name={e.actor} size={16} />
-              <span className="text-2xs text-[var(--c-text-secondary)]">
+              <span className="text-2xs text-muted">
                 {e.actor}
                 {e.actorRoles && <span className="text-[var(--c-text-tertiary)]"> · {e.actorRoles}</span>}
               </span>
@@ -239,7 +239,7 @@ export function ApprovalTrailView({
 }) {
   if (!trails.length) {
     return (
-      <p className="py-6 text-center text-xs text-[var(--c-text-secondary)]">
+      <p className="py-6 text-center text-xs text-muted">
         No approval chain has been started for this document.
       </p>
     );
@@ -247,8 +247,8 @@ export function ApprovalTrailView({
   return (
     <div className="space-y-4">
       {trails.map((t) => (
-        <div key={t.instanceId} className="rounded-[var(--radius-md)] border border-[var(--c-border)]">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--c-border-subtle)] bg-[var(--c-surface-sunken)] px-3 py-2">
+        <div key={t.instanceId} className="rounded-xl border border-border">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-separator bg-surface-secondary px-3 py-2">
             <div className="flex items-center gap-2">
               <span className="text-xs font-600">{t.ruleName ?? "Approval chain"}</span>
               <Badge tone={t.status === "APPROVED" ? "success" : t.status === "PENDING" ? "progress" : t.status === "REJECTED" ? "danger" : "warning"}>
@@ -263,7 +263,7 @@ export function ApprovalTrailView({
           <ul className="divide-y divide-[var(--c-border-subtle)]">
             {t.steps.map((s) => (
               <li key={s.id} className="flex flex-wrap items-start gap-x-3 gap-y-1 px-3 py-2.5">
-                <span className="tnum mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-full border border-[var(--c-border)] bg-[var(--c-surface-sunken)] text-2xs font-600 text-[var(--c-text-secondary)]">
+                <span className="tnum mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-full border border-border bg-surface-secondary text-2xs font-600 text-muted">
                   {s.sequence}
                 </span>
                 <div className="min-w-0 flex-1">
@@ -291,13 +291,13 @@ export function ApprovalTrailView({
                     )}
                   </div>
                   {s.comment && (
-                    <p className="mt-1 rounded-[var(--radius-xs)] border-l-2 border-[var(--c-border-strong)] bg-[var(--c-surface-sunken)] px-2 py-1 text-xs leading-5 text-[var(--c-text-secondary)]">
+                    <p className="mt-1 rounded-sm border-l-2 border-[var(--c-border-strong)] bg-surface-secondary px-2 py-1 text-xs leading-5 text-muted">
                       {s.comment}
                     </p>
                   )}
                 </div>
                 <div className="shrink-0 text-right text-2xs text-[var(--c-text-tertiary)]">
-                  {s.actorName && <div className="text-[var(--c-text-secondary)]">{s.actorName}</div>}
+                  {s.actorName && <div className="text-muted">{s.actorName}</div>}
                   {s.actedAt ? (
                     <div>{fmtDateTime(s.actedAt)}</div>
                   ) : s.dueAt ? (

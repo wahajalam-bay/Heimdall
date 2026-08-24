@@ -264,7 +264,7 @@ export default async function StoreDetailPage({
         </SectionCard>
         <SectionCard title="Handling classes in use" description="Bins configured for special handling">
           {store.locations.length === 0 ? (
-            <p className="text-xs text-[var(--c-text-secondary)]">No bin locations configured for this store.</p>
+            <p className="text-xs text-muted">No bin locations configured for this store.</p>
           ) : (
             <ul className="space-y-1.5">
               {Object.entries(
@@ -363,7 +363,7 @@ export default async function StoreDetailPage({
                             {humanize(t.sourceType)}
                             {t.sourceRef && <span className="mono block">{t.sourceRef}</span>}
                           </td>
-                          <td className="max-w-[16rem] truncate text-2xs text-[var(--c-text-secondary)]" title={t.reason ?? ""}>
+                          <td className="max-w-[16rem] truncate text-2xs text-muted" title={t.reason ?? ""}>
                             {t.reason ?? "—"}
                           </td>
                           <td className="text-2xs">{fmtDateTime(t.performedAt)}</td>
@@ -574,7 +574,7 @@ export default async function StoreDetailPage({
                               {humanize(s.goodsClass)}
                             </Badge>
                           </td>
-                          <td className="text-2xs text-[var(--c-text-secondary)]">{s.handlingRequirements ?? "—"}</td>
+                          <td className="text-2xs text-muted">{s.handlingRequirements ?? "—"}</td>
                           <td className="text-xs">{s.stackedBy.name}</td>
                           <td className="text-2xs">{fmtDateTime(s.stackedAt)}</td>
                         </tr>

@@ -93,7 +93,7 @@ export function PoForm({
       footerSticky
       secondary={
         <>
-          <label className="mr-auto flex cursor-pointer items-center gap-2 text-xs text-[var(--c-text-secondary)]">
+          <label className="mr-auto flex cursor-pointer items-center gap-2 text-xs text-muted">
             <input type="checkbox" checked={submitNow} onChange={(e) => setSubmitNow(e.target.checked)} />
             Submit for approval immediately
           </label>
@@ -169,10 +169,10 @@ export function PoForm({
 
       <FormSection title="Vendor & delivery" columns={2}>
         <Field label="Vendor" name="vendorLabel">
-          <div className="rounded-[var(--radius-sm)] border border-[var(--c-border)] bg-[var(--c-surface-sunken)] px-2.5 py-2 text-[0.8125rem]">
+          <div className="rounded-lg border border-border bg-surface-secondary px-2.5 py-2 text-[0.8125rem]">
             <span className="font-500">{award.vendorName}</span>
             {award.vendorAddress && (
-              <span className="mt-0.5 block text-2xs text-[var(--c-text-secondary)]">{award.vendorAddress}</span>
+              <span className="mt-0.5 block text-2xs text-muted">{award.vendorAddress}</span>
             )}
           </div>
         </Field>

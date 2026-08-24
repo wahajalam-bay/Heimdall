@@ -27,10 +27,10 @@ export function FormSection({
   return (
     <section className={classNames("space-y-3", className)}>
       {(title || description) && (
-        <div className="border-b border-[var(--c-border-subtle)] pb-2">
+        <div className="border-b border-separator pb-2">
           {title && <h3 className="text-[0.8125rem] font-600">{title}</h3>}
           {description && (
-            <p className="mt-0.5 text-xs leading-5 text-[var(--c-text-secondary)]">{description}</p>
+            <p className="mt-0.5 text-xs leading-5 text-muted">{description}</p>
           )}
         </div>
       )}
@@ -62,7 +62,7 @@ export function Field({
     <div className={classNames("min-w-0", span && "sm:col-span-full", className)}>
       <label
         htmlFor={name}
-        className="mb-1 flex items-baseline gap-1 text-xs font-500 text-[var(--c-text-secondary)]"
+        className="mb-1 flex items-baseline gap-1 text-xs font-500 text-muted"
       >
         {label}
         {required && (
@@ -174,7 +174,7 @@ export function RadioGroup({
       {options.map((o) => (
         <label
           key={o.value}
-          className="flex cursor-pointer items-start gap-2 rounded-[var(--radius-sm)] border border-[var(--c-border)] px-2.5 py-2 transition-colors hover:border-[var(--c-border-strong)] has-checked:border-[var(--c-accent)] has-checked:bg-[var(--c-accent-soft)]"
+          className="flex cursor-pointer items-start gap-2 rounded-lg border border-border px-2.5 py-2 transition-colors hover:border-[var(--c-border-strong)] has-checked:border-[var(--c-accent)] has-checked:bg-[var(--c-accent-soft)]"
         >
           <input
             type="radio"
@@ -197,7 +197,7 @@ export function FormActions({ children, sticky }: { children: ReactNode; sticky?
   return (
     <div
       className={classNames(
-        "flex flex-wrap items-center justify-end gap-2 border-t border-[var(--c-border)] px-4 py-3",
+        "flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-3",
         sticky && "sticky bottom-0 z-10 bg-[var(--c-surface)]",
       )}
     >

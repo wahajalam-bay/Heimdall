@@ -101,7 +101,7 @@ export function Shortcuts() {
     <>
       {awaitingJump && !open && (
         <div
-          className="pointer-events-none fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-[var(--radius-md)] border border-[var(--c-border)] bg-[var(--c-surface-raised)] px-3 py-1.5 text-xs shadow-[var(--shadow-md)]"
+          className="pointer-events-none fixed bottom-4 left-1/2 z-50 -translate-x-1/2 tooltip-panel px-3 py-1.5"
           role="status"
         >
           Go to… press a letter, or <kbd className="mono">Esc</kbd> to cancel
@@ -115,11 +115,11 @@ export function Shortcuts() {
             style={{ background: "var(--c-overlay)" }}
             onClick={() => setOpen(false)}
           />
-          <div className="relative w-full max-w-2xl overflow-hidden rounded-[var(--radius-lg)] border border-[var(--c-border)] bg-[var(--c-surface-raised)] shadow-[var(--shadow-lg)]">
-            <header className="flex items-center justify-between gap-4 border-b border-[var(--c-border-subtle)] px-4 py-3">
+          <div className="relative w-full max-w-2xl overflow-hidden overlay-panel">
+            <header className="flex items-center justify-between gap-4 border-b border-separator px-4 py-3">
               <div>
                 <h2 className="text-[0.9375rem] font-600">Keyboard shortcuts</h2>
-                <p className="mt-0.5 text-xs text-[var(--c-text-secondary)]">
+                <p className="mt-0.5 text-xs text-muted">
                   Press <kbd className="mono">?</kbd> at any time to bring this back.
                 </p>
               </div>
@@ -134,10 +134,10 @@ export function Shortcuts() {
                 <ul className="space-y-1.5">
                   {ACTIONS.map((a) => (
                     <li key={a.keys} className="flex items-baseline gap-3 text-xs">
-                      <kbd className="mono shrink-0 rounded border border-[var(--c-border)] bg-[var(--c-surface-sunken)] px-1.5 py-0.5 text-2xs">
+                      <kbd className="mono shrink-0 rounded border border-border bg-surface-secondary px-1.5 py-0.5 text-2xs">
                         {a.keys}
                       </kbd>
-                      <span className="text-[var(--c-text-secondary)]">{a.label}</span>
+                      <span className="text-muted">{a.label}</span>
                     </li>
                   ))}
                 </ul>
@@ -148,10 +148,10 @@ export function Shortcuts() {
                 <ul className="space-y-1.5">
                   {JUMPS.map((j) => (
                     <li key={j.keys} className="flex items-baseline gap-3 text-xs">
-                      <kbd className="mono shrink-0 rounded border border-[var(--c-border)] bg-[var(--c-surface-sunken)] px-1.5 py-0.5 text-2xs">
+                      <kbd className="mono shrink-0 rounded border border-border bg-surface-secondary px-1.5 py-0.5 text-2xs">
                         {j.keys}
                       </kbd>
-                      <span className="text-[var(--c-text-secondary)]">{j.label}</span>
+                      <span className="text-muted">{j.label}</span>
                     </li>
                   ))}
                 </ul>

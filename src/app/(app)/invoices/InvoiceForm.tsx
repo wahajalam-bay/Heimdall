@@ -239,7 +239,7 @@ export function InvoiceForm({ pos, defaultPoId }: { pos: InvoicePo[]; defaultPoI
         <>
           <FormSection title="Lines" columns={1} description="Quantities default to what has been accepted and not yet invoiced.">
             <div className="sm:col-span-full">
-              <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--c-border)]">
+              <div className="overflow-hidden rounded-xl border border-border">
                 <table className="dt">
                   <thead>
                     <tr>
@@ -360,7 +360,7 @@ export function InvoiceForm({ pos, defaultPoId }: { pos: InvoicePo[]; defaultPoI
             </FormSection>
           )}
 
-          <div className="rounded-[var(--radius-md)] border border-[var(--c-border)] px-3.5 py-3">
+          <div className="rounded-xl border border-border px-3.5 py-3">
             <div className="grid gap-3 sm:grid-cols-4">
               <div>
                 <span className="label block">Subtotal</span>
@@ -385,11 +385,11 @@ export function InvoiceForm({ pos, defaultPoId }: { pos: InvoicePo[]; defaultPoI
           </div>
 
           {warnings.length > 0 && (
-            <div className="rounded-[var(--radius-md)] border border-[var(--c-warning-border)] bg-[var(--c-warning-soft)] px-3.5 py-3">
+            <div className="rounded-2xl alert-warning px-3.5 py-3">
               <p className="text-[0.8125rem] font-600 text-[var(--c-warning)]">
                 These differences will be flagged by the three-way match
               </p>
-              <ul className="mt-1.5 space-y-1 pl-5 text-xs leading-5 text-[var(--c-text-secondary)]">
+              <ul className="mt-1.5 space-y-1 pl-5 text-xs leading-5 text-muted">
                 {warnings.map((w, i) => (
                   <li key={i} className="list-disc">
                     {w}

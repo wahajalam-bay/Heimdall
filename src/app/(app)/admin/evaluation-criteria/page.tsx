@@ -139,7 +139,7 @@ export default async function AdminCriteriaPage() {
                             <Mono>{c.code}</Mono>
                           </td>
                           <td className="text-xs font-500">{c.name}</td>
-                          <td className="text-2xs text-[var(--c-text-secondary)]">{c.description ?? "—"}</td>
+                          <td className="text-2xs text-muted">{c.description ?? "—"}</td>
                           <td className="num text-xs">{c.maxScore}</td>
                           <td className="num text-xs">{c.weight}</td>
                           <td className="num text-xs">{round2(c.maxScore * c.weight)}</td>
