@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { pageContext, type SearchParams } from "@/lib/page";
 import { PERMISSIONS as P } from "@/lib/permissions";
-import { visibleEntityIds } from "@/lib/rbac";
+import { visibleEntityIds, nullableEntityScope } from "@/lib/rbac";
 import { AccessDenied } from "@/components/ui/guard";
 import { Breadcrumbs } from "@/components/ui/nav";
 import { DataTable, type TableColumn, type TableRow } from "@/components/ui/DataTable";
@@ -40,7 +40,7 @@ export default async function ExceptionsPage({ searchParams }: { searchParams: P
   const [rows, savedViews, options] = await Promise.all([
     prisma.exception.findMany({
       where: {
-        ...(filter.entityId ? { entityId: filter.entityId } : scoped ? { OR: [{ entityId: { in: scoped } }, { entityId: null }] } : {}),
+        ...nullableEntityScope(filter.entityId, scoped),
         ...(filter.from || filter.to
           ? { createdAt: { ...(filter.from ? { gte: filter.from } : {}), ...(filter.to ? { lte: filter.to } : {}) } }
           : {}),

@@ -273,7 +273,7 @@ function HistoryList({
     return <p className="px-4 py-6 text-center text-xs text-muted">Nothing else recorded.</p>;
   }
   return (
-    <ul className="divide-y divide-[var(--c-border-subtle)]">
+    <ul className="row-list">
       {rows.map((r) => {
         const count = changedFieldCount(toChangeSet(r.changes));
         return (

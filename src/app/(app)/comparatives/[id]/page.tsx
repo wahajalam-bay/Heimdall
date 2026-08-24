@@ -493,7 +493,7 @@ export default async function ComparativeDetailPage({ params }: { params: Promis
 
       {c.lines.some((l) => l.quote.complianceNotes || l.quote.exceptions) && (
         <SectionCard title="Stated deviations and exceptions" bodyClassName="px-0 py-0">
-          <ul className="divide-y divide-[var(--c-border-subtle)]">
+          <ul className="row-list">
             {c.lines
               .filter((l) => l.quote.complianceNotes || l.quote.exceptions)
               .map((l) => (

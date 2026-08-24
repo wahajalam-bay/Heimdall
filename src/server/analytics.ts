@@ -2,6 +2,7 @@ import { prisma, type DbClient } from "@/lib/db";
 import { CONFIG_KEYS, getConfigNumber } from "@/lib/config";
 import { PO_OPEN_STATUSES } from "@/lib/domain";
 import { round2, safeDiv } from "@/lib/format";
+import { nullableEntityScope } from "@/lib/rbac";
 
 /**
  * Procurement analytics. All figures derive from live transactions — nothing is
@@ -67,6 +68,12 @@ export type Kpis = {
 
 export async function procurementKpis(f: AnalyticsFilter, db: DbClient = prisma): Promise<Kpis> {
   const ew = entityWhere(f);
+  // Exceptions carry a nullable entity, so they scope differently from documents.
+  const exceptionScope = nullableEntityScope(f.entityId ?? null, f.entityIds ?? null);
+  // Deliveries, invoices and payments reach their entity through the order they
+  // belong to. Without this they were counted across every entity while the
+  // figures beside them were scoped, so one row of tiles disagreed with itself.
+  const viaPo = Object.keys(ew).length ? { po: ew } : {};
   const monthStart = new Date();
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
@@ -131,13 +138,19 @@ export async function procurementKpis(f: AnalyticsFilter, db: DbClient = prisma)
       where: { ...ew, status: { in: PO_OPEN_STATUSES } },
       select: { total: true, deliveryDate: true, items: { select: { quantity: true, acceptedQty: true, unitPrice: true } } },
     }),
-    db.delivery.count({ where: { grns: { none: {} }, status: { not: "REJECTED" } } }),
+    db.delivery.count({ where: { grns: { none: {} }, status: { not: "REJECTED" }, ...viaPo } }),
     db.invoice.count({
-      where: { status: { in: ["RECEIVED", "UNDER_VERIFICATION", "MATCHED", "PENDING_APPROVAL", "MISMATCH"] } },
+      where: {
+        status: { in: ["RECEIVED", "UNDER_VERIFICATION", "MATCHED", "PENDING_APPROVAL", "MISMATCH"] },
+        ...viaPo,
+      },
     }),
-    db.invoice.count({ where: { OR: [{ matchStatus: "FAILED" }, { status: "MISMATCH" }] } }),
+    db.invoice.count({ where: { OR: [{ matchStatus: "FAILED" }, { status: "MISMATCH" }], ...viaPo } }),
     db.paymentHandoff.aggregate({
-      where: { status: { in: ["PENDING", "ACKNOWLEDGED", "SCHEDULED"] } },
+      where: {
+        status: { in: ["PENDING", "ACKNOWLEDGED", "SCHEDULED"] },
+        ...(Object.keys(ew).length ? { invoice: { po: ew } } : {}),
+      },
       _sum: { amount: true },
       _count: { _all: true },
     }),
@@ -155,8 +168,10 @@ export async function procurementKpis(f: AnalyticsFilter, db: DbClient = prisma)
     }),
     db.vendor.count({ where: { status: { in: ["APPROVED", "CONDITIONAL"] } } }),
     db.vendor.count({ where: { status: "BLACKLISTED" } }),
-    db.exception.count({ where: { status: { in: ["OPEN", "IN_PROGRESS"] } } }),
-    db.exception.count({ where: { status: { in: ["OPEN", "IN_PROGRESS"] }, severity: "CRITICAL" } }),
+    db.exception.count({ where: { status: { in: ["OPEN", "IN_PROGRESS"] }, ...exceptionScope } }),
+    db.exception.count({
+      where: { status: { in: ["OPEN", "IN_PROGRESS"] }, severity: "CRITICAL", ...exceptionScope },
+    }),
     db.inventoryItem.aggregate({
       where: f.entityId ? { store: { entityId: f.entityId } } : f.entityIds ? { store: { entityId: { in: f.entityIds } } } : {},
       _sum: { totalValue: true },

@@ -59,3 +59,22 @@ export function visibleEntityIds(user: SessionUser): string[] | null {
   if (user.permissions.includes(PERMISSIONS.ANALYTICS_VIEW_ALL_ENTITIES)) return null;
   return user.entityIds;
 }
+
+/**
+ * Where-fragment scoping a table whose `entityId` is nullable.
+ *
+ * Exceptions and alerts are raised either against a document, which belongs to
+ * an entity, or against the system as a whole, which belongs to none. A null
+ * entity is therefore visible to everyone, while a set one is visible only
+ * inside the reader's entities. This is written once because a home page and a
+ * register that disagree about it leak one entity's document references into
+ * another entity's view — and report two different totals for the same word.
+ */
+export function nullableEntityScope(
+  entityId: string | null | undefined,
+  entityIds: string[] | null | undefined,
+): { entityId?: string; OR?: Array<{ entityId: { in: string[] } | null }> } {
+  if (entityId) return { entityId };
+  if (entityIds) return { OR: [{ entityId: { in: entityIds } }, { entityId: null }] };
+  return {};
+}

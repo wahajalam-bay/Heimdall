@@ -493,7 +493,7 @@ export default async function RfqDetailPage({ params }: { params: Promise<{ id: 
 
       {rfq.comparatives.length > 0 && (
         <SectionCard title="Comparatives" bodyClassName="px-0 py-0">
-          <ul className="divide-y divide-[var(--c-border-subtle)]">
+          <ul className="row-list">
             {rfq.comparatives.map((c) => (
               <li key={c.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
                 <span className="flex items-center gap-2">

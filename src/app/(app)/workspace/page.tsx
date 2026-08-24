@@ -162,7 +162,7 @@ export default async function WorkspacePage() {
           description="These requisitions need revision before they can move forward."
           bodyClassName="px-0 py-0"
         >
-          <ul className="divide-y divide-[var(--c-border-subtle)]">
+          <ul className="row-list">
             {returned.map((pr) => (
               <li key={pr.id} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
                 <div className="min-w-0">
@@ -193,7 +193,7 @@ export default async function WorkspacePage() {
           description="You are an assigned member of these Central Procurement Committee cases."
           bodyClassName="px-0 py-0"
         >
-          <ul className="divide-y divide-[var(--c-border-subtle)]">
+          <ul className="row-list">
             {pendingVotes.map((c) => (
               <li key={c.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
                 <div className="min-w-0">
@@ -312,12 +312,12 @@ export default async function WorkspacePage() {
         </SectionCard>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className="grid items-start gap-4 xl:grid-cols-3">
         <SectionCard title="My drafts" description="Requisitions not yet submitted" bodyClassName="px-0 py-0">
           {drafts.length === 0 ? (
             <EmptyState compact title="No drafts" />
           ) : (
-            <ul className="divide-y divide-[var(--c-border-subtle)]">
+            <ul className="row-list">
               {drafts.map((d) => (
                 <li key={d.id} className="px-4 py-2.5">
                   <Link href={`/pr/${d.id}`} className="group block">
@@ -341,7 +341,7 @@ export default async function WorkspacePage() {
           {myCases.length === 0 ? (
             <EmptyState compact title="No live cases" />
           ) : (
-            <ul className="divide-y divide-[var(--c-border-subtle)]">
+            <ul className="row-list">
               {myCases.map((c) => (
                 <li key={c.id} className="px-4 py-2.5">
                   <Link href={`/pr/${c.id}`} className="group block">
@@ -364,7 +364,7 @@ export default async function WorkspacePage() {
           {exceptionsOwned.length === 0 ? (
             <EmptyState compact title="None assigned to you" />
           ) : (
-            <ul className="divide-y divide-[var(--c-border-subtle)]">
+            <ul className="row-list">
               {exceptionsOwned.map((e) => (
                 <li key={e.id} className="px-4 py-2.5">
                   <Link href={`/analytics/exceptions/${e.id}`} className="group block">
@@ -385,7 +385,7 @@ export default async function WorkspacePage() {
         </SectionCard>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid items-start gap-4 xl:grid-cols-2">
         <SectionCard
           title="Recent notifications"
           actions={
@@ -398,7 +398,7 @@ export default async function WorkspacePage() {
           {notifications.length === 0 ? (
             <EmptyState compact title="No notifications" />
           ) : (
-            <ul className="divide-y divide-[var(--c-border-subtle)]">
+            <ul className="row-list">
               {notifications.map((n) => (
                 <li key={n.id} className="px-4 py-2.5">
                   {n.linkUrl ? (
@@ -422,7 +422,7 @@ export default async function WorkspacePage() {
           {recentActivity.length === 0 ? (
             <EmptyState compact title="No recorded activity yet" />
           ) : (
-            <ul className="divide-y divide-[var(--c-border-subtle)]">
+            <ul className="row-list">
               {recentActivity.map((a) => (
                 <li key={a.id} className="flex items-baseline justify-between gap-3 px-4 py-2">
                   <span className="min-w-0">

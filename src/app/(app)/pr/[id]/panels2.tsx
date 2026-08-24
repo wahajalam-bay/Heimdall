@@ -511,7 +511,7 @@ export function InspectionPanel({ pr }: { pr: ProcurementCase }) {
               )}
             </div>
           )}
-          <div className="divide-y divide-[var(--c-border-subtle)]">
+          <div className="row-list">
             {insp.items.map((it) => {
               let criteria: CriterionResult[] = [];
               try {

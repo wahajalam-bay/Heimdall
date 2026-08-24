@@ -281,7 +281,7 @@ export function RfqForm({
                 <span className="text-2xs text-[var(--c-text-tertiary)]">{showBlocked ? "Hide" : "Show"}</span>
               </button>
               {showBlocked && (
-                <ul className="divide-y divide-[var(--c-border-subtle)] border-t border-separator">
+                <ul className="row-list border-t border-separator">
                   {blocked.map((v) => (
                     <li key={v.id} className="flex flex-wrap items-center gap-2 px-3 py-2">
                       <span className="text-xs font-500">{v.name}</span>

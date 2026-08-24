@@ -16,9 +16,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const user = await getSessionUser();
   if (!user) redirect("/login");
 
-  const [ctx, counts, notifications] = await Promise.all([
-    getAppContext(user),
-    navBadgeCounts(user),
+  // The badge counts follow the selected entity, so the context is resolved first.
+  const ctx = await getAppContext(user);
+  const [counts, notifications] = await Promise.all([
+    navBadgeCounts(user, ctx.entityId),
     prisma.notification.findMany({
       where: { userId: user.id },
       orderBy: [{ read: "asc" }, { createdAt: "desc" }],

@@ -109,7 +109,9 @@ export function PageHeader({
 }) {
   return (
     <header className={classNames("flex flex-wrap items-start justify-between gap-x-6 gap-y-3", className)}>
-      <div className="min-w-0 flex-1">
+      {/* A minimum width the actions cannot bargain away: below it they wrap onto
+          their own row instead of crushing the title into one word per line. */}
+      <div className="min-w-[min(100%,20rem)] flex-1">
         {eyebrow && (
           <div className="label mb-1 flex items-center gap-1.5">
             <span

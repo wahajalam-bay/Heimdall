@@ -406,6 +406,32 @@ export function RankedBars({
 
 export type TrendPoint = { label: string; values: Array<number | null> };
 
+/**
+ * Places the end-of-line labels so two series finishing at similar values do not
+ * print on top of each other: they are nudged apart, in order, inside the plot.
+ */
+function endLabelPositions(
+  paths: Array<{ last: { i: number; v: number } | null }>,
+  x: (i: number) => number,
+  y: (v: number) => number,
+  minY: number,
+  maxY: number,
+) {
+  const placed = paths
+    .map((p, si) => (p.last ? { si, v: p.last.v, x: x(p.last.i) + 8, y: y(p.last.v) + 3.5 } : null))
+    .filter((p): p is { si: number; v: number; x: number; y: number } => p !== null)
+    .sort((a, b) => a.y - b.y);
+
+  const GAP = 12;
+  for (let i = 1; i < placed.length; i += 1) {
+    if (placed[i].y - placed[i - 1].y < GAP) placed[i].y = placed[i - 1].y + GAP;
+  }
+  const overflow = placed.length ? placed[placed.length - 1].y - (maxY + 3.5) : 0;
+  if (overflow > 0) for (const p of placed) p.y -= overflow;
+  for (const p of placed) p.y = Math.max(minY + 6, p.y);
+  return placed;
+}
+
 export function TrendChart({
   data,
   series,
@@ -432,7 +458,21 @@ export function TrendChart({
     ...data.flatMap((d) => d.values.map((v) => (v === null ? 0 : v))),
   );
   const { ticks, top } = niceTicks(max);
-  const endLabelRoom = labelEnds && series.length <= 4 ? 46 : 8;
+
+  // The end labels are the point of this chart — the last figure, named. Room is
+  // measured from the widest label rather than assumed, because a fixed 46px
+  // left "PKR 371.1K" sliced off at the frame's edge.
+  const showEnds = labelEnds && series.length <= 4;
+  const lastValues = series.map((_, si) => {
+    for (let i = data.length - 1; i >= 0; i -= 1) {
+      const v = data[i].values[si];
+      if (v !== null && v !== undefined) return { i, v };
+    }
+    return null;
+  });
+  const endTexts = showEnds ? lastValues.filter(Boolean).map((p) => fmt(p!.v)) : [];
+  const widest = endTexts.reduce((w, t) => Math.max(w, t.length), 0);
+  const endLabelRoom = showEnds && widest ? Math.min(Math.round(widest * 6.1) + 12, Math.max(48, width * 0.32)) : 8;
   const pad = { top: 16, right: endLabelRoom, bottom: 26, left: axisPad(ticks) };
   const plotW = Math.max(40, width - pad.left - pad.right);
   const plotH = height - pad.top - pad.bottom;
@@ -551,23 +591,20 @@ export function TrendChart({
             );
           })}
 
-        {labelEnds &&
-          series.length <= 4 &&
-          paths.map((p, si) =>
-            p.last ? (
-              <text
-                key={`t-${si}`}
-                x={x(p.last.i) + 8}
-                y={y(p.last.v) + 3.5}
-                fontSize={10}
-                fontWeight={600}
-                fill="var(--c-text-secondary)"
-                className="tnum"
-              >
-                {fmt(p.last.v)}
-              </text>
-            ) : null,
-          )}
+        {showEnds &&
+          endLabelPositions(paths, x, y, pad.top, pad.top + plotH).map((p) => (
+            <text
+              key={`t-${p.si}`}
+              x={p.x}
+              y={p.y}
+              fontSize={10}
+              fontWeight={600}
+              fill="var(--c-text-secondary)"
+              className="tnum"
+            >
+              {fmt(p.v)}
+            </text>
+          ))}
 
         {data.map((d, i) => {
           const stride = Math.ceil(data.length / Math.max(3, Math.floor(plotW / 56)));

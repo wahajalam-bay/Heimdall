@@ -812,6 +812,38 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* ── List rows ───────────────────────────────────────────── */
+
+  /* Lists of records repeat on twelve screens, and each one had spelled out its
+     own separator, padding and hover. One class carries the treatment. */
+  .row-list {
+    @apply divide-y divide-separator;
+  }
+
+  /* A row that is entirely one link, so the whole strip is the hit target rather
+     than the few words of the title. The focus ring is inset: these rows run
+     full-bleed inside a card that clips its corners, and an outset ring would be
+     sliced off at both ends. */
+  .row-link {
+    @apply relative block w-full px-4 py-3 text-left transition-colors;
+    cursor: var(--cursor-interactive);
+  }
+
+  .row-link:focus-visible {
+    @apply inset-ring-2 inset-ring-focus outline-none;
+  }
+
+  @media (hover: hover) {
+    .row-link:hover {
+      background-color: var(--surface-hover);
+    }
+  }
+
+  /* The static counterpart, for rows with nowhere to go. */
+  .row-static {
+    @apply block w-full px-4 py-3;
+  }
+
   /* ── Lifecycle rail ──────────────────────────────────────── */
 
   .rail {

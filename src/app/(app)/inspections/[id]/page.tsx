@@ -284,7 +284,7 @@ export default async function InspectionDetailPage({ params }: { params: Promise
               <p className="text-xs text-muted">No lines on this inspection.</p>
             </Card>
           ) : (
-            <div className="divide-y divide-[var(--c-border-subtle)]">
+            <div className="row-list">
               {insp.items.map((i) => {
                 let criteria: Array<{ key: string; label: string; value: string | number | boolean | null }> = [];
                 try {

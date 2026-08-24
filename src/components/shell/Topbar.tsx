@@ -284,11 +284,16 @@ export function Topbar({
       </div>
 
       {entities.length > 1 && (
+        /* Switching entity re-renders every panel on the page against a different
+           scope, which takes as long as it takes. The control stays closed to a
+           second switch mid-flight, but it says so rather than just going dead. */
         <select
           className="field hidden w-auto py-1 text-xs sm:block"
           value={activeEntityId ?? ""}
           onChange={(e) => switchEntity(e.target.value)}
           aria-label="Active entity"
+          aria-busy={pending}
+          title={pending ? "Switching entity…" : undefined}
           disabled={pending}
         >
           {entities.map((e) => (
@@ -297,6 +302,13 @@ export function Topbar({
             </option>
           ))}
         </select>
+      )}
+
+      {entities.length > 1 && pending && (
+        <span className="hidden items-center gap-1.5 text-2xs text-muted sm:flex" role="status">
+          <Spinner size={11} />
+          Switching…
+        </span>
       )}
 
       <DensityToggle initial={density} />

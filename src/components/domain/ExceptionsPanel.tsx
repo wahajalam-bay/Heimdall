@@ -48,7 +48,7 @@ export async function ExceptionsPanel({
       {rows.length === 0 ? (
         <EmptyState compact title="Clear" description={emptyLabel} />
       ) : (
-        <ul className="divide-y divide-[var(--c-border-subtle)]">
+        <ul className="row-list">
           {rows.map((e) => (
             <li key={e.id} className="px-4 py-3">
               <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5">

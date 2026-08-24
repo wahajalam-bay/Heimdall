@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { pageContext, first, type SearchParams } from "@/lib/page";
 import { PERMISSIONS as P } from "@/lib/permissions";
-import { userHasPermission, visibleEntityIds } from "@/lib/rbac";
+import { userHasPermission, visibleEntityIds, nullableEntityScope } from "@/lib/rbac";
 import { bottlenecks } from "@/server/analytics";
 import { openPoRows } from "@/server/grn";
 import { pettyCashStoreEntryGap } from "@/server/pettycash";
@@ -41,7 +41,10 @@ export default async function AlertsPage({ searchParams }: { searchParams: Promi
     userHasPermission(user, P.VENDOR_VIEW) ? vendorsDueForReevaluation() : Promise.resolve([]),
     userHasPermission(user, P.EXCEPTION_VIEW)
       ? prisma.exception.findMany({
-          where: { status: { in: ["OPEN", "IN_PROGRESS"] } },
+          where: {
+            status: { in: ["OPEN", "IN_PROGRESS"] },
+            ...nullableEntityScope(ctx.entityId, scoped),
+          },
           orderBy: [{ severity: "desc" }, { createdAt: "desc" }],
           take: 60,
         })
@@ -113,7 +116,7 @@ export default async function AlertsPage({ searchParams }: { searchParams: Promi
               description="You are notified when an approval needs you, a requisition is returned, a quotation arrives, delivery is overdue, an inspection is required, an invoice fails matching or a vendor issue is raised."
             />
           ) : (
-            <ul className="divide-y divide-[var(--c-border-subtle)]">
+            <ul className="row-list">
               {notifications.map((n) => {
                 const body = (
                   <>

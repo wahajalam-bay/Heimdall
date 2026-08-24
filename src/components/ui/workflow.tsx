@@ -260,7 +260,7 @@ export function ApprovalTrailView({
               {t.completedAt && ` · Completed ${fmtDateTime(t.completedAt)}`}
             </span>
           </div>
-          <ul className="divide-y divide-[var(--c-border-subtle)]">
+          <ul className="row-list">
             {t.steps.map((s) => (
               <li key={s.id} className="flex flex-wrap items-start gap-x-3 gap-y-1 px-3 py-2.5">
                 <span className="tnum mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-full border border-border bg-surface-secondary text-2xs font-600 text-muted">

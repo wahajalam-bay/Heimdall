@@ -103,7 +103,7 @@ export async function DocumentsPanel({
           }
         />
       ) : (
-        <div className={compact ? "" : "divide-y divide-[var(--c-border-subtle)]"}>
+        <div className={compact ? "" : "row-list"}>
           {[...grouped.entries()].map(([category, items]) => (
             <div key={category} className="px-4 py-3">
               <div className="mb-2 flex items-center gap-2">

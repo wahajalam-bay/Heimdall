@@ -1,97 +1,76 @@
+import { Suspense, type ReactNode } from "react";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { pageContext } from "@/lib/page";
+import type { AppContext } from "@/lib/context";
 import { PERMISSIONS as P } from "@/lib/permissions";
-import { userHasPermission, visibleEntityIds } from "@/lib/rbac";
+import { nullableEntityScope, userHasPermission, visibleEntityIds, type SessionUser } from "@/lib/rbac";
 import { procurementKpis, monthlyTrend, spendByDimension, bottlenecks } from "@/server/analytics";
+import { prVisibilityFilter } from "@/server/pr";
 import { openPoRows } from "@/server/grn";
 import { cpcStats } from "@/server/cpc";
 import {
   Badge,
-  Card,
   EmptyState,
   MetaItem,
   PageHeader,
   RefLink,
   SectionCard,
+  SkeletonTable,
+  SkeletonTiles,
   StatTile,
   StatusBadge,
-  Meter,
 } from "@/components/ui/primitives";
-import { ChartFrame, ChartTable, ColumnChart, DonutChart, RankedBars, TrendChart } from "@/components/ui/charts";
+import { ActionTiles, ActionTile, ActivityList, ActivityRow, BandHeading, MetricGroup } from "@/components/ui/lists";
+import { SectionBoundary } from "@/components/ui/SectionBoundary";
+import { ChartFrame, ChartTable, RankedBars, TrendChart } from "@/components/ui/charts";
 import { fmtDate, money, percent, relativeTime } from "@/lib/format";
 import { SEVERITY_TONE, humanize } from "@/lib/domain";
 
 export const metadata = { title: "Executive Dashboard" };
 export const dynamic = "force-dynamic";
 
+/**
+ * The dashboard.
+ *
+ * It is read in one order, so it is built in that order: what is waiting on you,
+ * then where the operation stands, then the detail behind both. Every figure in
+ * the first two bands links to the records it counts, because a number nobody can
+ * act on is decoration.
+ *
+ * Each band streams on its own. The page used to await a dozen aggregates before
+ * rendering a single pixel; now the header and the queue arrive first and the
+ * heavier analytics fill in behind them, each inside its own boundary so a slow
+ * or failing query costs its own panel and nothing else.
+ */
+
+type Scope = { user: SessionUser; ctx: AppContext; scoped: string[] | null };
+
 export default async function DashboardPage() {
   const { user, ctx } = await pageContext();
   const scoped = visibleEntityIds(user);
+  const scope: Scope = { user, ctx, scoped };
   const canSeeAnalytics = userHasPermission(user, P.ANALYTICS_VIEW);
-  const filter = { entityId: ctx.entityId, entityIds: scoped };
-
-  const [kpis, trend, categorySpend, entitySpend, openPos, cpc, blockers, myTasks, recentCases, exceptions] =
-    await Promise.all([
-      procurementKpis(filter),
-      monthlyTrend(filter, 12),
-      spendByDimension("category", filter),
-      spendByDimension("entity", { entityIds: scoped }),
-      openPoRows(ctx.entityId ? [ctx.entityId] : scoped),
-      cpcStats(scoped),
-      canSeeAnalytics ? bottlenecks(filter) : Promise.resolve([]),
-      prisma.task.findMany({
-        where: {
-          status: { in: ["OPEN", "IN_PROGRESS"] },
-          OR: [{ assigneeId: user.id }, { assigneeId: null, assignedRoleCode: { in: user.roleCodes } }],
-        },
-        orderBy: [{ dueAt: "asc" }],
-        take: 8,
-      }),
-      prisma.purchaseRequisition.findMany({
-        where: ctx.entityFilter,
-        orderBy: { updatedAt: "desc" },
-        take: 8,
-        include: {
-          entity: { select: { code: true } },
-          requester: { select: { name: true } },
-          department: { select: { name: true } },
-        },
-      }),
-      prisma.exception.findMany({
-        where: { status: { in: ["OPEN", "IN_PROGRESS"] } },
-        orderBy: [{ severity: "desc" }, { createdAt: "desc" }],
-        take: 6,
-      }),
-    ]);
-
-  const overdueTasks = myTasks.filter((t) => t.dueAt && t.dueAt < new Date()).length;
-  const trendSeries = [
-    { key: "poValue", label: "Purchase order value" },
-    { key: "savings", label: "Savings", colorIndex: 1 },
-  ];
-  const criticalBlockers = blockers.filter((b) => b.severity === "CRITICAL" || b.severity === "HIGH").slice(0, 8);
+  const hasDetail =
+    canSeeAnalytics ||
+    userHasPermission(user, P.PO_VIEW) ||
+    userHasPermission(user, P.PR_VIEW, P.PR_VIEW_ALL) ||
+    userHasPermission(user, P.EXCEPTION_VIEW);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <PageHeader
         eyebrow="Home"
         title="Executive dashboard"
         subtitle={
           ctx.entityName
-            ? `${ctx.entityCode} — ${ctx.entityName}. Live procurement position across the requisition-to-payment lifecycle.`
-            : "Live procurement position across every entity you can access."
+            ? `${ctx.entityCode} — ${ctx.entityName}. The live procurement position, from requisition through to payment.`
+            : "The live procurement position across every entity you can access, from requisition through to payment."
         }
         meta={
           <>
             <MetaItem label="Signed in as">{user.name}</MetaItem>
-            <MetaItem label="Roles">{user.roleNames.join(", ") || "—"}</MetaItem>
-            <MetaItem label="My open tasks">
-              <Link href="/workspace" className="text-[var(--c-accent-text)]">
-                {myTasks.length}
-                {overdueTasks > 0 && <span className="text-[var(--c-danger)]"> ({overdueTasks} overdue)</span>}
-              </Link>
-            </MetaItem>
+            <MetaItem label="Acting as">{user.roleNames.join(", ") || "—"}</MetaItem>
           </>
         }
         actions={
@@ -108,13 +87,262 @@ export default async function DashboardPage() {
         }
       />
 
-      {/* Headline KPIs */}
+      <Band
+        heading="Requires attention"
+        label="Requires attention"
+        action={
+          <Link href="/alerts" className="text-xs text-[var(--c-accent-text)] hover:underline">
+            All alerts
+          </Link>
+        }
+        fallback={<AttentionSkeleton />}
+      >
+        <Attention {...scope} />
+      </Band>
+
+      {canSeeAnalytics && (
+        <Band heading="Position" label="Position" fallback={<PositionSkeleton />}>
+          <Position {...scope} />
+        </Band>
+      )}
+
+      {hasDetail && (
+        <Band
+          heading="Detail"
+          label="Detail"
+          action={
+            canSeeAnalytics ? (
+              <Link href="/analytics" className="text-xs text-[var(--c-accent-text)] hover:underline">
+                Full analytics
+              </Link>
+            ) : undefined
+          }
+          fallback={<DetailSkeleton />}
+        >
+          <Detail {...scope} />
+        </Band>
+      )}
+    </div>
+  );
+}
+
+/** Heading, boundary and placeholder for one band of the page. */
+function Band({
+  heading,
+  action,
+  label,
+  fallback,
+  children,
+}: {
+  heading: string;
+  action?: ReactNode;
+  label: string;
+  fallback: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="space-y-3">
+      <BandHeading action={action}>{heading}</BandHeading>
+      <SectionBoundary label={label}>
+        <Suspense fallback={fallback}>{children}</Suspense>
+      </SectionBoundary>
+    </section>
+  );
+}
+
+/* ── Level 1: what is waiting on somebody ─────────────────── */
+
+async function Attention({ user, ctx, scoped }: Scope) {
+  const canSeeAnalytics = userHasPermission(user, P.ANALYTICS_VIEW);
+  const canSeeExceptions = userHasPermission(user, P.EXCEPTION_VIEW);
+
+  const [myTasks, blockers, blockingExceptions] = await Promise.all([
+    prisma.task.findMany({
+      where: {
+        status: { in: ["OPEN", "IN_PROGRESS"] },
+        OR: [{ assigneeId: user.id }, { assigneeId: null, assignedRoleCode: { in: user.roleCodes } }],
+      },
+      orderBy: [{ dueAt: "asc" }],
+      take: 6,
+    }),
+    canSeeAnalytics ? bottlenecks({ entityId: ctx.entityId, entityIds: scoped }) : Promise.resolve([]),
+    canSeeExceptions
+      ? prisma.exception.count({
+          where: {
+            status: { in: ["OPEN", "IN_PROGRESS"] },
+            blocking: true,
+            ...nullableEntityScope(ctx.entityId, scoped),
+          },
+        })
+      : Promise.resolve(0),
+  ]);
+
+  const now = new Date();
+  const mineOverdue = myTasks.filter((t) => t.dueAt && t.dueAt < now).length;
+  const pastSla = blockers.filter((b) => b.overdue);
+  const severe = blockers.filter((b) => b.severity === "CRITICAL" || b.severity === "HIGH");
+  const oldest = pastSla.reduce<(typeof pastSla)[number] | null>(
+    (worst, b) => (!worst || b.ageHours > worst.ageHours ? b : worst),
+    null,
+  );
+  // Late first, then longest waiting — the order somebody working the queue down
+  // would choose for themselves.
+  const stuck = [...blockers]
+    .sort((a, b) => Number(b.overdue) - Number(a.overdue) || b.ageHours - a.ageHours)
+    .slice(0, 6);
+
+  return (
+    <div className="space-y-4">
+      <ActionTiles
+        allClear={
+          canSeeAnalytics
+            ? "Nothing is waiting on you, and every stage is inside its target time."
+            : "Nothing is waiting on you."
+        }
+      >
+        <ActionTile
+          label="Assigned to you"
+          count={myTasks.length}
+          context={mineOverdue > 0 ? `${mineOverdue} past its due date` : "None past due"}
+          tone={mineOverdue > 0 ? "danger" : "accent"}
+          href="/workspace"
+        />
+        {canSeeAnalytics && (
+          <ActionTile
+            label="Past target time"
+            count={pastSla.length}
+            context={
+              oldest
+                ? `Longest ${Math.floor(oldest.ageHours / 24)}d in ${oldest.stage.toLowerCase()}`
+                : "Every stage inside its target"
+            }
+            tone="warning"
+            href="/analytics/bottlenecks"
+          />
+        )}
+        {canSeeAnalytics && (
+          <ActionTile
+            label="Critical and high"
+            count={severe.length}
+            context={`of ${blockers.length} ${blockers.length === 1 ? "item" : "items"} in flight`}
+            tone="danger"
+            href="/analytics/bottlenecks"
+          />
+        )}
+        {canSeeExceptions && (
+          <ActionTile
+            label="Blocking exceptions"
+            count={blockingExceptions}
+            context={blockingExceptions > 0 ? "Holding receipt or payment" : "Nothing is blocked"}
+            tone="danger"
+            href="/analytics/exceptions"
+          />
+        )}
+      </ActionTiles>
+
+      <div className={canSeeAnalytics ? "grid items-start gap-4 xl:grid-cols-2" : undefined}>
+        <SectionCard
+          title="Your queue"
+          description={mineOverdue > 0 ? `${mineOverdue} of these are past due` : "Assigned to you or to your role"}
+          actions={
+            <Link href="/workspace" className="btn btn-ghost btn-xs">
+              Open workspace
+            </Link>
+          }
+          bodyClassName="pb-1"
+        >
+          <ActivityList
+            empty={
+              <EmptyState
+                compact
+                title="Nothing is waiting on you"
+                description="Approvals and tasks raised for you or your role appear here as soon as they are created."
+              />
+            }
+          >
+            {myTasks.map((t) => {
+              const overdue = t.dueAt && t.dueAt < now;
+              return (
+                <ActivityRow
+                  key={t.id}
+                  href={t.linkUrl ?? "/workspace"}
+                  lead={
+                    <>
+                      <Badge tone={t.taskType === "APPROVAL" ? "accent" : "neutral"}>{humanize(t.taskType)}</Badge>
+                      <span className="mono text-2xs text-[var(--c-text-tertiary)]">{t.documentRef}</span>
+                      {overdue && <Badge tone="danger">Overdue</Badge>}
+                    </>
+                  }
+                  title={t.title}
+                  aside={t.dueAt ? `Due ${relativeTime(t.dueAt)}` : undefined}
+                />
+              );
+            })}
+          </ActivityList>
+        </SectionCard>
+
+        {canSeeAnalytics && (
+          <SectionCard
+            title="Where work is stuck"
+            description="Late first, then longest waiting"
+            actions={
+              <Link href="/analytics/bottlenecks" className="btn btn-ghost btn-xs">
+                All bottlenecks
+              </Link>
+            }
+            bodyClassName="pb-1"
+          >
+            <ActivityList
+              empty={
+                <EmptyState
+                  compact
+                  title="Nothing is stuck"
+                  description="Every open document is inside the target time for its stage."
+                />
+              }
+            >
+              {stuck.map((b) => (
+                <ActivityRow
+                  key={b.id}
+                  href={b.href}
+                  lead={
+                    <>
+                      <Badge tone={SEVERITY_TONE[b.severity] ?? "neutral"}>{humanize(b.severity)}</Badge>
+                      <span className="mono text-2xs text-[var(--c-accent-text)]">{b.documentRef}</span>
+                      {b.overdue && <Badge tone="danger">Late</Badge>}
+                    </>
+                  }
+                  title={b.stage}
+                  meta={`${b.owner} · ${b.nextAction}`}
+                  aside={`${Math.floor(b.ageHours / 24)}d ${b.ageHours % 24}h`}
+                />
+              ))}
+            </ActivityList>
+          </SectionCard>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Level 2: where the operation stands ──────────────────── */
+
+async function Position({ ctx, scoped }: Scope) {
+  const filter = { entityId: ctx.entityId, entityIds: scoped };
+  const [kpis, cpc] = await Promise.all([procurementKpis(filter), cpcStats(scoped)]);
+
+  const hours = (h: number) => (h ? `${h.toFixed(1)}h` : "—");
+  const days = (d: number) => (d ? `${d.toFixed(1)}d` : "—");
+
+  return (
+    <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile
           label="Procurement value"
           value={money(kpis.totalProcurementValue, "PKR", { compact: true })}
-          hint={`${kpis.poCount} purchase orders · ${money(kpis.monthProcurementValue, "PKR", { compact: true })} this month`}
+          hint={`${kpis.poCount} orders · ${money(kpis.monthProcurementValue, "PKR", { compact: true })} this month`}
           tone="accent"
+          href="/po"
         />
         <StatTile
           label="Savings realised"
@@ -133,49 +361,109 @@ export default async function DashboardPage() {
         <StatTile
           label="Invoice mismatches"
           value={kpis.invoiceMismatchCount}
-          hint={`${kpis.invoicesPendingCount} invoices in progress · ${money(kpis.paymentPendingValue, "PKR", { compact: true })} pending payment`}
+          hint={`${kpis.invoicesPendingCount} invoices in progress · ${money(kpis.paymentPendingValue, "PKR", { compact: true })} awaiting payment`}
           tone={kpis.invoiceMismatchCount > 0 ? "danger" : "default"}
           href="/invoices"
         />
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <StatTile label="Requisitions" value={kpis.prCount} hint={`${kpis.prPendingApproval} awaiting approval`} href="/pr" />
-        <StatTile
-          label="Approval time"
-          value={kpis.avgPrApprovalHours ? `${kpis.avgPrApprovalHours.toFixed(1)}h` : "—"}
-          hint="Submission to final approval"
-        />
-        <StatTile
-          label="Cycle time"
-          value={kpis.avgCycleTimeDays ? `${kpis.avgCycleTimeDays.toFixed(1)}d` : "—"}
-          hint="Submission to case closure"
-        />
-        <StatTile
-          label="Quotes per RFQ"
-          value={kpis.avgQuotationsPerRfq ? kpis.avgQuotationsPerRfq.toFixed(1) : "—"}
-          hint={`${kpis.rfqCount} RFQs issued`}
-          href="/rfq"
-        />
-        <StatTile
-          label="GRNs pending"
-          value={kpis.grnPendingCount}
-          hint="Received but not taken into inventory"
-          tone={kpis.grnPendingCount > 0 ? "warning" : "default"}
-          href="/receiving"
-        />
-        <StatTile
-          label="Open exceptions"
-          value={kpis.openExceptions}
-          hint={`${kpis.criticalExceptions} critical`}
-          tone={kpis.criticalExceptions > 0 ? "danger" : kpis.openExceptions > 0 ? "warning" : "default"}
-          href="/analytics/exceptions"
-        />
-      </div>
+      {/* The supporting figures. Each of these had a card of its own, which gave a
+          three-hour approval time the same weight as the entire procurement
+          value; grouped and labelled they stay available without competing. */}
+      <SectionCard title="Supporting figures" description="Everything else the lifecycle is reporting today">
+        <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2 xl:grid-cols-3">
+          <MetricGroup
+            title="Flow"
+            items={[
+              { label: "Requisitions raised", value: kpis.prCount, href: "/pr" },
+              { label: "Awaiting approval", value: kpis.prPendingApproval, href: "/pr", alert: kpis.prPendingApproval > 0 },
+              { label: "RFQs issued", value: kpis.rfqCount, href: "/rfq" },
+              { label: "Quotes per RFQ", value: kpis.avgQuotationsPerRfq ? kpis.avgQuotationsPerRfq.toFixed(1) : "—" },
+              { label: "Approval time", value: hours(kpis.avgPrApprovalHours) },
+              { label: "Requisition to closure", value: days(kpis.avgCycleTimeDays) },
+            ]}
+          />
+          <MetricGroup
+            title="Governance"
+            items={[
+              { label: "Committee pending", value: cpc.pending, href: "/cpc", alert: cpc.pending > 0 },
+              { label: "Committee approved", value: cpc.approved, href: "/cpc" },
+              { label: "Committee decision time", value: cpc.avgApprovalHours ? days(cpc.avgApprovalHours / 24) : "—" },
+              { label: "Approved vendors", value: kpis.activeVendors, href: "/vendors" },
+              { label: "Blacklisted vendors", value: kpis.blacklistedVendors, href: "/vendors" },
+              {
+                label: "Open exceptions",
+                value: `${kpis.openExceptions}${kpis.criticalExceptions ? ` (${kpis.criticalExceptions} critical)` : ""}`,
+                href: "/analytics/exceptions",
+                alert: kpis.criticalExceptions > 0,
+              },
+            ]}
+          />
+          <MetricGroup
+            title="Goods, assets and cash"
+            items={[
+              { label: "Receipts to record", value: kpis.grnPendingCount, href: "/receiving", alert: kpis.grnPendingCount > 0 },
+              { label: "Inventory value", value: money(kpis.inventoryValue, "PKR", { compact: true }), href: "/inventory" },
+              { label: "Assets on register", value: kpis.assetCount, href: "/assets" },
+              { label: "Petty cash spend", value: money(kpis.pettyCashSpend, "PKR", { compact: true }), href: "/petty-cash" },
+              { label: "Store-entry gap", value: kpis.pettyCashStoreGap, href: "/petty-cash", alert: kpis.pettyCashStoreGap > 0 },
+              { label: "Awaiting payment", value: money(kpis.paymentPendingValue, "PKR", { compact: true }), href: "/finance/pending" },
+            ]}
+          />
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
 
-      {/* Charts */}
+/* ── Level 3: the detail behind it ────────────────────────── */
+
+async function Detail({ user, ctx, scoped }: Scope) {
+  // Every panel here mirrors the gate on the register it summarises: the
+  // dashboard must not become the way to see what a register would refuse.
+  const canSeeAnalytics = userHasPermission(user, P.ANALYTICS_VIEW);
+  const canSeeExceptions = userHasPermission(user, P.EXCEPTION_VIEW);
+  const canSeePos = userHasPermission(user, P.PO_VIEW);
+  const canSeePrs = userHasPermission(user, P.PR_VIEW, P.PR_VIEW_ALL);
+  const filter = { entityId: ctx.entityId, entityIds: scoped };
+
+  const [trend, categorySpend, openPos, recentCases, exceptions] = await Promise.all([
+    canSeeAnalytics ? monthlyTrend(filter, 12) : Promise.resolve([]),
+    canSeeAnalytics ? spendByDimension("category", filter) : Promise.resolve([]),
+    canSeePos ? openPoRows(ctx.entityId ? [ctx.entityId] : scoped) : Promise.resolve([]),
+    canSeePrs
+      ? prisma.purchaseRequisition.findMany({
+          where: { ...ctx.entityFilter, ...prVisibilityFilter(user) },
+          orderBy: { updatedAt: "desc" },
+          take: 7,
+          include: {
+            entity: { select: { code: true } },
+            requester: { select: { name: true } },
+            department: { select: { name: true } },
+          },
+        })
+      : Promise.resolve([]),
+    canSeeExceptions
+      ? prisma.exception.findMany({
+          where: {
+            status: { in: ["OPEN", "IN_PROGRESS"] },
+            ...nullableEntityScope(ctx.entityId, scoped),
+          },
+          orderBy: [{ severity: "desc" }, { createdAt: "desc" }],
+          take: 5,
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const trendSeries = [
+    { key: "poValue", label: "Purchase order value" },
+    { key: "savings", label: "Savings", colorIndex: 1 },
+  ];
+
+  return (
+    <div className="space-y-4">
       {canSeeAnalytics && (
-        <div className="grid gap-4 xl:grid-cols-[1.5fr_1fr]">
+        <div className="grid items-start gap-4 xl:grid-cols-[1.6fr_1fr]">
           <ChartFrame
             title="Procurement value and savings by month"
             subtitle="Purchase order value against recorded savings, last 12 months"
@@ -189,7 +477,10 @@ export default async function DashboardPage() {
             footnote="Purchase order value excludes drafts, cancellations and orders pending approval."
           >
             <TrendChart
-              data={trend.map((t) => ({ label: t.label, values: [t.poValue, t.savings] }))}
+              data={trend.map((t) => ({
+                label: t.label,
+                values: [t.poValue, t.savings],
+              }))}
               series={trendSeries}
               area
               height={240}
@@ -208,7 +499,11 @@ export default async function DashboardPage() {
             }
           >
             <RankedBars
-              data={categorySpend.map((c) => ({ label: c.label, value: c.value, sub: `${c.count} line(s)` }))}
+              data={categorySpend.map((c) => ({
+                label: c.label,
+                value: c.value,
+                sub: `${c.count} line(s)`,
+              }))}
               format="moneyCompact"
               maxRows={8}
               secondaryLabel={
@@ -219,167 +514,175 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      {canSeeAnalytics && (
-        <div className="grid gap-4 xl:grid-cols-3">
-          <ChartFrame
-            title="Spend by entity"
-            subtitle="All-time purchase order value"
-            tableView={
-              <ChartTable columns={["Entity", "Spend", "Orders"]} rows={entitySpend.map((e) => [e.label, money(e.value), e.count])} />
-            }
-          >
-            <DonutChart
-              data={entitySpend.map((e) => ({ label: e.label, value: e.value }))}
-              format="moneyCompact"
-              centerLabel="Total spend"
-            />
-          </ChartFrame>
-
-          <ChartFrame
-            title="Requisitions raised by month"
-            subtitle="Volume of new procurement cases"
-            tableView={<ChartTable columns={["Month", "Requisitions"]} rows={trend.map((t) => [t.label, t.prCount])} />}
-          >
-            <ColumnChart
-              data={trend.map((t) => ({ label: t.label, values: [t.prCount] }))}
-              series={[{ key: "prCount", label: "Requisitions", colorIndex: 4 }]}
-              height={220}
-              format="number"
-              highlightLast
-            />
-          </ChartFrame>
-
+      {/* Two panels or one: a lone card should not sit in a two-column grid with
+          half the row left blank. */}
+      <div
+        className={
+          canSeePos && canSeePrs
+            ? "grid items-start gap-4 xl:grid-cols-[1.6fr_1fr]"
+            : "grid items-start gap-4"
+        }
+      >
+        {canSeePos && (
           <SectionCard
-            title="Central Procurement Committee"
-            description="Committee throughput and value under review"
+            title="Open purchase orders"
+            description="Issued but not fully received, oldest promise first"
             actions={
-              <Link href="/cpc" className="btn btn-ghost btn-xs">
-                Open CPC
+              <Link href="/open-pos" className="btn btn-ghost btn-xs">
+                Control tower
               </Link>
             }
+            bodyClassName="px-0 pb-0"
           >
-            <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-              {[
-                ["Pending", cpc.pending, cpc.pending > 0 ? "warning" : "default"],
-                ["Approved", cpc.approved, "default"],
-                ["Returned", cpc.returned, cpc.returned > 0 ? "warning" : "default"],
-                ["Rejected", cpc.rejected, "default"],
-              ].map(([label, value]) => (
-                <div key={String(label)}>
-                  <div className="label">{String(label)}</div>
-                  <div className="tnum text-[1.125rem] font-600">{String(value)}</div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-3 space-y-1 border-t border-separator pt-3">
-              <div className="flex items-baseline justify-between text-xs">
-                <span className="text-muted">Value reviewed</span>
-                <span className="tnum font-500">{money(cpc.totalValue, "PKR", { compact: true })}</span>
+            {openPos.length === 0 ? (
+              <EmptyState
+                compact
+                title="No open orders"
+                description="Every issued purchase order has been received in full."
+              />
+            ) : (
+              <div className="table-wrap">
+                <table className="dt min-w-[34rem]">
+                  <thead>
+                    <tr>
+                      <th>Order</th>
+                      <th>Vendor</th>
+                      <th className="text-right">Pending value</th>
+                      <th>Promised</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {openPos.slice(0, 8).map((po) => {
+                      const late = po.daysOverdue !== null && po.daysOverdue > 0;
+                      return (
+                        <tr key={po.id} data-clickable="true">
+                          <td>
+                            <RefLink href={`/po/${po.id}`}>{po.number}</RefLink>
+                          </td>
+                          <td className="max-w-[14rem] truncate text-xs" title={po.vendorName}>
+                            {po.vendorName}
+                          </td>
+                          <td className="num">{money(po.pendingValue, "PKR", { compact: true })}</td>
+                          <td>
+                            <div className="flex items-center gap-1.5 text-xs">
+                              <span className={late ? "text-danger-soft-foreground" : undefined}>
+                                {po.deliveryDate ? fmtDate(po.deliveryDate) : "—"}
+                              </span>
+                              {late && <Badge tone="danger">{po.daysOverdue}d late</Badge>}
+                            </div>
+                            {/* The rest of the flags live on the control tower; the
+                              first is worth carrying here because it explains why
+                              an order that looks on time is not. */}
+                            {po.flags.length > 0 && (
+                              <div className="mt-0.5 text-2xs text-[var(--c-text-tertiary)]">
+                                {po.flags[0]}
+                                {po.flags.length > 1 ? ` +${po.flags.length - 1}` : ""}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-              <div className="flex items-baseline justify-between text-xs">
-                <span className="text-muted">Savings endorsed</span>
-                <span className="tnum font-500 text-[var(--c-success)]">
-                  {money(cpc.totalSavings, "PKR", { compact: true })}
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between text-xs">
-                <span className="text-muted">Average decision time</span>
-                <span className="tnum font-500">
-                  {cpc.avgApprovalHours ? `${(cpc.avgApprovalHours / 24).toFixed(1)}d` : "—"}
-                </span>
-              </div>
-            </div>
+            )}
           </SectionCard>
-        </div>
-      )}
+        )}
 
-      {/* Operational attention */}
-      <div className="grid gap-4 xl:grid-cols-2">
-        <SectionCard
-          title="Needs attention"
-          description="The highest-severity blockers across the lifecycle right now"
-          actions={
-            <Link href="/analytics/bottlenecks" className="btn btn-ghost btn-xs">
-              All bottlenecks
-            </Link>
-          }
-          bodyClassName="px-0 py-0"
-        >
-          {criticalBlockers.length === 0 ? (
-            <EmptyState compact title="Nothing critical" description="No high-severity blockers in the pipeline." />
-          ) : (
-            <ul className="divide-y divide-[var(--c-border-subtle)]">
-              {criticalBlockers.map((b) => (
-                <li key={b.id} className="px-4 py-2.5">
-                  <Link href={b.href} className="group block">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone={SEVERITY_TONE[b.severity] ?? "neutral"}>{humanize(b.severity)}</Badge>
-                      <span className="mono text-[var(--c-accent-text)]">{b.documentRef}</span>
-                      <span className="text-xs font-500 group-hover:underline">{b.stage}</span>
-                      {b.overdue && <Badge tone="danger">Overdue</Badge>}
-                      <span className="tnum ml-auto text-2xs text-[var(--c-text-tertiary)]">
-                        {Math.floor(b.ageHours / 24)}d {b.ageHours % 24}h
-                      </span>
-                    </div>
-                    <p className="mt-0.5 text-xs leading-5 text-muted">{b.reason}</p>
-                    <p className="mt-0.5 text-2xs text-[var(--c-text-tertiary)]">
-                      Owner: {b.owner} · Next: {b.nextAction}
-                    </p>
-                  </Link>
-                </li>
+        {canSeePrs && (
+          <SectionCard
+            title="Recent activity"
+            description="Requisitions that moved most recently"
+            actions={
+              <Link href="/pr" className="btn btn-ghost btn-xs">
+                All requisitions
+              </Link>
+            }
+            bodyClassName="pb-1"
+          >
+            <ActivityList
+              empty={
+                <EmptyState
+                  compact
+                  title="No requisitions yet"
+                  description="The first requisition raised here appears in this list."
+                  action={
+                    userHasPermission(user, P.PR_CREATE) ? (
+                      <Link href="/pr/new" className="btn btn-primary btn-xs">
+                        New requisition
+                      </Link>
+                    ) : undefined
+                  }
+                />
+              }
+            >
+              {recentCases.map((pr) => (
+                <ActivityRow
+                  key={pr.id}
+                  href={`/pr/${pr.id}`}
+                  lead={
+                    <>
+                      <span className="mono text-2xs text-[var(--c-accent-text)]">{pr.number}</span>
+                      <StatusBadge status={pr.status} />
+                    </>
+                  }
+                  title={pr.title}
+                  meta={`${pr.entity.code} · ${pr.department.name} · ${pr.requester.name} · ${relativeTime(pr.updatedAt)}`}
+                  aside={money(pr.estimatedValue, "PKR", { compact: true })}
+                />
               ))}
-            </ul>
-          )}
-        </SectionCard>
+            </ActivityList>
+          </SectionCard>
+        )}
+      </div>
 
+      {canSeeExceptions && (
         <SectionCard
-          title="Open purchase orders"
-          description="Issued but not fully received, oldest first"
+          title="Open exceptions"
+          description="Every tolerated rule breach is recorded, owned and dated"
           actions={
-            <Link href="/open-pos" className="btn btn-ghost btn-xs">
-              Control tower
+            <Link href="/analytics/exceptions" className="btn btn-ghost btn-xs">
+              All exceptions
             </Link>
           }
-          bodyClassName="px-0 py-0"
+          bodyClassName="px-0 pb-0"
         >
-          {openPos.length === 0 ? (
-            <EmptyState compact title="No open orders" description="Every issued purchase order has been fully received." />
+          {exceptions.length === 0 ? (
+            <EmptyState
+              compact
+              title="No open exceptions"
+              description="No rule has been breached or waived on an open document."
+            />
           ) : (
-            <div className="table-wrap max-h-[22rem] overflow-y-auto">
-              <table className="dt">
+            <div className="table-wrap">
+              <table className="dt min-w-[34rem]">
                 <thead>
                   <tr>
-                    <th>PO</th>
-                    <th>Vendor</th>
-                    <th className="text-right">Pending value</th>
-                    <th>Promised</th>
-                    <th>Flags</th>
+                    <th>Reference</th>
+                    <th>Severity</th>
+                    <th className="w-full">What happened</th>
+                    <th>Raised</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {openPos.slice(0, 12).map((po) => (
-                    <tr key={po.id}>
+                  {exceptions.map((e) => (
+                    <tr key={e.id} data-clickable="true">
                       <td>
-                        <RefLink href={`/po/${po.id}`}>{po.number}</RefLink>
-                      </td>
-                      <td className="max-w-[10rem] truncate text-xs" title={po.vendorName}>
-                        {po.vendorName}
-                      </td>
-                      <td className="num">{money(po.pendingValue, "PKR", { compact: true })}</td>
-                      <td className="text-xs">
-                        <span className={po.daysOverdue && po.daysOverdue > 0 ? "text-[var(--c-danger)]" : undefined}>
-                          {po.deliveryDate ? fmtDate(po.deliveryDate) : "—"}
-                        </span>
+                        <RefLink href={`/analytics/exceptions/${e.id}`}>{e.number}</RefLink>
+                        <div className="mono mt-0.5 text-2xs text-[var(--c-text-tertiary)]">{e.documentRef}</div>
                       </td>
                       <td>
-                        <span className="flex flex-wrap gap-1">
-                          {po.flags.slice(0, 2).map((f) => (
-                            <Badge key={f} tone={f.includes("Overdue") || f.includes("Missing") ? "danger" : "warning"}>
-                              {f}
-                            </Badge>
-                          ))}
+                        <span className="flex items-center gap-1">
+                          <Badge tone={SEVERITY_TONE[e.severity] ?? "neutral"}>{humanize(e.severity)}</Badge>
+                          {e.blocking && <Badge tone="danger">Blocking</Badge>}
                         </span>
                       </td>
+                      <td className="wrap text-xs">
+                        {e.title}
+                        <div className="mt-0.5 text-2xs text-muted">{humanize(e.type)}</div>
+                      </td>
+                      <td className="text-2xs">{relativeTime(e.createdAt)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -387,162 +690,86 @@ export default async function DashboardPage() {
             </div>
           )}
         </SectionCard>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[1fr_1fr_1fr]">
-        <SectionCard
-          title="My next actions"
-          description={overdueTasks > 0 ? `${overdueTasks} overdue` : "Assigned to you or your role"}
-          actions={
-            <Link href="/workspace" className="btn btn-ghost btn-xs">
-              Workspace
-            </Link>
-          }
-          bodyClassName="px-0 py-0"
-        >
-          {myTasks.length === 0 ? (
-            <EmptyState compact title="Nothing waiting on you" description="You have no open procurement tasks." />
-          ) : (
-            <ul className="divide-y divide-[var(--c-border-subtle)]">
-              {myTasks.map((t) => {
-                const overdue = t.dueAt && t.dueAt < new Date();
-                return (
-                  <li key={t.id} className="px-4 py-2.5">
-                    <Link href={t.linkUrl ?? "/workspace"} className="group block">
-                      <div className="flex items-center gap-2">
-                        <Badge tone={t.taskType === "APPROVAL" ? "accent" : "neutral"}>{humanize(t.taskType)}</Badge>
-                        <span className="mono text-2xs text-[var(--c-text-tertiary)]">{t.documentRef}</span>
-                        {overdue && <Badge tone="danger">Overdue</Badge>}
-                      </div>
-                      <p className="mt-0.5 text-xs font-500 group-hover:underline">{t.title}</p>
-                      {t.dueAt && (
-                        <p className="text-2xs text-[var(--c-text-tertiary)]">Due {relativeTime(t.dueAt)}</p>
-                      )}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </SectionCard>
-
-        <SectionCard title="Recent case activity" bodyClassName="px-0 py-0">
-          {recentCases.length === 0 ? (
-            <EmptyState compact title="No cases yet" />
-          ) : (
-            <ul className="divide-y divide-[var(--c-border-subtle)]">
-              {recentCases.map((pr) => (
-                <li key={pr.id} className="px-4 py-2.5">
-                  <Link href={`/pr/${pr.id}`} className="group block">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="mono text-[var(--c-accent-text)]">{pr.number}</span>
-                      <StatusBadge status={pr.status} />
-                      <span className="tnum ml-auto text-2xs text-[var(--c-text-tertiary)]">
-                        {money(pr.estimatedValue, "PKR", { compact: true })}
-                      </span>
-                    </div>
-                    <p className="mt-0.5 truncate text-xs font-500 group-hover:underline">{pr.title}</p>
-                    <p className="text-2xs text-[var(--c-text-tertiary)]">
-                      {pr.entity.code} · {pr.department.name} · {pr.requester.name} · {relativeTime(pr.updatedAt)}
-                    </p>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </SectionCard>
-
-        <SectionCard
-          title="Governance position"
-          description="Where the controls stand today"
-        >
-          <div className="space-y-3.5">
-            <div>
-              <Meter
-                value={kpis.activeVendors}
-                max={kpis.activeVendors + kpis.blacklistedVendors}
-                label={`${kpis.activeVendors} approved vendors`}
-                tone="success"
-              />
-              <p className="mt-1 text-2xs text-[var(--c-text-tertiary)]">
-                {kpis.blacklistedVendors} blacklisted and blocked from sourcing
-              </p>
-            </div>
-            <div className="space-y-1 border-t border-separator pt-3">
-              {[
-                ["Inventory value", money(kpis.inventoryValue, "PKR", { compact: true }), "/inventory"],
-                ["Assets on register", String(kpis.assetCount), "/assets"],
-                ["Petty cash spend", money(kpis.pettyCashSpend, "PKR", { compact: true }), "/petty-cash"],
-                [
-                  "Petty cash store-entry gap",
-                  String(kpis.pettyCashStoreGap),
-                  "/petty-cash",
-                  kpis.pettyCashStoreGap > 0,
-                ],
-                ["Payments pending", money(kpis.paymentPendingValue, "PKR", { compact: true }), "/finance/pending"],
-              ].map(([label, value, href, danger]) => (
-                <Link
-                  key={String(label)}
-                  href={String(href)}
-                  className="flex items-baseline justify-between gap-3 py-0.5 text-xs hover:text-[var(--c-accent-text)]"
-                >
-                  <span className="text-muted">{String(label)}</span>
-                  <span className={`tnum font-500 ${danger ? "text-[var(--c-danger)]" : ""}`}>{String(value)}</span>
-                </Link>
-              ))}
-            </div>
-          </div>
-        </SectionCard>
-      </div>
-
-      {exceptions.length > 0 && userHasPermission(user, P.EXCEPTION_VIEW) && (
-        <SectionCard
-          title="Latest exceptions"
-          description="Every tolerated rule breach is tracked, owned and dated"
-          actions={
-            <Link href="/analytics/exceptions" className="btn btn-ghost btn-xs">
-              All exceptions
-            </Link>
-          }
-          bodyClassName="px-0 py-0"
-        >
-          <div className="table-wrap">
-            <table className="dt">
-              <thead>
-                <tr>
-                  <th>Reference</th>
-                  <th>Type</th>
-                  <th>Severity</th>
-                  <th>Document</th>
-                  <th style={{ minWidth: "20rem" }}>Detail</th>
-                  <th>Raised</th>
-                </tr>
-              </thead>
-              <tbody>
-                {exceptions.map((e) => (
-                  <tr key={e.id} data-clickable="true">
-                    <td>
-                      <RefLink href={`/analytics/exceptions/${e.id}`}>{e.number}</RefLink>
-                    </td>
-                    <td className="text-xs">{humanize(e.type)}</td>
-                    <td>
-                      <Badge tone={SEVERITY_TONE[e.severity] ?? "neutral"}>{humanize(e.severity)}</Badge>
-                      {e.blocking && (
-                        <span className="ml-1">
-                          <Badge tone="danger">Blocking</Badge>
-                        </span>
-                      )}
-                    </td>
-                    <td className="mono text-2xs">{e.documentRef}</td>
-                    <td className="text-xs">{e.title}</td>
-                    <td className="text-2xs">{relativeTime(e.createdAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </SectionCard>
       )}
+    </div>
+  );
+}
+
+/* ── Placeholders, shaped like what replaces them ─────────── */
+
+function AttentionSkeleton() {
+  return (
+    <div className="space-y-4" aria-busy="true">
+      <div className="card grid gap-px overflow-hidden bg-separator sm:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="bg-surface px-4 py-3.5">
+            <div className="skeleton h-2.5 w-20" />
+            <div className="skeleton mt-2.5 h-6 w-12" />
+            <div className="skeleton mt-2 h-2.5 w-28" />
+          </div>
+        ))}
+      </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        {[0, 1].map((i) => (
+          <div key={i} className="card card-pad space-y-3">
+            <div className="skeleton h-3 w-32" />
+            {Array.from({ length: 4 }).map((_, r) => (
+              <div key={r} className="space-y-1.5">
+                <div className="skeleton h-2.5 w-24" />
+                <div className="skeleton h-2.5 w-[70%]" />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PositionSkeleton() {
+  return (
+    <div className="space-y-4" aria-busy="true">
+      <SkeletonTiles />
+      <div className="card card-pad">
+        <div className="skeleton h-3 w-36" />
+        <div className="mt-4 grid gap-x-8 gap-y-5 sm:grid-cols-2 xl:grid-cols-3">
+          {[0, 1, 2].map((c) => (
+            <div key={c} className="space-y-2">
+              <div className="skeleton h-2.5 w-20" />
+              {Array.from({ length: 6 }).map((_, r) => (
+                <div key={r} className="skeleton h-2.5 w-full" />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailSkeleton() {
+  return (
+    <div className="space-y-4" aria-busy="true">
+      <div className="grid gap-4 xl:grid-cols-[1.6fr_1fr]">
+        <div className="card card-pad">
+          <div className="skeleton h-3 w-64" />
+          <div className="skeleton mt-2 h-2.5 w-80" />
+          <div className="skeleton mt-4 h-[240px] w-full" />
+        </div>
+        <div className="card card-pad">
+          <div className="skeleton h-3 w-36" />
+          <div className="skeleton mt-2 h-2.5 w-48" />
+          <div className="mt-4 space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i}>
+                <div className="skeleton h-2.5 w-32" />
+                <div className="skeleton mt-1.5 h-1.5 w-full" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <SkeletonTable rows={6} cols={4} />
     </div>
   );
 }
