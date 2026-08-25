@@ -76,7 +76,7 @@ export default async function AdminPoliciesPage({ searchParams }: { searchParams
         subtitle="Every threshold, limit and control switch the engine reads. Values resolve entity-specific first, then global, then the shipped default — nothing is hard-coded."
       />
 
-      <div className="card flex flex-wrap items-end gap-3 px-3.5 py-3">
+      <div className="card flex flex-row flex-wrap items-end gap-3 px-3.5 py-3">
         <form method="get" className="flex flex-wrap items-end gap-3">
           <label className="min-w-[14rem]">
             <span className="label mb-1 block">Viewing rules for</span>

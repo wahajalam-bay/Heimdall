@@ -846,6 +846,15 @@
 
   /* ── Lifecycle rail ──────────────────────────────────────── */
 
+  /* Where one module hands the case to the next. A rail that runs straight
+     through gives no sign that the work changed hands halfway along. */
+  .rail-step[data-handover="true"] {
+    border-left: 1px solid var(--border);
+    padding-left: 0.75rem;
+    margin-left: 0.25rem;
+  }
+
+
   .rail {
     @apply scrollbar-thin flex gap-1 overflow-x-auto pt-2;
   }

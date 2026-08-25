@@ -9,7 +9,7 @@ import { Badge, Card, MetaItem, PageHeader, StatusBadge } from "@/components/ui/
 import { LifecycleRail, buildRail } from "@/components/ui/workflow";
 import { DocumentsPanel } from "@/components/domain/DocumentsPanel";
 import { ExceptionsPanel } from "@/components/domain/ExceptionsPanel";
-import { PR_LIFECYCLE, PRIORITY_TONE, caseModule, humanize } from "@/lib/domain";
+import { PR_LIFECYCLE, PR_RAIL_SEGMENTS, PRIORITY_TONE, humanize } from "@/lib/domain";
 import { fmtDate, fmtDateTime, money } from "@/lib/format";
 import { canUserActOnApproval, getApprovalTrail } from "@/lib/approvals";
 import { NotFoundError } from "@/lib/errors";
@@ -147,7 +147,6 @@ export default async function ProcurementCasePage({
   const cpc = pr.cpcCases[0];
   if (cpc) reached.CPC_REVIEW = { at: cpc.createdAt, owner: cpc.status === "APPROVED" ? "Committee approved" : "Committee" };
 
-  const module = caseModule(pr.status);
   const terminalBad = ["REJECTED", "CANCELLED"].includes(pr.status);
   const skipped = cpcInfo.required ? [] : ["CPC_REVIEW"];
   const rail = buildRail(PR_LIFECYCLE, pr.status, reached, {
@@ -232,45 +231,7 @@ export default async function ProcurementCasePage({
         <CaseActions prId={pr.id} prNumber={pr.number} caps={caps} />
       </Card>
 
-      <LifecycleRail steps={rail} title="Lifecycle" />
-
-      {/* The requirement splits this case in two: the requisition runs to
-          approval, and the purchase order module starts there. One record carries
-          both — that is what makes it traceable — but saying which module owns it
-          now is what tells somebody whether they are still waiting on their own
-          department or on procurement. */}
-      <div className="card card-pad flex flex-wrap items-center gap-x-6 gap-y-3">
-        <div className="flex items-center gap-2">
-          <Badge tone={module === "REQUISITION" ? "accent" : "success"}>
-            {module === "REQUISITION" ? "Requisition module" : "Requisition complete"}
-          </Badge>
-          <span className="text-xs text-muted">
-            {module === "REQUISITION"
-              ? "Raise, submit, approve. Nothing is sourced until this finishes."
-              : pr.approvedAt
-                ? `Approved ${fmtDate(pr.approvedAt)}`
-                : "Approved"}
-          </span>
-        </div>
-        <span aria-hidden className="text-muted">
-          →
-        </span>
-        <div className="flex items-center gap-2">
-          <Badge tone={module === "PURCHASE_ORDER" ? "accent" : "neutral"}>Purchase order module</Badge>
-          <span className="text-xs text-muted">
-            {module === "REQUISITION"
-              ? "Begins on approval: RFQ, quotations, comparative, negotiation, committee, order."
-              : module === "CLOSED"
-                ? "Closed."
-                : `In progress — ${humanize(pr.status)}`}
-          </span>
-        </div>
-        {module === "PURCHASE_ORDER" && !pr.rfqs.length && !pr.purchaseOrders.length && (
-          <span className="ml-auto text-xs text-warning-soft-foreground">
-            Approved but sourcing has not started.
-          </span>
-        )}
-      </div>
+      <LifecycleRail steps={rail} title="Lifecycle" segments={PR_RAIL_SEGMENTS} />
 
       <div>
         <TabNav tabs={tabs} active={tab} baseHref={`/pr/${pr.id}`} />

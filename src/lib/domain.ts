@@ -48,33 +48,39 @@ export const PR_STATUSES = [
 export type PrStatus = (typeof PR_STATUSES)[number];
 
 /**
- * Where the requisition module ends and the Purchase Order module begins.
+ * Two lifecycles on one record.
  *
- * The requirement is explicit: the requisition covers the process up to
- * approval, and after approval the transaction enters the Purchase Order and
- * sourcing module. Both stages live on one case record — that is what makes the
- * lifecycle traceable end to end — but they are two pieces of work owned by two
- * different teams, and the boundary is named here so every gate reads it from
- * one place instead of listing statuses by hand.
+ * The requisition lifecycle runs from raising the demand to the order being
+ * approved; the purchase order lifecycle takes over from the order being issued
+ * and runs to closure. They live on one case because that is what makes the
+ * whole thing traceable, but they are two pieces of work owned by two teams, so
+ * the boundary is named here and every rail and gate reads it from one place.
+ *
+ * `PR_MODULE_BOUNDARY` is the last status of the requisition lifecycle.
+ * `PO_MODULE_GATE` is a different thing: the earliest status at which the
+ * sourcing team may act at all. Sourcing has to be able to start long before an
+ * order exists, so the gate sits at approval while the lifecycle runs on to the
+ * approved order.
  */
-export const PR_MODULE_BOUNDARY: PrStatus = "APPROVED";
+export const PR_MODULE_BOUNDARY: PrStatus = "PO_APPROVED";
+export const PO_MODULE_GATE: PrStatus = "APPROVED";
 
-/** Statuses belonging to the requisition module: raising it and getting it approved. */
+/** The requisition lifecycle: raising the demand through to an approved order. */
 export const REQUISITION_STAGE: PrStatus[] = [
   "DRAFT",
   "SUBMITTED",
   "UNDER_DEPARTMENT_APPROVAL",
   "RETURNED",
-];
-
-/** Statuses belonging to the Purchase Order module, which starts at approval. */
-export const PO_MODULE_STAGE: PrStatus[] = [
   "APPROVED",
   "PROCUREMENT_REVIEW",
   "SOURCING",
   "CPC_REVIEW",
   "PO_PREPARATION",
   "PO_APPROVED",
+];
+
+/** The purchase order lifecycle: the issued order through to financial closure. */
+export const PO_MODULE_STAGE: PrStatus[] = [
   "PO_ISSUED",
   "PARTIALLY_RECEIVED",
   "FULLY_RECEIVED",
@@ -83,21 +89,51 @@ export const PO_MODULE_STAGE: PrStatus[] = [
   "FINANCE_HANDOFF",
 ];
 
-/** True once the requisition itself is finished and the case belongs to procurement. */
+/**
+ * True once the requisition is approved and the sourcing team may act.
+ *
+ * This is the gate, not the lifecycle boundary — an RFQ has to be possible
+ * before an order exists, or no order could ever be raised.
+ */
 export function requisitionComplete(status: string): boolean {
-  return PO_MODULE_STAGE.includes(status as PrStatus) || status === "CLOSED";
+  const i = PR_STATUSES.indexOf(status as PrStatus);
+  const gate = PR_STATUSES.indexOf(PO_MODULE_GATE);
+  if (status === "CLOSED") return true;
+  if (["DRAFT", "SUBMITTED", "UNDER_DEPARTMENT_APPROVAL", "RETURNED", "REJECTED", "CANCELLED"].includes(status)) {
+    return false;
+  }
+  return i >= gate;
 }
 
 /** True while the requisition is still being raised or approved. */
 export function inRequisitionStage(status: string): boolean {
-  return REQUISITION_STAGE.includes(status as PrStatus);
+  return ["DRAFT", "SUBMITTED", "UNDER_DEPARTMENT_APPROVAL", "RETURNED"].includes(status);
 }
 
-/** Which module owns this case right now, for anything that needs to say so. */
+/** Which lifecycle owns this case now. */
 export function caseModule(status: string): "REQUISITION" | "PURCHASE_ORDER" | "CLOSED" {
   if (["CLOSED", "REJECTED", "CANCELLED"].includes(status)) return "CLOSED";
-  return requisitionComplete(status) ? "PURCHASE_ORDER" : "REQUISITION";
+  return PO_MODULE_STAGE.includes(status as PrStatus) ? "PURCHASE_ORDER" : "REQUISITION";
 }
+
+/**
+ * The rail's two labelled stretches, for the case screen.
+ *
+ * `upToKey` names the last step of each, so the rail draws the handover exactly
+ * where the requisition lifecycle ends.
+ */
+export const PR_RAIL_SEGMENTS = [
+  {
+    label: "Requisition lifecycle",
+    description: "Raised, approved, sourced, order approved",
+    upToKey: "PO_APPROVED",
+  },
+  {
+    label: "Purchase order lifecycle",
+    description: "Issued, received, invoiced, paid",
+    upToKey: "CLOSED",
+  },
+];
 
 /** Ordered happy-path lifecycle used by the workflow visualiser. */
 export const PR_LIFECYCLE: PrStatus[] = [

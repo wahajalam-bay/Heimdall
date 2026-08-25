@@ -29,7 +29,42 @@ function stageColor(index: number, total: number) {
   return `var(--c-stage-${step})`;
 }
 
-export function LifecycleRail({ steps, title }: { steps: RailStep[]; title?: string }) {
+/**
+ * A named stretch of the rail.
+ *
+ * Some lifecycles are two pieces of work owned by two teams on one record. The
+ * boundary belongs on the rail itself rather than in a note beside it: somebody
+ * reading the rail is asking where this case is, and the answer includes whose
+ * problem it currently is.
+ */
+export type RailSegment = { label: string; description?: string; upToKey: string };
+
+export function LifecycleRail({
+  steps,
+  title,
+  segments,
+}: {
+  steps: RailStep[];
+  title?: string;
+  /** Splits the rail into labelled stretches, each ending at `upToKey`. */
+  segments?: RailSegment[];
+}) {
+  // Which segment each step belongs to, resolved once so the header can be drawn
+  // above the first step of each stretch.
+  const segmentOf = new Map<string, { segment: RailSegment; first: boolean; span: number }>();
+  if (segments?.length) {
+    let cursor = 0;
+    for (const segment of segments) {
+      const end = steps.findIndex((s, i) => i >= cursor && s.key === segment.upToKey);
+      const last = end === -1 ? steps.length - 1 : end;
+      for (let i = cursor; i <= last && i < steps.length; i += 1) {
+        segmentOf.set(steps[i].key, { segment, first: i === cursor, span: last - cursor + 1 });
+      }
+      cursor = last + 1;
+      if (cursor >= steps.length) break;
+    }
+  }
+
   return (
     <div className="card overflow-hidden">
       {title && (
@@ -39,7 +74,32 @@ export function LifecycleRail({ steps, title }: { steps: RailStep[]; title?: str
       )}
       <div className="rail px-4 pb-3 pt-0.5">
         {steps.map((s, i) => (
-          <div key={s.key} className="rail-step" data-state={s.state}>
+          <div
+            key={s.key}
+            className="rail-step"
+            data-state={s.state}
+            data-handover={segmentOf.get(s.key)?.first && i > 0 ? "true" : undefined}
+          >
+            {(() => {
+              const seg = segmentOf.get(s.key);
+              if (!seg) return null;
+              // Every step carries the row so the headings line up across a
+              // rail that scrolls; only the first of each stretch is labelled.
+              return (
+                <div className="relative mb-1.5 h-8">
+                  {seg.first && (
+                    // The heading names a stretch, not a step, so it runs across
+                    // its stretch instead of being squeezed into one column.
+                    <div className="absolute top-0 left-0 whitespace-nowrap">
+                      <div className="label text-[var(--c-accent-text)]">{seg.segment.label}</div>
+                      {seg.segment.description && (
+                        <div className="text-2xs text-muted">{seg.segment.description}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             <div className="flex items-center gap-1.5">
               <StepGlyph state={s.state} color={stageColor(i, steps.length)} />
               <span
