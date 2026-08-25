@@ -178,13 +178,19 @@ export function buildRail(
   lifecycle: readonly string[],
   current: string,
   reached: Record<string, { at?: Date | string | null; owner?: string | null }> = {},
-  opts?: { skipped?: string[]; blockedNote?: string | null; terminalBad?: boolean },
+  opts?: {
+    skipped?: string[];
+    blockedNote?: string | null;
+    terminalBad?: boolean;
+    /** Labels for stages the status vocabulary has no single word for. */
+    labels?: Record<string, string>;
+  },
 ): RailStep[] {
   const idx = lifecycle.indexOf(current);
   const bad = opts?.terminalBad ?? false;
   return lifecycle.map((s, i) => {
     if (opts?.skipped?.includes(s)) {
-      return { key: s, label: humanize(s), state: "skipped" as const };
+      return { key: s, label: opts?.labels?.[s] ?? humanize(s), state: "skipped" as const };
     }
     let state: RailStep["state"];
     if (idx === -1) {
@@ -195,7 +201,7 @@ export function buildRail(
     const meta = reached[s] ?? {};
     return {
       key: s,
-      label: humanize(s),
+      label: opts?.labels?.[s] ?? humanize(s),
       state,
       at: meta.at ?? null,
       owner: meta.owner ?? null,

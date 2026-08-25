@@ -222,6 +222,76 @@ export const PO_LIFECYCLE: PoStatus[] = [
   "CLOSED",
 ];
 
+/**
+ * The order's own lifecycle, as the requirement lists it.
+ *
+ * It starts where the requisition lifecycle ends — at the approved order — so
+ * draft, pending approval and approved are not repeated here; they belong to the
+ * requisition and are shown there.
+ *
+ * Awaiting delivery, inspection pending and GRN pending are not statuses on the
+ * order row and deliberately are not made into any: they are facts about the
+ * deliveries, inspections and receipts underneath it. Turning each into a status
+ * would mean a status machine that has to be kept in step with those documents,
+ * and it would be wrong the first time somebody posted a receipt out of order.
+ * They are derived instead, from the documents themselves.
+ */
+export const PO_RAIL = [
+  "ISSUED",
+  "AWAITING_DELIVERY",
+  "PARTIALLY_RECEIVED",
+  "INSPECTION_PENDING",
+  "GRN_PENDING",
+  "FULLY_RECEIVED",
+  "CLOSED",
+] as const;
+
+export type PoRailStage = (typeof PO_RAIL)[number];
+
+export type PoRailFacts = {
+  status: string;
+  issuedAt?: Date | null;
+  closedAt?: Date | null;
+  /** Deliveries physically recorded against the order. */
+  deliveries: number;
+  firstDeliveryAt?: Date | null;
+  /** Inspections still awaiting a verdict. */
+  inspectionsPending: number;
+  /** Deliveries with no posted receipt behind them. */
+  grnsPending: number;
+  postedGrns: number;
+  firstGrnAt?: Date | null;
+  /** True once every ordered line has been received in full. */
+  fullyReceived: boolean;
+};
+
+/**
+ * Which stage of the order lifecycle the facts put it at.
+ *
+ * Read in the order the goods actually move, and it stops at the first stage
+ * that is still outstanding — because that is the stage somebody has to act on.
+ */
+export function poRailStage(f: PoRailFacts): PoRailStage {
+  if (f.status === "CLOSED") return "CLOSED";
+  if (f.fullyReceived || f.status === "FULLY_RECEIVED") return "FULLY_RECEIVED";
+  if (f.inspectionsPending > 0) return "INSPECTION_PENDING";
+  if (f.grnsPending > 0) return "GRN_PENDING";
+  if (f.postedGrns > 0) return "PARTIALLY_RECEIVED";
+  if (f.deliveries > 0) return "PARTIALLY_RECEIVED";
+  return "AWAITING_DELIVERY";
+}
+
+/** Human labels for the derived stages the status vocabulary has no word for. */
+export const PO_RAIL_LABELS: Record<PoRailStage, string> = {
+  ISSUED: "Issued",
+  AWAITING_DELIVERY: "Awaiting delivery",
+  PARTIALLY_RECEIVED: "Partially received",
+  INSPECTION_PENDING: "Inspection pending",
+  GRN_PENDING: "GRN pending",
+  FULLY_RECEIVED: "Fully received",
+  CLOSED: "Closed",
+};
+
 /** POs that count as "open" for the Open PO control tower. */
 export const PO_OPEN_STATUSES: PoStatus[] = ["ISSUED", "PARTIALLY_RECEIVED", "APPROVED"];
 

@@ -30,7 +30,7 @@ import {
 import { ApprovalTrailView, LifecycleRail, Timeline, buildRail } from "@/components/ui/workflow";
 import { DocumentsPanel } from "@/components/domain/DocumentsPanel";
 import { ExceptionsPanel } from "@/components/domain/ExceptionsPanel";
-import { PO_LIFECYCLE, humanize } from "@/lib/domain";
+import { PO_RAIL, PO_RAIL_LABELS, poRailStage, humanize } from "@/lib/domain";
 import { fmtDate, fmtDateTime, money, percent, qty, round2 } from "@/lib/format";
 import { AuditPanel } from "../../pr/[id]/panels2";
 import { PoActions, type PoCapabilities } from "./PoActions";
@@ -183,21 +183,53 @@ export default async function PoDetailPage({
     status: po.status,
   };
 
+  // The order's lifecycle starts where the requisition's ends: at the approved
+  // order. Awaiting delivery, inspection pending and GRN pending are read off the
+  // deliveries, inspections and receipts rather than being statuses of their own.
+  const grnsPending = po.deliveries.filter(
+    (d) => d.status !== "REJECTED" && !po.grns.some((g) => g.deliveryId === d.id && g.status === "POSTED"),
+  ).length;
+  const fullyReceived =
+    po.items.length > 0 && po.items.every((i) => i.acceptedQty + 1e-9 >= i.quantity);
+  const stage = poRailStage({
+    status: po.status,
+    issuedAt: po.issuedAt,
+    closedAt: po.closedAt,
+    deliveries: po.deliveries.length,
+    firstDeliveryAt: po.deliveries[0]?.deliveryDate ?? null,
+    inspectionsPending: pending.length,
+    grnsPending,
+    postedGrns: postedGrns.length,
+    firstGrnAt: postedGrns[0]?.postedAt ?? null,
+    fullyReceived,
+  });
+
   const reached: Record<string, { at?: Date | null; owner?: string | null }> = {
-    DRAFT: { at: po.createdAt, owner: po.createdBy.name },
-    APPROVED: { at: po.approvedAt },
-    ISSUED: { at: po.issuedAt },
+    ISSUED: { at: po.issuedAt, owner: po.createdBy.name },
+    AWAITING_DELIVERY: { at: po.issuedAt },
     CLOSED: { at: po.closedAt },
   };
+  if (po.deliveries[0]) {
+    reached.PARTIALLY_RECEIVED = { at: po.deliveries[0].deliveryDate };
+  }
+  if (pending.length) reached.INSPECTION_PENDING = { at: po.deliveries[0]?.deliveryDate ?? null };
+  if (grnsPending) reached.GRN_PENDING = { at: po.deliveries[0]?.deliveryDate ?? null };
   if (postedGrns[0]) {
-    reached[po.status === "FULLY_RECEIVED" ? "FULLY_RECEIVED" : "PARTIALLY_RECEIVED"] = {
+    reached[fullyReceived ? "FULLY_RECEIVED" : "PARTIALLY_RECEIVED"] = {
       at: postedGrns[0].postedAt,
       owner: postedGrns[0].receivedBy.name,
     };
   }
-  const rail = buildRail(PO_LIFECYCLE, po.status, reached, {
+
+  const rail = buildRail(PO_RAIL, stage, reached, {
+    labels: PO_RAIL_LABELS,
     terminalBad: po.status === "CANCELLED",
-    blockedNote: po.status === "ON_HOLD" ? "On hold" : overdue ? "Delivery overdue" : null,
+    blockedNote:
+      po.status === "ON_HOLD"
+        ? "On hold"
+        : overdue
+          ? `Overdue — promised ${po.deliveryDate ? fmtDate(po.deliveryDate) : "earlier"}`
+          : null,
   });
 
   const negotiated = po.quote?.negotiations.at(-1);
