@@ -5,6 +5,25 @@
  */
 
 export const PERMISSIONS = {
+  // Requirements — the demand front door
+  REQUIREMENT_VIEW: "requirements.view",
+  REQUIREMENT_VIEW_ALL: "requirements.view_all",
+  REQUIREMENT_CREATE: "requirements.create",
+  REQUIREMENT_EDIT: "requirements.edit",
+  REQUIREMENT_SUBMIT: "requirements.submit",
+  REQUIREMENT_CHECK_STOCK: "requirements.check_stock",
+  REQUIREMENT_DECIDE: "requirements.decide",
+  REQUIREMENT_CANCEL: "requirements.cancel",
+
+  // Store requisitions
+  SR_VIEW: "store_requisition.view",
+  SR_CREATE: "store_requisition.create",
+  SR_APPROVE: "store_requisition.approve",
+  SR_APPROVE_HOD: "store_requisition.approve_hod",
+  SR_APPROVE_CROSS_STORE: "store_requisition.approve_cross_store",
+  SR_ISSUE: "store_requisition.issue",
+  INVENTORY_RESERVE: "inventory.reserve",
+
   // Requisitions
   PR_VIEW: "pr.view",
   PR_VIEW_ALL: "pr.view_all",
@@ -126,6 +145,21 @@ export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 type PermMeta = { group: string; name: string };
 
 export const PERMISSION_META: Record<string, PermMeta> = {
+  [PERMISSIONS.REQUIREMENT_VIEW]: { group: "Requirements", name: "View own/department requirements" },
+  [PERMISSIONS.REQUIREMENT_VIEW_ALL]: { group: "Requirements", name: "View all requirements" },
+  [PERMISSIONS.REQUIREMENT_CREATE]: { group: "Requirements", name: "Raise a requirement" },
+  [PERMISSIONS.REQUIREMENT_EDIT]: { group: "Requirements", name: "Edit a requirement" },
+  [PERMISSIONS.REQUIREMENT_SUBMIT]: { group: "Requirements", name: "Submit a requirement" },
+  [PERMISSIONS.REQUIREMENT_CHECK_STOCK]: { group: "Requirements", name: "Run the availability check" },
+  [PERMISSIONS.REQUIREMENT_DECIDE]: { group: "Requirements", name: "Decide stock or procurement" },
+  [PERMISSIONS.REQUIREMENT_CANCEL]: { group: "Requirements", name: "Cancel a requirement" },
+  [PERMISSIONS.SR_VIEW]: { group: "Store requisitions", name: "View store requisitions" },
+  [PERMISSIONS.SR_CREATE]: { group: "Store requisitions", name: "Raise a store requisition" },
+  [PERMISSIONS.SR_APPROVE]: { group: "Store requisitions", name: "Approve a store requisition" },
+  [PERMISSIONS.SR_APPROVE_HOD]: { group: "Store requisitions", name: "Approve as department head" },
+  [PERMISSIONS.SR_APPROVE_CROSS_STORE]: { group: "Store requisitions", name: "Authorise cross-store fulfilment" },
+  [PERMISSIONS.SR_ISSUE]: { group: "Store requisitions", name: "Issue against a store requisition" },
+  [PERMISSIONS.INVENTORY_RESERVE]: { group: "Stores", name: "Reserve and release stock" },
   [PERMISSIONS.PR_VIEW]: { group: "Requisitions", name: "View own/department requisitions" },
   [PERMISSIONS.PR_VIEW_ALL]: { group: "Requisitions", name: "View all requisitions" },
   [PERMISSIONS.PR_CREATE]: { group: "Requisitions", name: "Create requisition" },
@@ -224,6 +258,12 @@ export const ALL_PERMISSIONS = Object.values(PERMISSIONS);
 const P = PERMISSIONS;
 
 const REQUESTER_BASE = [
+  P.REQUIREMENT_VIEW,
+  P.REQUIREMENT_CREATE,
+  P.REQUIREMENT_EDIT,
+  P.REQUIREMENT_SUBMIT,
+  P.SR_VIEW,
+  P.SR_CREATE,
   P.PR_VIEW,
   P.PR_CREATE,
   P.PR_EDIT,
@@ -237,6 +277,11 @@ const REQUESTER_BASE = [
 ];
 
 const PROCUREMENT_CORE = [
+  P.REQUIREMENT_VIEW,
+  P.REQUIREMENT_VIEW_ALL,
+  P.REQUIREMENT_CHECK_STOCK,
+  P.REQUIREMENT_DECIDE,
+  P.SR_VIEW,
   P.PR_VIEW,
   P.PR_VIEW_ALL,
   P.PR_HOLD,
@@ -319,6 +364,10 @@ export const ROLE_DEFINITIONS: Array<{
       P.VENDOR_VIEW,
       P.ANALYTICS_VIEW,
       P.STORE_ISSUE_APPROVE,
+      P.REQUIREMENT_VIEW_ALL,
+      P.REQUIREMENT_DECIDE,
+      P.SR_APPROVE,
+      P.SR_APPROVE_HOD,
       P.EXCEPTION_VIEW,
       P.DISPOSAL_CREATE,
       P.DISPOSAL_VIEW,
@@ -512,6 +561,9 @@ export const ROLE_DEFINITIONS: Array<{
       P.DOCUMENT_UPLOAD,
       P.INSPECTION_VIEW,
       P.EXCEPTION_VIEW,
+      P.SR_VIEW,
+      P.SR_ISSUE,
+      P.STORE_ISSUE,
     ],
   },
   {
@@ -534,6 +586,13 @@ export const ROLE_DEFINITIONS: Array<{
       P.STORE_ISSUE,
       P.STORE_ISSUE_APPROVE,
       P.STORE_TRANSFER,
+      P.SR_VIEW,
+      P.SR_APPROVE,
+      P.SR_APPROVE_CROSS_STORE,
+      P.SR_ISSUE,
+      P.INVENTORY_RESERVE,
+      P.REQUIREMENT_VIEW_ALL,
+      P.REQUIREMENT_CHECK_STOCK,
       P.STACKING_RECORD,
       P.ASSET_VIEW,
       P.ASSET_MANAGE,

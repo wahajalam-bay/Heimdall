@@ -12,6 +12,7 @@ import { PO_LIFECYCLE, type PoStatus } from "@/lib/domain";
 import { round2 } from "@/lib/format";
 import { transitionPr } from "./pr";
 import { checkVendorEligibility, effectiveQuoteTotal } from "./sourcing";
+import { allocate } from "./allocations";
 import { cpcRequirement } from "./cpc";
 
 /**
@@ -253,6 +254,28 @@ export async function createPoFromCase(user: SessionUser, input: PoInput, db: Db
       },
     },
   });
+
+  // What this order took from each requisition line. One line can be split
+  // across several orders, so the placed quantity is recorded rather than
+  // inferred from the order's own header.
+  const created = await db.purchaseOrder.findUniqueOrThrow({
+    where: { id: po.id },
+    select: { items: { select: { id: true, prItemId: true, quantity: true, unit: true } } },
+  });
+  await allocate(
+    created.items
+      .filter((i) => i.prItemId)
+      .map((i) => ({
+        prId: pr.id,
+        prItemId: i.prItemId as string,
+        poId: po.id,
+        poItemId: i.id,
+        quantity: i.quantity,
+        unit: i.unit,
+      })),
+    user.id,
+    db,
+  );
 
   if (pr.status !== "PO_PREPARATION") {
     await transitionPr(user, pr.id, "PO_PREPARATION", { force: true }, db);

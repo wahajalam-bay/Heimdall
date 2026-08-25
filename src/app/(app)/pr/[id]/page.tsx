@@ -15,6 +15,7 @@ import { canUserActOnApproval, getApprovalTrail } from "@/lib/approvals";
 import { NotFoundError } from "@/lib/errors";
 import { assertCanViewPr } from "@/server/pr";
 import { poReadiness } from "@/server/po";
+import { requisitionCoverage } from "@/server/allocations";
 import { cpcRequirement } from "@/server/cpc";
 import { caseTimeline, loadProcurementCase } from "@/server/timeline";
 import { parseAuditRow } from "@/lib/audit";
@@ -84,13 +85,15 @@ export default async function ProcurementCasePage({
   if (!pr) notFound();
 
   const docType = pr.procurementType === "MATERIAL_DEMAND" ? "MATERIAL_DEMAND" : "PR";
-  const [trails, actability, readiness, cpcInfo, events, auditRows] = await Promise.all([
+  const [trails, actability, readiness, cpcInfo, events, auditRows, coverage] = await Promise.all([
     getApprovalTrail(docType, pr.id),
     canUserActOnApproval(user, docType, pr.id),
     poReadiness(pr.id).catch(() => ({ ready: false, issues: [] as string[], cpcRequired: false, cpcCleared: true })),
     cpcRequirement(pr.entityId, pr.estimatedValue, pr.procurementType),
     caseTimeline(pr.number),
     prisma.auditLog.findMany({ where: { caseKey: pr.number }, orderBy: { createdAt: "desc" } }),
+    // What has actually been ordered against each line, across every order.
+    requisitionCoverage(pr.id),
   ]);
 
   const isOwner = pr.requesterId === user.id;
@@ -234,7 +237,7 @@ export default async function ProcurementCasePage({
         <TabNav tabs={tabs} active={tab} baseHref={`/pr/${pr.id}`} />
         <div className="pt-4">
           {tab === "overview" && <OverviewPanel pr={pr} cpcInfo={cpcInfo} />}
-          {tab === "items" && <ItemsPanel pr={pr} />}
+          {tab === "items" && <ItemsPanel pr={pr} coverage={coverage} />}
           {tab === "approvals" && <ApprovalsPanel trails={trails} />}
           {tab === "rfq" && <RfqPanel pr={pr} />}
           {tab === "quotes" && <QuotesPanel pr={pr} />}

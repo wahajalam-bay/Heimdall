@@ -22,8 +22,18 @@ export async function navBadgeCounts(
   // Invoices, deliveries and inspections belong to an entity through their order.
   const viaPo = Object.keys(entityWhere).length ? { po: entityWhere } : {};
 
-  const [myTasks, alerts, cpcPending, openPo, invoiceMismatch, exceptions, inspections, grnPending] =
-    await Promise.all([
+  const [
+    myTasks,
+    alerts,
+    cpcPending,
+    openPo,
+    invoiceMismatch,
+    exceptions,
+    inspections,
+    grnPending,
+    requirementsPending,
+    srPending,
+  ] = await Promise.all([
       prisma.task.count({
         where: {
           status: { in: ["OPEN", "IN_PROGRESS"] },
@@ -50,7 +60,36 @@ export async function navBadgeCounts(
       prisma.delivery.count({
         where: { status: { not: "REJECTED" }, grns: { none: {} }, ...viaPo },
       }),
+      // Requirements still waiting for somebody to decide how they are met.
+      prisma.requirement.count({
+        where: { status: { in: ["SUBMITTED", "CHECKING_STOCK"] }, ...entityWhere },
+      }),
+      prisma.storeIssue.count({
+        where: {
+          status: {
+            in: [
+              "PENDING_APPROVAL",
+              "PENDING_DEPARTMENT_APPROVAL",
+              "PENDING_HOD_APPROVAL",
+              "PENDING_CROSS_STORE_APPROVAL",
+              "APPROVED",
+            ],
+          },
+          ...(Object.keys(entityWhere).length ? { store: entityWhere } : {}),
+        },
+      }),
     ]);
 
-  return { myTasks, alerts, cpcPending, openPo, invoiceMismatch, exceptions, inspections, grnPending };
+  return {
+    myTasks,
+    alerts,
+    cpcPending,
+    openPo,
+    invoiceMismatch,
+    exceptions,
+    inspections,
+    grnPending,
+    requirementsPending,
+    srPending,
+  };
 }

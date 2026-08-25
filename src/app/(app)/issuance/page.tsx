@@ -19,13 +19,25 @@ import { RankedBars } from "@/components/ui/charts";
 import { humanize } from "@/lib/domain";
 import { ageDays, fmtDate, qty, round2 } from "@/lib/format";
 
+const AWAITING = [
+  "PENDING_APPROVAL",
+  "PENDING_DEPARTMENT_APPROVAL",
+  "PENDING_HOD_APPROVAL",
+  "PENDING_CROSS_STORE_APPROVAL",
+];
+
 export const metadata = { title: "Stock Issuance" };
 export const dynamic = "force-dynamic";
 
 export default async function IssuancePage() {
   const { user, ctx, authorized } = await pageContext(P.INVENTORY_VIEW, P.STORE_ISSUE);
   if (!authorized) {
-    return <AccessDenied title="Stock issuance" message="You do not have permission to view stock issues." />;
+    return (
+      <AccessDenied
+        title="Store requisitions"
+        message="You do not have permission to view store requisitions."
+      />
+    );
   }
 
   const [issues, savedViews] = await Promise.all([
@@ -62,8 +74,9 @@ export default async function IssuancePage() {
   const canIssue = userHasPermission(user, P.STORE_ISSUE);
 
   const stats = {
-    open: issues.filter((i) => ["DRAFT", "PENDING_APPROVAL", "APPROVED", "PARTIALLY_ISSUED"].includes(i.status)).length,
-    awaitingApproval: issues.filter((i) => i.status === "PENDING_APPROVAL").length,
+    open: issues.filter((i) => ["DRAFT", "RETURNED", "APPROVED", "PARTIALLY_ISSUED", ...AWAITING].includes(i.status))
+      .length,
+    awaitingApproval: issues.filter((i) => AWAITING.includes(i.status)).length,
     awaitingRelease: issues.filter((i) => ["APPROVED", "PARTIALLY_ISSUED"].includes(i.status)).length,
     issuedThisMonth: issues.filter((i) => i.issuedAt && (ageDays(i.issuedAt) ?? 999) <= 30).length,
   };
@@ -106,7 +119,7 @@ export default async function IssuancePage() {
     const consumer = i.projectId
       ? (projCode.get(i.projectId) ?? "Project")
       : (deptName.get(i.departmentId ?? "") ?? "—");
-    const stale = ["PENDING_APPROVAL", "APPROVED"].includes(i.status) && (ageDays(i.requestedAt) ?? 0) > 3;
+    const stale = [...AWAITING, "APPROVED"].includes(i.status) && (ageDays(i.requestedAt) ?? 0) > 3;
     return {
       id: i.id,
       href: `/issuance/${i.id}`,
@@ -154,7 +167,7 @@ export default async function IssuancePage() {
         issued: i.issuedAt ? fmtDate(i.issuedAt) : "—",
         age: ageDays(i.requestedAt) ?? 0,
         action:
-          i.status === "PENDING_APPROVAL" && canApprove ? (
+          AWAITING.includes(i.status) && canApprove ? (
             <Link href={`/issuance/${i.id}`} className="btn btn-primary btn-xs">
               Approve
             </Link>
@@ -172,9 +185,9 @@ export default async function IssuancePage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow="Stores"
-        title="Stock issuance"
-        subtitle="Stock leaving a store for internal consumption. Nothing is released without approval, and every release deducts inventory through the ledger."
+        eyebrow="Demand"
+        title="Store requisitions"
+        subtitle="Requests for stock the stores already hold. Each one is approved by the department and the head before the counter releases anything, and every release deducts inventory through the ledger."
         actions={
           canIssue && (
             <Link href="/issuance/new" className="btn btn-primary btn-sm">
@@ -185,7 +198,7 @@ export default async function IssuancePage() {
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Open issues" value={stats.open} hint="Not yet fully released" />
+        <StatTile label="Open requisitions" value={stats.open} hint="Not yet fully issued" />
         <StatTile
           label="Awaiting approval"
           value={stats.awaitingApproval}

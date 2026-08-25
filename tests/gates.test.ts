@@ -44,11 +44,10 @@ describe("requisition gates", () => {
 
   it("lists every blocking issue rather than stopping at the first", async () => {
     const prs = await prisma.purchaseRequisition.findMany({ select: { id: true }, take: 20 });
-    let sawMultiple = false;
-    for (const pr of prs) {
-      const issues = await validateForSubmission(pr.id);
-      if (issues.length > 1) sawMultiple = true;
-    }
+    // Validating twenty requisitions one after another is twenty round trips of
+    // waiting; they are independent, so they go together.
+    const results = await Promise.all(prs.map((pr) => validateForSubmission(pr.id)));
+    const sawMultiple = results.some((issues) => issues.length > 1);
     // Either nothing is blocked, or where it is, all reasons are surfaced together.
     expect(typeof sawMultiple).toBe("boolean");
   });

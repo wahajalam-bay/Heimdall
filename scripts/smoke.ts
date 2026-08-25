@@ -24,6 +24,7 @@ const ERROR_MARKERS = [
 
 const STATIC_ROUTES = [
   "/", "/workspace", "/alerts", "/alerts?view=systemic", "/alerts?view=unread", "/settings",
+  "/requirements", "/requirements/new",
   "/pr", "/pr/new",
   "/rfq", "/quotes", "/comparatives", "/po", "/petty-cash", "/petty-cash/new",
   "/receiving", "/receiving/new", "/gate-passes", "/gate-passes/new", "/inspections",
@@ -91,6 +92,11 @@ async function discoverRoutes(): Promise<string[]> {
   if (sourcingPr) routes.push(`/rfq/new?prId=${sourcingPr.id}`);
   if (awardedPr) routes.push(`/po/new?prId=${awardedPr.id}`);
 
+  // One requirement of each outcome, so the detail screen is exercised in the
+  // states that render differently: awaiting a decision, and already routed.
+  add("/requirements", (await prisma.requirement.findFirst({ where: { status: "SPLIT" } }))?.id);
+  add("/requirements", (await prisma.requirement.findFirst({ where: { status: "FULFILLED_FROM_STOCK" } }))?.id);
+  add("/requirements", (await prisma.requirement.findFirst({ where: { decidedAt: null } }))?.id);
   add("/rfq", (await prisma.rfq.findFirst({ orderBy: { createdAt: "desc" } }))?.id);
   add("/comparatives", (await prisma.comparative.findFirst({ orderBy: { preparedAt: "desc" } }))?.id);
   add("/po", (await prisma.purchaseOrder.findFirst({ where: { status: "PARTIALLY_RECEIVED" } }))?.id, [

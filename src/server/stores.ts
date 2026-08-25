@@ -7,6 +7,8 @@ import { PERMISSIONS as P } from "@/lib/permissions";
 import { userHasPermission, type SessionUser } from "@/lib/rbac";
 import { round2 } from "@/lib/format";
 import { availableQuantity, postMovement, requireStore, stockUnitCost } from "./inventory";
+import { CONFIG_KEYS, getConfigBool, getConfigNumber } from "@/lib/config";
+import { consumeReservation, releaseFor } from "./reservations";
 
 /**
  * Store issuance, inter-store transfers and stock adjustments.
@@ -15,6 +17,39 @@ import { availableQuantity, postMovement, requireStore, stockUnitCost } from "./
  */
 
 /* ── Issuance ─────────────────────────────────────────────── */
+
+/**
+ * The gates a store requisition passes, and who may open each one.
+ *
+ * `PENDING_APPROVAL` is the status requisitions carried before the department and
+ * head decisions were separated; rows created then still have to be workable, so
+ * it maps onto the first gate.
+ */
+const APPROVAL_STAGES: Array<{ from: string; permission: string; denied: string }> = [
+  {
+    from: "PENDING_APPROVAL",
+    permission: P.STORE_ISSUE_APPROVE,
+    denied: "You do not have permission to approve stock issues.",
+  },
+  {
+    from: "PENDING_DEPARTMENT_APPROVAL",
+    permission: P.SR_APPROVE,
+    denied: "You do not have permission to approve store requisitions.",
+  },
+  {
+    from: "PENDING_HOD_APPROVAL",
+    permission: P.SR_APPROVE_HOD,
+    denied: "Only a department head may give this approval.",
+  },
+  {
+    from: "PENDING_CROSS_STORE_APPROVAL",
+    permission: P.SR_APPROVE_CROSS_STORE,
+    denied: "Only the holding store's authority may release stock to another store.",
+  },
+];
+
+/** Every status from which a requisition is still awaiting a decision. */
+export const SR_PENDING_STATUSES = APPROVAL_STAGES.map((s) => s.from);
 
 export type IssueItemInput = {
   itemId: string;
@@ -129,24 +164,33 @@ export async function decideStoreIssue(
   },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.STORE_ISSUE_APPROVE)) {
-    throw new ForbiddenError("You do not have permission to approve stock issues.");
-  }
   const issue = await db.storeIssue.findUnique({
     where: { id: input.issueId },
     include: { items: { include: { item: true } }, store: true },
   });
   if (!issue) throw new NotFoundError("Store issue");
-  if (issue.status !== "PENDING_APPROVAL") {
+
+  // A requisition passes three gates before the counter acts on it: the
+  // department that wants the goods, the head who owns the budget, and — only
+  // when the stock sits in somebody else's store — that store's authority. Each
+  // gate is a distinct permission, so one person holding two of them still has
+  // to make two decisions.
+  const stage = APPROVAL_STAGES.find((st) => st.from === issue.status);
+  if (!stage) {
     throw new RuleViolationError(`Issue ${issue.number} is ${issue.status} — it is not awaiting approval.`);
+  }
+  if (!userHasPermission(user, stage.permission)) {
+    throw new ForbiddenError(stage.denied);
   }
 
   if (!input.approve) {
     if (!input.reason?.trim()) throw new ValidationError("Record the reason for rejection.");
     const rejected = await db.storeIssue.update({
       where: { id: issue.id },
-      data: { status: "REJECTED", remarks: input.reason },
+      data: { status: "REJECTED", rejectReason: input.reason, remarks: input.reason },
     });
+    // Stock held for a requisition nobody approved goes back on the shelf.
+    await releaseFor({ storeIssueId: issue.id }, user.id, `Requisition ${issue.number} rejected`, db);
     await completeTasks("STORE_ISSUE", issue.id, user.id, db);
     await writeAudit(
       {
@@ -183,11 +227,74 @@ export async function decideStoreIssue(
     await db.storeIssueItem.update({ where: { id: li.id }, data: { approvedQty: qty } });
   }
 
+  // Where the next gate lies depends on the requisition: a head's approval can be
+  // switched off, and cross-store authority only applies when the stock is not
+  // ours to give.
+  const requireHod = await getConfigBool(CONFIG_KEYS.SR_REQUIRE_HOD, issue.store.entityId, db);
+  const needsCrossStore = Boolean(issue.sourceStoreId) && !issue.crossStoreApprovedAt;
+  let nextStatus = "APPROVED";
+  if (stage.from !== "PENDING_HOD_APPROVAL" && requireHod && !issue.hodApprovedAt) {
+    nextStatus = "PENDING_HOD_APPROVAL";
+  } else if (needsCrossStore && stage.from !== "PENDING_CROSS_STORE_APPROVAL") {
+    nextStatus = "PENDING_CROSS_STORE_APPROVAL";
+  }
+
+  const stamp: Record<string, unknown> = {};
+  if (stage.from === "PENDING_HOD_APPROVAL") {
+    stamp.hodApprovedById = user.id;
+    stamp.hodApprovedAt = new Date();
+  } else if (stage.from === "PENDING_CROSS_STORE_APPROVAL") {
+    stamp.crossStoreApprovedById = user.id;
+    stamp.crossStoreApprovedAt = new Date();
+  } else {
+    stamp.departmentApprovedById = user.id;
+    stamp.departmentApprovedAt = new Date();
+  }
+
   const approved = await db.storeIssue.update({
     where: { id: issue.id },
-    data: { status: "APPROVED", approvedAt: new Date(), remarks: input.reason ?? issue.remarks },
+    data: {
+      status: nextStatus,
+      ...stamp,
+      approvedAt: nextStatus === "APPROVED" ? new Date() : null,
+      remarks: input.reason ?? issue.remarks,
+    },
   });
   await completeTasks("STORE_ISSUE", issue.id, user.id, db);
+
+  if (nextStatus !== "APPROVED") {
+    await createTask(
+      {
+        title:
+          nextStatus === "PENDING_HOD_APPROVAL"
+            ? `Approve store requisition — ${issue.number}`
+            : `Authorise cross-store issue — ${issue.number}`,
+        taskType: "APPROVAL",
+        assignedRoleCode: nextStatus === "PENDING_HOD_APPROVAL" ? "HOD" : "STORE_MANAGER",
+        entityId: issue.store.entityId,
+        documentType: "STORE_ISSUE",
+        documentId: issue.id,
+        documentRef: issue.number,
+        slaHours: await getConfigNumber(CONFIG_KEYS.SLA_SR_APPROVAL_HOURS, issue.store.entityId, db),
+        linkUrl: `/issuance/${issue.id}`,
+      },
+      db,
+    );
+    await writeAudit(
+      {
+        entityType: "StoreIssue",
+        entityId: issue.id,
+        entityRef: issue.number,
+        action: "STORE_ISSUE_STAGE_APPROVED",
+        reason: input.reason ?? null,
+        newValue: { stage: stage.from, next: nextStatus },
+        actor: user,
+      },
+      db,
+    );
+    return approved;
+  }
+
   await createTask(
     {
       title: `Issue stock — ${issue.number}`,
@@ -231,6 +338,15 @@ export async function issueStock(
   if (!["APPROVED", "PARTIALLY_ISSUED"].includes(issue.status)) {
     throw new RuleViolationError(`Issue ${issue.number} must be approved before stock is released.`);
   }
+
+  // The reservation exists to stop anyone else taking this stock; at the counter
+  // it has done its job. Dropping the hold before the movement is what lets the
+  // issue consume the very quantity the hold was protecting.
+  const held = await db.inventoryReservation.findMany({
+    where: { storeIssueId: issue.id, status: "ACTIVE" },
+    select: { id: true },
+  });
+  for (const h of held) await consumeReservation(h.id, user.id, db);
 
   let anyIssued = false;
   let allIssued = true;
@@ -325,6 +441,143 @@ export async function issueStock(
     db,
   );
 
+  return updated;
+}
+
+/* ── Store requisition transitions ────────────────────────── */
+
+/**
+ * Sends a requisition back to the requester to be corrected.
+ *
+ * Distinct from rejection: rejection ends the request, a return expects it to
+ * come back. The stock is released either way, because holding goods against a
+ * document nobody is acting on is how a store runs out of what it has.
+ */
+export async function returnStoreRequisition(
+  user: SessionUser,
+  input: { issueId: string; reason: string },
+  db: DbClient = prisma,
+) {
+  if (!userHasPermission(user, P.SR_APPROVE, P.SR_APPROVE_HOD, P.STORE_ISSUE_APPROVE)) {
+    throw new ForbiddenError("You do not have permission to return store requisitions.");
+  }
+  if (!input.reason?.trim()) throw new ValidationError("Say what needs correcting before returning it.");
+
+  const issue = await db.storeIssue.findUnique({ where: { id: input.issueId } });
+  if (!issue) throw new NotFoundError("Store requisition");
+  if (!SR_PENDING_STATUSES.includes(issue.status)) {
+    throw new RuleViolationError(`Requisition ${issue.number} is ${issue.status} — only one awaiting a decision can be returned.`);
+  }
+
+  const updated = await db.storeIssue.update({
+    where: { id: issue.id },
+    data: { status: "RETURNED", returnReason: input.reason.trim() },
+  });
+  await releaseFor({ storeIssueId: issue.id }, user.id, `Requisition ${issue.number} returned`, db);
+  await completeTasks("STORE_ISSUE", issue.id, user.id, db);
+  await writeAudit(
+    {
+      entityType: "StoreIssue",
+      entityId: issue.id,
+      entityRef: issue.number,
+      action: "STORE_ISSUE_RETURNED",
+      reason: input.reason.trim(),
+      actor: user,
+    },
+    db,
+  );
+  return updated;
+}
+
+/** Resubmits a returned requisition once the requester has corrected it. */
+export async function resubmitStoreRequisition(
+  user: SessionUser,
+  issueId: string,
+  db: DbClient = prisma,
+) {
+  const issue = await db.storeIssue.findUnique({ where: { id: issueId }, include: { store: true } });
+  if (!issue) throw new NotFoundError("Store requisition");
+  if (!["DRAFT", "RETURNED"].includes(issue.status)) {
+    throw new RuleViolationError(`Requisition ${issue.number} is ${issue.status} — only a draft or returned one can be submitted.`);
+  }
+  if (issue.requestedById !== user.id && !userHasPermission(user, P.SR_CREATE)) {
+    throw new ForbiddenError("Only the requester may resubmit this requisition.");
+  }
+
+  const updated = await db.storeIssue.update({
+    where: { id: issueId },
+    data: { status: "PENDING_DEPARTMENT_APPROVAL", submittedAt: new Date(), returnReason: null },
+  });
+  await createTask(
+    {
+      title: `Approve store requisition — ${issue.number}`,
+      taskType: "APPROVAL",
+      assignedRoleCode: "HOD",
+      entityId: issue.store.entityId,
+      documentType: "STORE_ISSUE",
+      documentId: issue.id,
+      documentRef: issue.number,
+      slaHours: await getConfigNumber(CONFIG_KEYS.SLA_SR_APPROVAL_HOURS, issue.store.entityId, db),
+      linkUrl: `/issuance/${issue.id}`,
+    },
+    db,
+  );
+  await writeAudit(
+    {
+      entityType: "StoreIssue",
+      entityId: issue.id,
+      entityRef: issue.number,
+      action: "STORE_ISSUE_SUBMITTED",
+      actor: user,
+    },
+    db,
+  );
+  return updated;
+}
+
+/**
+ * Closes a requisition that will not be issued any further.
+ *
+ * A partially issued requisition otherwise sits open for ever, and the store
+ * cannot tell the difference between one still being worked and one finished
+ * short. Any remaining hold is released on the way out.
+ */
+export async function closeStoreRequisition(
+  user: SessionUser,
+  input: { issueId: string; reason?: string | null },
+  db: DbClient = prisma,
+) {
+  if (!userHasPermission(user, P.SR_ISSUE, P.STORE_ISSUE)) {
+    throw new ForbiddenError("You do not have permission to close store requisitions.");
+  }
+  const issue = await db.storeIssue.findUnique({ where: { id: input.issueId }, include: { items: true } });
+  if (!issue) throw new NotFoundError("Store requisition");
+  if (!["ISSUED", "PARTIALLY_ISSUED", "APPROVED"].includes(issue.status)) {
+    throw new RuleViolationError(`Requisition ${issue.number} is ${issue.status} — it cannot be closed from here.`);
+  }
+  const short = issue.items.some((i) => i.issuedQty + 1e-9 < (i.approvedQty ?? i.requestedQty));
+  if (short && !input.reason?.trim()) {
+    throw new ValidationError("This requisition was not issued in full. Record why it is being closed short.");
+  }
+
+  const updated = await db.storeIssue.update({
+    where: { id: issue.id },
+    data: { status: "CLOSED", closedAt: new Date(), remarks: input.reason ?? issue.remarks },
+  });
+  await releaseFor({ storeIssueId: issue.id }, user.id, `Requisition ${issue.number} closed`, db);
+  await completeTasks("STORE_ISSUE", issue.id, user.id, db);
+  await writeAudit(
+    {
+      entityType: "StoreIssue",
+      entityId: issue.id,
+      entityRef: issue.number,
+      action: "STORE_ISSUE_CLOSED",
+      reason: input.reason ?? null,
+      newValue: { shortClosed: short },
+      actor: user,
+    },
+    db,
+  );
   return updated;
 }
 

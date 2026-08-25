@@ -384,12 +384,18 @@ export type Confidentiality = (typeof CONFIDENTIALITY_LEVELS)[number];
 // ── Presentation helpers ─────────────────────────────────────
 
 /** Turns SCREAMING_SNAKE into Title Case for display. */
+/**
+ * Acronyms the status vocabulary uses. Without this, PENDING_HOD_APPROVAL reads
+ * back as "Pending Hod Approval", which is how nobody writes it.
+ */
+const ACRONYMS = new Set(["po", "pr", "grn", "rfq", "cpc", "hod", "sr", "srn", "uom", "boq", "far", "ap", "qc"]);
+
 export function humanize(value: string | null | undefined): string {
   if (!value) return "—";
   return value
     .toLowerCase()
     .split("_")
-    .map((w) => (w === "po" || w === "pr" || w === "grn" || w === "rfq" || w === "cpc" ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
+    .map((w) => (ACRONYMS.has(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
     .join(" ");
 }
 

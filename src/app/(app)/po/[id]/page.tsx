@@ -6,6 +6,7 @@ import { PERMISSIONS as P } from "@/lib/permissions";
 import { userHasPermission } from "@/lib/rbac";
 import { CONFIG_KEYS, getConfigBool } from "@/lib/config";
 import { canUserActOnApproval, getApprovalTrail } from "@/lib/approvals";
+import { orderSources } from "@/server/allocations";
 import { poBalance } from "@/server/po";
 import { documentTimeline } from "@/server/timeline";
 import { parseAuditRow } from "@/lib/audit";
@@ -114,7 +115,7 @@ export default async function PoDetailPage({
   });
   if (!po) notFound();
 
-  const [balance, trails, actability, events, auditRows, requireGrn] = await Promise.all([
+  const [balance, trails, actability, events, auditRows, requireGrn, sources] = await Promise.all([
     poBalance(po.id),
     getApprovalTrail("PO", po.id),
     canUserActOnApproval(user, "PO", po.id),
@@ -125,6 +126,8 @@ export default async function PoDetailPage({
       take: 200,
     }),
     getConfigBool(CONFIG_KEYS.REQUIRE_GRN_FOR_PAYMENT, po.entityId),
+    // An order can carry lines from more than one requisition.
+    orderSources(po.id),
   ]);
 
   const pending = balance.filter((b) => b.pendingQty > 0);
@@ -310,6 +313,44 @@ export default async function PoDetailPage({
         <div className="pt-4">
           {tab === "overview" && (
             <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+              {sources.length > 1 && (
+                <div className="lg:col-span-2">
+                  <SectionCard
+                    title="Requisitions on this order"
+                    description="This order consolidates demand from more than one requisition."
+                    bodyClassName="px-0 pb-0"
+                  >
+                    <div className="table-wrap">
+                      <table className="dt min-w-[36rem]">
+                        <thead>
+                          <tr>
+                            <th>Requisition</th>
+                            <th>Department</th>
+                            <th>Title</th>
+                            <th className="text-right">Lines</th>
+                            <th className="text-right">Quantity on this order</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sources.map((src) => (
+                            <tr key={src.prId} data-clickable="true">
+                              <td>
+                                <RefLink href={`/pr/${src.prId}`}>{src.number}</RefLink>
+                              </td>
+                              <td className="text-xs">{src.department}</td>
+                              <td className="wrap text-xs">{src.title}</td>
+                              <td className="num">{src.lines.length}</td>
+                              <td className="num">
+                                {src.lines.map((l) => `${l.quantity} ${l.unit}`).join(", ")}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </SectionCard>
+                </div>
+              )}
               <SectionCard title="Order detail">
                 <DefList
                   columns={2}

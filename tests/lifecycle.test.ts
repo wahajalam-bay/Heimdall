@@ -314,6 +314,10 @@ describe("inventory ledger integrity", () => {
           storeId: b.storeId,
           batchNumber: b.batchNumber,
           serialNumber: b.serialNumber,
+          // Holds are recorded in the ledger so a fall in availability can be
+          // explained, but they move nothing. Counting them here would compare a
+          // balance against a figure that includes goods still on the shelf.
+          type: { notIn: ["RESERVATION", "RELEASE"] },
         },
         select: { quantity: true },
       });
@@ -337,7 +341,9 @@ describe("inventory ledger integrity", () => {
 
   it("only increases stock through a posted GRN, petty cash entry, transfer or adjustment", async () => {
     const inbound = await prisma.inventoryTransaction.findMany({
-      where: { quantity: { gt: 0 } },
+      // Reservations and releases carry a positive quantity but add nothing to
+      // the shelf, so they are not candidates for an unexplained increase.
+      where: { quantity: { gt: 0 }, type: { notIn: ["RESERVATION", "RELEASE"] } },
       select: { number: true, sourceType: true, type: true },
     });
     const allowed = ["GRN", "PETTY_CASH", "TRANSFER", "ADJUSTMENT", "ISSUE", "DISPOSAL"];

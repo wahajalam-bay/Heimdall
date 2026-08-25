@@ -13,6 +13,9 @@ import {
   dispatchTransfer,
   issueStock,
   receiveTransfer,
+  closeStoreRequisition,
+  resubmitStoreRequisition,
+  returnStoreRequisition,
 } from "@/server/stores";
 import { availableQuantity } from "@/server/inventory";
 
@@ -100,6 +103,47 @@ export async function decideIssueAction(formData: FormData): Promise<ActionResul
     revalidatePath(`/issuance/${issueId}`);
     revalidatePath("/issuance");
     return { ok: true, data: null, message: approve ? "Issue approved." : "Issue rejected." };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function returnRequisitionAction(formData: FormData): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const issueId = String(formData.get("issueId") ?? "");
+    const r = await returnStoreRequisition(user, { issueId, reason: String(formData.get("reason") ?? "") });
+    revalidatePath(`/issuance/${issueId}`);
+    revalidatePath("/issuance");
+    revalidatePath("/requirements");
+    return { ok: true, data: null, message: `${r.number} returned for correction; any held stock released.` };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function resubmitRequisitionAction(formData: FormData): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const issueId = String(formData.get("issueId") ?? "");
+    const r = await resubmitStoreRequisition(user, issueId);
+    revalidatePath(`/issuance/${issueId}`);
+    revalidatePath("/issuance");
+    return { ok: true, data: null, message: `${r.number} resubmitted for approval.` };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function closeRequisitionAction(formData: FormData): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const issueId = String(formData.get("issueId") ?? "");
+    const r = await closeStoreRequisition(user, { issueId, reason: blank(formData.get("reason")) });
+    revalidatePath(`/issuance/${issueId}`);
+    revalidatePath("/issuance");
+    revalidatePath("/requirements");
+    return { ok: true, data: null, message: `${r.number} closed.` };
   } catch (e) {
     return toActionError(e);
   }

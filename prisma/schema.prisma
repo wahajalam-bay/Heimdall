@@ -4,10 +4,10 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
   // Pooled connection for the application: serverless functions open and close
   // constantly, and Postgres will not take that directly.
-  url = env("DATABASE_URL")
+  url       = env("DATABASE_URL")
   // Unpooled connection for schema pushes and migrations, which the pooler
   // cannot carry.
   directUrl = env("DIRECT_URL")
@@ -70,6 +70,11 @@ model User {
   stacking           GoodsStacking[]       @relation("StackedBy")
   paymentHandoffs    PaymentHandoff[]      @relation("HandoffBy")
   emails             EmailMessage[]
+
+  requirementsRaised  Requirement[]          @relation("RequirementRequester")
+  requirementsDecided Requirement[]          @relation("RequirementDecidedBy")
+  reservationsMade    InventoryReservation[] @relation("ReservationCreatedBy")
+  allocationsMade     PrPoAllocation[]       @relation("AllocationCreatedBy")
 
   @@index([email])
   @@map("users")
@@ -165,6 +170,9 @@ model Entity {
   disposalCases  DisposalCase[]
   pettyCash      PettyCashRequest[]
 
+  requirements Requirement[]
+  costCenters  CostCenter[]
+
   @@map("entities")
 }
 
@@ -194,6 +202,9 @@ model Department {
   assets        Asset[]
   pettyCash     PettyCashRequest[]
 
+  requirements Requirement[]
+  costCenters  CostCenter[]
+
   @@unique([entityId, code])
   @@map("departments")
 }
@@ -216,6 +227,8 @@ model Project {
   stores       Store[]
   inventory    InventoryItem[]
 
+  requirements Requirement[]
+
   @@map("projects")
 }
 
@@ -233,6 +246,8 @@ model Site {
 
   stores       Store[]
   requisitions PurchaseRequisition[]
+
+  requirements Requirement[]
 
   @@map("sites")
 }
@@ -265,17 +280,22 @@ model Store {
   requisitions   PurchaseRequisition[]
   purchaseOrders PurchaseOrder[]
   issues         StoreIssue[]
-  transfersFrom  StoreTransfer[]       @relation("TransferFrom")
-  transfersTo    StoreTransfer[]       @relation("TransferTo")
+  transfersFrom  StoreTransfer[]        @relation("TransferFrom")
+  transfersTo    StoreTransfer[]        @relation("TransferTo")
   stacking       GoodsStacking[]
+
+  requirements     Requirement[]
+  reservations     InventoryReservation[]
+  sourcedIssues    StoreIssue[]           @relation("IssueSourceStore")
+  requirementLines RequirementItem[]
 
   @@map("stores")
 }
 
 model StoreLocation {
-  id      String @id @default(cuid())
+  id      String  @id @default(cuid())
   storeId String
-  store   Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store   Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
   zone    String?
   rack    String?
   bin     String?
@@ -317,6 +337,7 @@ model Category {
   approvalRules    ApprovalRule[]
   assets           Asset[]
 
+  requirementItems RequirementItem[]
   @@map("categories")
 }
 
@@ -358,6 +379,9 @@ model Item {
   pettyCashItems   PettyCashItem[]
   stacking         GoodsStacking[]
   disposalItems    DisposalItem[]
+
+  requirementItems RequirementItem[]
+  reservations     InventoryReservation[]
 
   @@index([categoryId])
   @@map("items")
@@ -532,6 +556,9 @@ model PurchaseRequisition {
   siteId               String?
   site                 Site?    @relation(fields: [siteId], references: [id])
   costCenter           String?
+  /// CAPEX | OPEX — carried through to the order, receipt and finance treatment
+  expenditureType      String   @default("OPEX")
+  costCenterId         String?
   deliveryStoreId      String?
   deliveryStore        Store?   @relation(fields: [deliveryStoreId], references: [id])
   deliveryLocationNote String?
@@ -568,6 +595,10 @@ model PurchaseRequisition {
   comparatives   Comparative[]
   exceptions     Exception[]
 
+  requirementId String?
+  requirement   Requirement?     @relation(fields: [requirementId], references: [id])
+  allocations   PrPoAllocation[]
+
   @@index([entityId, status])
   @@index([status])
   @@map("purchase_requisitions")
@@ -600,6 +631,8 @@ model PurchaseRequisitionItem {
 
   quoteItems QuoteItem[]
   poItems    PurchaseOrderItem[]
+
+  allocations PrPoAllocation[]
 
   @@unique([prId, lineNo])
   @@map("purchase_requisition_items")
@@ -989,6 +1022,8 @@ model PurchaseOrder {
   exceptions     Exception[]
   savingsRecords SavingsRecord[]
 
+  allocations PrPoAllocation[]
+
   @@index([status])
   @@index([vendorId])
   @@map("purchase_orders")
@@ -1027,6 +1062,8 @@ model PurchaseOrderItem {
   grnItems        GrnItem[]
   invoiceItems    InvoiceItem[]
   inspectionItems InspectionItem[]
+
+  allocations PrPoAllocation[]
 
   @@unique([poId, lineNo])
   @@map("purchase_order_items")
@@ -1079,20 +1116,20 @@ model GatePass {
 }
 
 model Delivery {
-  id           String        @id @default(cuid())
-  number       String        @unique
-  poId         String
-  po           PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
-  gatePassId   String?
-  gatePass     GatePass?     @relation(fields: [gatePassId], references: [id])
-  vendorId     String
-  vendor       Vendor        @relation(fields: [vendorId], references: [id])
-  storeId      String
-  store        Store         @relation(fields: [storeId], references: [id])
+  id              String        @id @default(cuid())
+  number          String        @unique
+  poId            String
+  po              PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  gatePassId      String?
+  gatePass        GatePass?     @relation(fields: [gatePassId], references: [id])
+  vendorId        String
+  vendor          Vendor        @relation(fields: [vendorId], references: [id])
+  storeId         String
+  store           Store         @relation(fields: [storeId], references: [id])
   deliveryNoteRef String?
-  deliveryDate DateTime      @default(now())
-  receivedById String
-  receivedBy   User          @relation("DeliveryReceivedBy", fields: [receivedById], references: [id])
+  deliveryDate    DateTime      @default(now())
+  receivedById    String
+  receivedBy      User          @relation("DeliveryReceivedBy", fields: [receivedById], references: [id])
 
   totalPackages         Int?
   packagesVerified      Int?
@@ -1221,23 +1258,23 @@ model InspectionItem {
 }
 
 model Grn {
-  id           String         @id @default(cuid())
-  number       String         @unique
+  id           String        @id @default(cuid())
+  number       String        @unique
   poId         String
-  po           PurchaseOrder  @relation(fields: [poId], references: [id], onDelete: Cascade)
+  po           PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
   vendorId     String
-  vendor       Vendor         @relation(fields: [vendorId], references: [id])
+  vendor       Vendor        @relation(fields: [vendorId], references: [id])
   deliveryId   String?
-  delivery     Delivery?      @relation(fields: [deliveryId], references: [id])
+  delivery     Delivery?     @relation(fields: [deliveryId], references: [id])
   gatePassId   String?
-  gatePass     GatePass?      @relation(fields: [gatePassId], references: [id])
+  gatePass     GatePass?     @relation(fields: [gatePassId], references: [id])
   inspectionId String?
-  inspection   Inspection?    @relation(fields: [inspectionId], references: [id])
+  inspection   Inspection?   @relation(fields: [inspectionId], references: [id])
   storeId      String
-  store        Store          @relation(fields: [storeId], references: [id])
+  store        Store         @relation(fields: [storeId], references: [id])
   receivedById String
-  receivedBy   User           @relation("GrnReceivedBy", fields: [receivedById], references: [id])
-  receivedAt   DateTime       @default(now())
+  receivedBy   User          @relation("GrnReceivedBy", fields: [receivedById], references: [id])
+  receivedAt   DateTime      @default(now())
 
   /// DRAFT | POSTED | CANCELLED
   status String @default("DRAFT")
@@ -1309,10 +1346,10 @@ model GoodsStacking {
   stackingMethod String @default("RACK")
 
   /// GENERAL | HIGH_VALUE | SENSITIVE | HAZARDOUS | PROJECT_MATERIAL
-  goodsClass           String  @default("GENERAL")
+  goodsClass           String   @default("GENERAL")
   handlingRequirements String?
   stackedById          String
-  stackedBy            User    @relation("StackedBy", fields: [stackedById], references: [id])
+  stackedBy            User     @relation("StackedBy", fields: [stackedById], references: [id])
   stackedAt            DateTime @default(now())
   notes                String?
 
@@ -1374,20 +1411,20 @@ model InventoryTransaction {
   batchNumber  String?
   serialNumber String?
 
-  /// GRN | ISSUE | TRANSFER | DISPOSAL | ADJUSTMENT | PETTY_CASH
+  /// GRN | ISSUE | TRANSFER | DISPOSAL | ADJUSTMENT | PETTY_CASH | REQUIREMENT
   sourceType  String
   sourceId    String?
   sourceRef   String?
   grnId       String?
-  grn         Grn?               @relation(fields: [grnId], references: [id])
+  grn         Grn?              @relation(fields: [grnId], references: [id])
   issueId     String?
-  issue       StoreIssue?        @relation(fields: [issueId], references: [id])
+  issue       StoreIssue?       @relation(fields: [issueId], references: [id])
   transferId  String?
-  transfer    StoreTransfer?     @relation(fields: [transferId], references: [id])
+  transfer    StoreTransfer?    @relation(fields: [transferId], references: [id])
   disposalId  String?
-  disposal    DisposalCase?      @relation(fields: [disposalId], references: [id])
+  disposal    DisposalCase?     @relation(fields: [disposalId], references: [id])
   pettyCashId String?
-  pettyCash   PettyCashRequest?  @relation(fields: [pettyCashId], references: [id])
+  pettyCash   PettyCashRequest? @relation(fields: [pettyCashId], references: [id])
   reason      String?
 
   performedById String
@@ -1412,16 +1449,44 @@ model StoreIssue {
   projectId       String?
   purpose         String?
 
-  /// DRAFT | PENDING_APPROVAL | APPROVED | REJECTED | ISSUED | PARTIALLY_ISSUED | CANCELLED
+  /// DRAFT | SUBMITTED | PENDING_DEPARTMENT_APPROVAL | PENDING_HOD_APPROVAL
+  /// | PENDING_CROSS_STORE_APPROVAL | APPROVED | REJECTED | RETURNED
+  /// | PARTIALLY_ISSUED | ISSUED | CLOSED | CANCELLED
   status      String    @default("DRAFT")
   requestedAt DateTime  @default(now())
-  approvedAt  DateTime?
-  issuedAt    DateTime?
-  issuedById  String?
-  remarks     String?
+  submittedAt DateTime?
+
+  /// Department head, then the store's own authority — two distinct decisions,
+  /// because the person who owns the budget is rarely the person who owns the
+  /// shelf.
+  departmentApprovedById String?
+  departmentApprovedAt   DateTime?
+  hodApprovedById        String?
+  hodApprovedAt          DateTime?
+
+  approvedAt   DateTime?
+  issuedAt     DateTime?
+  issuedById   String?
+  closedAt     DateTime?
+  remarks      String?
+  returnReason String?
+  rejectReason String?
+
+  /// The requirement this fulfils, when it came through the front door rather
+  /// than being raised directly at a store.
+  requirementId String?
+  requirement   Requirement? @relation(fields: [requirementId], references: [id])
+
+  /// Stock found in another store. A store user works their own store by
+  /// default, so drawing on someone else's needs its own approval.
+  sourceStoreId          String?
+  sourceStore            Store?    @relation("IssueSourceStore", fields: [sourceStoreId], references: [id])
+  crossStoreApprovedById String?
+  crossStoreApprovedAt   DateTime?
 
   items        StoreIssueItem[]
   transactions InventoryTransaction[]
+  reservations InventoryReservation[]
 
   @@map("store_issues")
 }
@@ -1434,31 +1499,32 @@ model StoreIssueItem {
   item    Item       @relation(fields: [itemId], references: [id])
   lineNo  Int
 
-  requestedQty    Float
-  approvedQty     Float?
-  issuedQty       Float   @default(0)
-  unit            String
-  availableQty    Float   @default(0)
-  assetId         String?
-  assetTag        String?
-  custodianUserId String?
-  serialNumber    String?
-  batchNumber     String?
-  notes           String?
+  requestedQty      Float
+  approvedQty       Float?
+  issuedQty         Float   @default(0)
+  unit              String
+  availableQty      Float   @default(0)
+  assetId           String?
+  assetTag          String?
+  custodianUserId   String?
+  serialNumber      String?
+  batchNumber       String?
+  notes             String?
+  requirementItemId String?
 
   @@unique([issueId, lineNo])
   @@map("store_issue_items")
 }
 
 model StoreTransfer {
-  id            String @id @default(cuid())
-  number        String @unique
+  id            String  @id @default(cuid())
+  number        String  @unique
   fromStoreId   String
-  fromStore     Store  @relation("TransferFrom", fields: [fromStoreId], references: [id])
+  fromStore     Store   @relation("TransferFrom", fields: [fromStoreId], references: [id])
   toStoreId     String
-  toStore       Store  @relation("TransferTo", fields: [toStoreId], references: [id])
+  toStore       Store   @relation("TransferTo", fields: [toStoreId], references: [id])
   requestedById String
-  requestedBy   User   @relation("TransferRequestedBy", fields: [requestedById], references: [id])
+  requestedBy   User    @relation("TransferRequestedBy", fields: [requestedById], references: [id])
   reason        String?
 
   /// DRAFT | PENDING_APPROVAL | APPROVED | REJECTED | DISPATCHED | RECEIVED | CANCELLED
@@ -1703,7 +1769,7 @@ model PettyCashQuote {
 
   vendorName String
   vendorId   String?
-  vendor     Vendor?  @relation(fields: [vendorId], references: [id])
+  vendor     Vendor? @relation(fields: [vendorId], references: [id])
 
   /// PHYSICAL | WHATSAPP | SKYPE | EMAIL | PHONE | WALK_IN
   channel      String   @default("PHYSICAL")
@@ -1744,8 +1810,8 @@ model PettyCashVoucher {
 // ─────────────────────────────────────────────────────────────
 
 model Vendor {
-  id        String @id @default(cuid())
-  code      String @unique
+  id        String  @id @default(cuid())
+  code      String  @unique
   name      String
   legalName String?
 
@@ -1807,23 +1873,23 @@ model Vendor {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  entityLinks     VendorEntityLink[]
-  documents       VendorDocument[]
-  evaluations     VendorEvaluation[]
-  performance     VendorPerformance[]
-  issues          VendorIssue[]
-  blacklistCases  VendorBlacklistCase[]
-  rfqInvites      RfqVendor[]
-  quotes          VendorQuote[]
-  purchaseOrders  PurchaseOrder[]
-  gatePasses      GatePass[]
-  deliveries      Delivery[]
-  grns            Grn[]
-  invoices        Invoice[]
-  priceHistory    PriceHistory[]
-  assets          Asset[]
-  pettyCashQuotes PettyCashQuote[]
-  disposalBids    DisposalBid[]
+  entityLinks      VendorEntityLink[]
+  documents        VendorDocument[]
+  evaluations      VendorEvaluation[]
+  performance      VendorPerformance[]
+  issues           VendorIssue[]
+  blacklistCases   VendorBlacklistCase[]
+  rfqInvites       RfqVendor[]
+  quotes           VendorQuote[]
+  purchaseOrders   PurchaseOrder[]
+  gatePasses       GatePass[]
+  deliveries       Delivery[]
+  grns             Grn[]
+  invoices         Invoice[]
+  priceHistory     PriceHistory[]
+  assets           Asset[]
+  pettyCashQuotes  PettyCashQuote[]
+  disposalBids     DisposalBid[]
   contacts         VendorContact[]
   comparativeLines ComparativeLine[]
 
@@ -2010,13 +2076,13 @@ model VendorBlacklistCase {
   evidence   String?
 
   /// RAISED | EVIDENCE_COLLECTION | INVESTIGATION | VENDOR_RESPONSE_AWAITED | PROCUREMENT_REVIEW | AUDIT_REVIEW | DECISION_PENDING | BLACKLISTED | WARNING_ISSUED | RETAINED | CLOSED
-  stage              String  @default("RAISED")
+  stage              String    @default("RAISED")
   investigationNotes String?
   vendorResponse     String?
   vendorRespondedAt  DateTime?
   procurementReview  String?
   auditReview        String?
-  auditRequired      Boolean @default(true)
+  auditRequired      Boolean   @default(true)
 
   /// BLACKLIST | RETAIN | WARNING | SUSPEND
   decision      String?
@@ -2035,19 +2101,19 @@ model VendorBlacklistCase {
 // ─────────────────────────────────────────────────────────────
 
 model Asset {
-  id          String      @id @default(cuid())
-  assetId     String      @unique
-  tag         String      @unique
-  name        String
-  description String?
-  entityId    String
-  entity      Entity      @relation(fields: [entityId], references: [id])
+  id           String      @id @default(cuid())
+  assetId      String      @unique
+  tag          String      @unique
+  name         String
+  description  String?
+  entityId     String
+  entity       Entity      @relation(fields: [entityId], references: [id])
   departmentId String?
-  department  Department? @relation(fields: [departmentId], references: [id])
-  categoryId  String?
-  category    Category?   @relation(fields: [categoryId], references: [id])
-  itemId      String?
-  item        Item?       @relation(fields: [itemId], references: [id])
+  department   Department? @relation(fields: [departmentId], references: [id])
+  categoryId   String?
+  category     Category?   @relation(fields: [categoryId], references: [id])
+  itemId       String?
+  item         Item?       @relation(fields: [itemId], references: [id])
 
   office       String?
   location     String?
@@ -2223,14 +2289,14 @@ model DocumentType {
 }
 
 model Document {
-  id               String @id @default(cuid())
+  id               String  @id @default(cuid())
   name             String
   originalFilename String
   storagePath      String
   mimeType         String
   sizeBytes        Int
   checksum         String?
-  version          Int    @default(1)
+  version          Int     @default(1)
 
   parentDocumentId String?
   parentDocument   Document?  @relation("DocVersions", fields: [parentDocumentId], references: [id])
@@ -2346,12 +2412,12 @@ model EmailMessage {
   category String @default("GENERAL")
 
   /// QUEUED | SENDING | SENT | FAILED | SUPPRESSED
-  status   String @default("QUEUED")
-  attempts Int    @default(0)
+  status    String  @default("QUEUED")
+  attempts  Int     @default(0)
   lastError String?
 
   /// Transport that accepted it, e.g. logger or smtp
-  transport String?
+  transport  String?
   providerId String?
 
   userId String?
@@ -2446,9 +2512,9 @@ model Exception {
 }
 
 model SavingsRecord {
-  id            String        @id @default(cuid())
+  id            String         @id @default(cuid())
   comparativeId String?
-  comparative   Comparative?  @relation(fields: [comparativeId], references: [id])
+  comparative   Comparative?   @relation(fields: [comparativeId], references: [id])
   poId          String?
   po            PurchaseOrder? @relation(fields: [poId], references: [id])
   entityId      String?
@@ -2500,4 +2566,180 @@ model SavedView {
 
   @@unique([userId, resource, name])
   @@map("saved_views")
+}
+
+/// ─────────────────────────────────────────────────────────────────────────────
+/// Demand layer
+///
+/// A department states what it needs; the system decides whether stock can meet
+/// it before anybody is allowed to buy. Requirement is that front door, and the
+/// availability it recorded at the moment of the decision is kept on the line
+/// rather than recomputed later — otherwise nobody can explain, six months on,
+/// why a purchase was allowed when the stock report says there was plenty.
+/// ─────────────────────────────────────────────────────────────────────────────
+model Requirement {
+  id           String     @id @default(cuid())
+  number       String     @unique
+  entityId     String
+  entity       Entity     @relation(fields: [entityId], references: [id])
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id])
+  requesterId  String
+  requester    User       @relation("RequirementRequester", fields: [requesterId], references: [id])
+
+  title         String
+  purpose       String?
+  justification String?
+  /// LOW | NORMAL | HIGH | URGENT
+  priority      String   @default("NORMAL")
+  requiredDate  DateTime
+
+  /// Where the goods are needed, and the store that serves it.
+  siteId    String?
+  site      Site?    @relation(fields: [siteId], references: [id])
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id])
+  storeId   String?
+  store     Store?   @relation(fields: [storeId], references: [id])
+
+  costCenter      String?
+  costCenterId    String?
+  /// CAPEX | OPEX
+  expenditureType String  @default("OPEX")
+  estimatedValue  Float   @default(0)
+  currency        String  @default("PKR")
+
+  /// DRAFT | SUBMITTED | CHECKING_STOCK | FULFILLED_FROM_STOCK | SPLIT
+  /// | SENT_TO_PROCUREMENT | CLOSED | CANCELLED
+  status String @default("DRAFT")
+
+  submittedAt  DateTime?
+  checkedAt    DateTime?
+  decidedAt    DateTime?
+  decidedById  String?
+  decidedBy    User?     @relation("RequirementDecidedBy", fields: [decidedById], references: [id])
+  /// Why the requirement went the way it did — required when stock existed and
+  /// procurement was chosen anyway.
+  decisionNote String?
+  closedAt     DateTime?
+  cancelledAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  items        RequirementItem[]
+  storeIssues  StoreIssue[]
+  requisitions PurchaseRequisition[]
+
+  @@index([entityId, status])
+  @@index([status])
+  @@map("requirements")
+}
+
+model RequirementItem {
+  id            String      @id @default(cuid())
+  requirementId String
+  requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  lineNo        Int
+
+  itemId            String?
+  item              Item?     @relation(fields: [itemId], references: [id])
+  categoryId        String?
+  category          Category? @relation(fields: [categoryId], references: [id])
+  description       String
+  specification     String?
+  quantity          Float
+  unit              String
+  estimatedUnitCost Float?
+
+  /// The availability snapshot taken when the decision was made.
+  physicalQty   Float   @default(0)
+  reservedQty   Float   @default(0)
+  availableQty  Float   @default(0)
+  /// How the quantity was split by that decision.
+  fromStockQty  Float   @default(0)
+  procureQty    Float   @default(0)
+  /// The store the stock was found in — not always the requesting store.
+  sourceStoreId String?
+  sourceStore   Store?  @relation(fields: [sourceStoreId], references: [id])
+
+  reservations InventoryReservation[]
+
+  @@unique([requirementId, lineNo])
+  @@index([itemId])
+  @@map("requirement_items")
+}
+
+/// Reserved stock is not available stock. Without a record of who reserved what,
+/// two requirements are promised the same carton and the second one discovers it
+/// at the counter.
+model InventoryReservation {
+  id      String @id @default(cuid())
+  itemId  String
+  item    Item   @relation(fields: [itemId], references: [id])
+  storeId String
+  store   Store  @relation(fields: [storeId], references: [id])
+
+  quantity Float
+  unit     String
+
+  requirementItemId String?
+  requirementItem   RequirementItem? @relation(fields: [requirementItemId], references: [id])
+  storeIssueId      String?
+  storeIssue        StoreIssue?      @relation(fields: [storeIssueId], references: [id])
+
+  /// ACTIVE | RELEASED | CONSUMED
+  status      String    @default("ACTIVE")
+  reason      String?
+  createdById String
+  createdBy   User      @relation("ReservationCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime  @default(now())
+  releasedAt  DateTime?
+  consumedAt  DateTime?
+  expiresAt   DateTime?
+
+  @@index([itemId, storeId, status])
+  @@map("inventory_reservations")
+}
+
+/// One requisition line can be split across several orders, and one order can
+/// serve several requisitions. A `purchase_orders.pr_id` column cannot express
+/// either, so the quantity actually placed lives here.
+model PrPoAllocation {
+  id       String                  @id @default(cuid())
+  prId     String
+  pr       PurchaseRequisition     @relation(fields: [prId], references: [id], onDelete: Cascade)
+  prItemId String
+  prItem   PurchaseRequisitionItem @relation(fields: [prItemId], references: [id], onDelete: Cascade)
+  poId     String
+  po       PurchaseOrder           @relation(fields: [poId], references: [id], onDelete: Cascade)
+  poItemId String?
+  poItem   PurchaseOrderItem?      @relation(fields: [poItemId], references: [id])
+
+  quantity Float
+  unit     String
+
+  createdById String?
+  createdBy   User?    @relation("AllocationCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@unique([prItemId, poItemId])
+  @@index([prId])
+  @@index([poId])
+  @@map("pr_po_allocations")
+}
+
+/// Cost centres were a free-text field on the requisition, which cannot be
+/// reported on or reconciled against finance.
+model CostCenter {
+  id           String      @id @default(cuid())
+  code         String      @unique
+  name         String
+  entityId     String?
+  entity       Entity?     @relation(fields: [entityId], references: [id])
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  active       Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+
+  @@map("cost_centers")
 }

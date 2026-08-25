@@ -156,7 +156,9 @@ async function Attention({ user, ctx, scoped }: Scope) {
   const canSeeAnalytics = userHasPermission(user, P.ANALYTICS_VIEW);
   const canSeeExceptions = userHasPermission(user, P.EXCEPTION_VIEW);
 
-  const [myTasks, blockers, blockingExceptions] = await Promise.all([
+  const canSeeRequirements = userHasPermission(user, P.REQUIREMENT_VIEW, P.REQUIREMENT_VIEW_ALL);
+
+  const [myTasks, blockers, blockingExceptions, awaitingDecision] = await Promise.all([
     prisma.task.findMany({
       where: {
         status: { in: ["OPEN", "IN_PROGRESS"] },
@@ -173,6 +175,11 @@ async function Attention({ user, ctx, scoped }: Scope) {
             blocking: true,
             ...nullableEntityScope(ctx.entityId, scoped),
           },
+        })
+      : Promise.resolve(0),
+    canSeeRequirements
+      ? prisma.requirement.count({
+          where: { status: { in: ["SUBMITTED", "CHECKING_STOCK"] }, ...ctx.entityFilter },
         })
       : Promise.resolve(0),
   ]);
@@ -227,6 +234,15 @@ async function Attention({ user, ctx, scoped }: Scope) {
             context={`of ${blockers.length} ${blockers.length === 1 ? "item" : "items"} in flight`}
             tone="danger"
             href="/analytics/bottlenecks"
+          />
+        )}
+        {canSeeRequirements && (
+          <ActionTile
+            label="Requirements to route"
+            count={awaitingDecision}
+            context={awaitingDecision > 0 ? "Stock check and decision outstanding" : "Nothing waiting to be routed"}
+            tone="warning"
+            href="/requirements"
           />
         )}
         {canSeeExceptions && (

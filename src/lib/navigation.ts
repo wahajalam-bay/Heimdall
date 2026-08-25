@@ -9,7 +9,17 @@ export type NavItem = {
   /** Any one of these permissions grants visibility. */
   perms?: string[];
   /** Badge key resolved server-side against live counts. */
-  badge?: "myTasks" | "alerts" | "cpcPending" | "openPo" | "invoiceMismatch" | "exceptions" | "inspections" | "grnPending";
+  badge?:
+    | "myTasks"
+    | "alerts"
+    | "cpcPending"
+    | "openPo"
+    | "invoiceMismatch"
+    | "exceptions"
+    | "inspections"
+    | "grnPending"
+    | "requirementsPending"
+    | "srPending";
   exact?: boolean;
 };
 
@@ -22,6 +32,25 @@ export const NAV: NavGroup[] = [
       { label: "Executive Dashboard", href: "/", icon: "dashboard", exact: true },
       { label: "My Workspace", href: "/workspace", icon: "workspace", badge: "myTasks" },
       { label: "Alerts", href: "/alerts", icon: "alerts", badge: "alerts" },
+    ],
+  },
+  {
+    label: "Demand",
+    items: [
+      {
+        label: "Requirements",
+        href: "/requirements",
+        icon: "requisition",
+        perms: [P.REQUIREMENT_VIEW, P.REQUIREMENT_VIEW_ALL],
+        badge: "requirementsPending",
+      },
+      {
+        label: "Store Requisitions",
+        href: "/issuance",
+        icon: "issuance",
+        perms: [P.SR_VIEW, P.STORE_ISSUE, P.INVENTORY_VIEW],
+        badge: "srPending",
+      },
     ],
   },
   {
@@ -45,7 +74,6 @@ export const NAV: NavGroup[] = [
       { label: "Open POs", href: "/open-pos", icon: "clock", perms: [P.PO_VIEW], badge: "openPo" },
       { label: "Stores", href: "/stores", icon: "store", perms: [P.INVENTORY_VIEW] },
       { label: "Inventory", href: "/inventory", icon: "inventory", perms: [P.INVENTORY_VIEW] },
-      { label: "Issuance", href: "/issuance", icon: "issuance", perms: [P.INVENTORY_VIEW, P.STORE_ISSUE] },
       { label: "Transfers", href: "/transfers", icon: "transfer", perms: [P.INVENTORY_VIEW, P.STORE_TRANSFER] },
     ],
   },

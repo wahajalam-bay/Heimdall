@@ -8,6 +8,7 @@ import { prisma, type DbClient } from "./db";
  */
 
 export const SEQ = {
+  REQUIREMENT: "REQ",
   PR: "PR",
   MD: "MD",
   RFQ: "RFQ",

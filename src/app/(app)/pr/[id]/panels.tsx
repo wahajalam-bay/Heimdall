@@ -19,6 +19,7 @@ import { ApprovalTrailView, Timeline, type TimelineEvent } from "@/components/ui
 import { COMPLIANCE_LEVELS, PRIORITY_TONE, PROCUREMENT_TYPE_LABELS, humanize, type ProcurementType } from "@/lib/domain";
 import { amount, fmtDate, fmtDateTime, money, percent, qty, round2, variancePercent } from "@/lib/format";
 import type { ApprovalTrail } from "@/lib/approvals";
+import type { LineCoverage } from "@/server/allocations";
 
 /* ── Overview ─────────────────────────────────────────────── */
 
@@ -177,8 +178,17 @@ export function OverviewPanel({
 
 /* ── Items ────────────────────────────────────────────────── */
 
-export function ItemsPanel({ pr }: { pr: ProcurementCase }) {
+export function ItemsPanel({
+  pr,
+  coverage,
+}: {
+  pr: ProcurementCase;
+  /** What each line has already been ordered against, across every order. */
+  coverage?: LineCoverage[];
+}) {
   const poItems = pr.purchaseOrders.flatMap((po) => po.items.map((i) => ({ ...i, poNumber: po.number, poId: po.id })));
+  const byLine = new Map((coverage ?? []).map((c) => [c.prItemId, c]));
+  const outstanding = (coverage ?? []).filter((c) => c.outstanding > 0);
 
   return (
     <div className="space-y-4">
@@ -197,6 +207,7 @@ export function ItemsPanel({ pr }: { pr: ProcurementCase }) {
                 <th className="text-right" style={{ width: "7rem" }}>Quantity</th>
                 <th className="text-right" style={{ width: "9rem" }}>Est. unit price</th>
                 <th className="text-right" style={{ width: "10rem" }}>Est. total</th>
+                {coverage && <th style={{ width: "13rem" }}>Ordered</th>}
                 <th style={{ width: "9rem" }}>Disposition</th>
               </tr>
             </thead>
@@ -230,6 +241,38 @@ export function ItemsPanel({ pr }: { pr: ProcurementCase }) {
                   <td className="num align-top">{qty(it.quantity, it.unit)}</td>
                   <td className="num align-top">{it.estimatedUnitPrice ? money(it.estimatedUnitPrice) : "—"}</td>
                   <td className="num align-top font-500">{money(it.estimatedTotal)}</td>
+                  {coverage && (
+                    <td className="align-top">
+                      {(() => {
+                        const c = byLine.get(it.id);
+                        if (!c || c.ordered <= 0) {
+                          return <span className="text-2xs text-[var(--c-text-tertiary)]">Not ordered</span>;
+                        }
+                        return (
+                          <div className="space-y-1">
+                            <div className="tnum text-xs">
+                              {c.ordered} of {c.required} {c.unit}
+                              {c.outstanding > 0 && (
+                                <span className="ml-1 text-warning-soft-foreground">({c.outstanding} left)</span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {c.orders.map((o) => (
+                                <Link
+                                  key={o.poId}
+                                  href={`/po/${o.poId}`}
+                                  className="mono text-2xs text-[var(--c-accent-text)]"
+                                  title={`${o.quantity} ${c.unit}${o.vendorName ? ` — ${o.vendorName}` : ""}`}
+                                >
+                                  {o.poNumber}
+                                </Link>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </td>
+                  )}
                   <td className="align-top">
                     <Badge tone="neutral">{humanize(it.disposition)}</Badge>
                   </td>
@@ -240,12 +283,21 @@ export function ItemsPanel({ pr }: { pr: ProcurementCase }) {
               <tr>
                 <td colSpan={5} className="text-right">Estimated value</td>
                 <td className="num">{money(pr.estimatedValue)}</td>
+                {coverage && <td />}
                 <td />
               </tr>
             </tfoot>
           </table>
         </div>
       </SectionCard>
+
+      {outstanding.length > 0 && (
+        <InlineAlert tone="warning">
+          {outstanding.length} line{outstanding.length === 1 ? "" : "s"} not fully ordered:{" "}
+          {outstanding.map((c) => `line ${c.lineNo} (${c.outstanding} ${c.unit})`).join(", ")}. A further order can be
+          raised against the balance.
+        </InlineAlert>
+      )}
 
       {poItems.length > 0 && (
         <SectionCard

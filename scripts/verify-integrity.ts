@@ -122,7 +122,16 @@ async function run() {
   const ledgerMismatch: string[] = [];
   for (const b of buckets) {
     const txns = await prisma.inventoryTransaction.findMany({
-      where: { itemId: b.itemId, storeId: b.storeId, batchNumber: b.batchNumber, serialNumber: b.serialNumber },
+      where: {
+        itemId: b.itemId,
+        storeId: b.storeId,
+        batchNumber: b.batchNumber,
+        serialNumber: b.serialNumber,
+        // A reservation moves no goods — it changes what is *available*, not what
+        // is on the shelf. Counting it here would report a balance that has not
+        // changed as drifting from its own ledger.
+        type: { notIn: ["RESERVATION", "RELEASE"] },
+      },
       select: { quantity: true },
     });
     const sum = txns.reduce((a, t) => a + t.quantity, 0);
@@ -148,6 +157,100 @@ async function run() {
     "Non-lowest awards carry a written justification",
     unjustified.length === 0,
     unjustified.map((c) => c.number).join(", ") || "0 unjustified awards",
+  );
+
+  // ── Demand layer ──
+
+  // 16. Reserved quantity on the shelf equals the holds actually recorded. If
+  //     these drift, available stock is a fiction in one direction or the other:
+  //     either goods are invisible, or two people are promised the same carton.
+  const reservedRows = await prisma.inventoryItem.findMany({
+    where: { reservedQty: { not: 0 } },
+    select: { itemId: true, storeId: true, reservedQty: true, item: { select: { sku: true } }, store: { select: { code: true } } },
+  });
+  const activeHolds = await prisma.inventoryReservation.groupBy({
+    by: ["itemId", "storeId"],
+    where: { status: "ACTIVE" },
+    _sum: { quantity: true },
+  });
+  const holdMap = new Map(activeHolds.map((h) => [`${h.itemId}|${h.storeId}`, h._sum.quantity ?? 0]));
+  const byBucket = new Map<string, { reserved: number; sku: string; store: string }>();
+  for (const r of reservedRows) {
+    const key = `${r.itemId}|${r.storeId}`;
+    const entry = byBucket.get(key) ?? { reserved: 0, sku: r.item.sku, store: r.store.code };
+    entry.reserved += r.reservedQty;
+    byBucket.set(key, entry);
+  }
+  for (const [key, held] of holdMap) {
+    if (!byBucket.has(key)) byBucket.set(key, { reserved: 0, sku: key.split("|")[0], store: "?" });
+  }
+  const drift = [...byBucket.entries()].filter(
+    ([key, v]) => Math.abs(v.reserved - (holdMap.get(key) ?? 0)) > 1e-6,
+  );
+  add(
+    "Reserved stock matches the reservations on record",
+    drift.length === 0,
+    drift.length
+      ? drift.map(([k, v]) => `${v.sku} at ${v.store}: shelf ${v.reserved} vs holds ${holdMap.get(k) ?? 0}`).join("; ")
+      : `${byBucket.size} bucket(s) reconcile`,
+  );
+
+  // 17. Nothing is reserved that is not physically there.
+  const overReserved = await prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
+    'SELECT COUNT(*)::bigint AS count FROM inventory WHERE "reservedQty" > quantity + 1e-6',
+  );
+  const overReservedCount = Number(overReserved[0]?.count ?? 0);
+  add(
+    "Nothing is reserved beyond what is on the shelf",
+    overReservedCount === 0,
+    `${overReservedCount} over-reserved bucket(s)`,
+  );
+
+  // 18. An order can never take more of a requisition line than the line holds.
+  const prLines = await prisma.purchaseRequisitionItem.findMany({
+    select: { id: true, lineNo: true, quantity: true, unit: true, pr: { select: { number: true } } },
+  });
+  const allocSums = await prisma.prPoAllocation.groupBy({
+    by: ["prItemId"],
+    _sum: { quantity: true },
+  });
+  const allocMap = new Map(allocSums.map((a) => [a.prItemId, a._sum.quantity ?? 0]));
+  const overAllocated = prLines.filter((l) => (allocMap.get(l.id) ?? 0) > l.quantity + 1e-6);
+  add(
+    "No requisition line is ordered beyond its quantity",
+    overAllocated.length === 0,
+    overAllocated.length
+      ? overAllocated.map((l) => `${l.pr.number} line ${l.lineNo}: ${allocMap.get(l.id)} of ${l.quantity} ${l.unit}`).join("; ")
+      : `${prLines.length} line(s) within their ordered quantity`,
+  );
+
+  // 19. Every decided requirement produced something. A requirement recorded as
+  //     routed with no store requisition and no purchase requisition behind it
+  //     means somebody's demand vanished silently.
+  const decided = await prisma.requirement.findMany({
+    where: { decidedAt: { not: null }, status: { notIn: ["CANCELLED"] } },
+    select: {
+      number: true,
+      _count: { select: { storeIssues: true, requisitions: true } },
+    },
+  });
+  const vanished = decided.filter((r) => r._count.storeIssues + r._count.requisitions === 0);
+  add(
+    "Every routed requirement produced a document",
+    vanished.length === 0,
+    vanished.length ? vanished.map((r) => r.number).join(", ") : `${decided.length} routed requirement(s) accounted for`,
+  );
+
+  // 20. The inventory-first rule itself: a requirement cannot have become a
+  //     purchase requisition without its stock having been read first.
+  const unchecked = await prisma.requirement.findMany({
+    where: { checkedAt: null, requisitions: { some: {} } },
+    select: { number: true },
+  });
+  add(
+    "No requirement reached procurement without a stock check",
+    unchecked.length === 0,
+    unchecked.length ? unchecked.map((r) => r.number).join(", ") : "0 requirements bypassed the check",
   );
 
   // ── Report ──

@@ -24,11 +24,42 @@ import { LifecycleRail, Timeline, buildRail } from "@/components/ui/workflow";
 import { DocumentsPanel } from "@/components/domain/DocumentsPanel";
 import { humanize } from "@/lib/domain";
 import { fmtDate, fmtDateTime, money, qty, round2 } from "@/lib/format";
-import { decideIssueAction, issueStockAction } from "@/app/(app)/stores/actions";
+import {
+  closeRequisitionAction,
+  decideIssueAction,
+  issueStockAction,
+  resubmitRequisitionAction,
+  returnRequisitionAction,
+} from "@/app/(app)/stores/actions";
 
 export const dynamic = "force-dynamic";
 
-const ISSUE_LIFECYCLE = ["DRAFT", "PENDING_APPROVAL", "APPROVED", "PARTIALLY_ISSUED", "ISSUED"] as const;
+/**
+ * The store requisition's lifecycle.
+ *
+ * A requisition is approved by the department, then the head, then — only when
+ * the stock belongs to another store — by that store, before the counter acts.
+ * `PENDING_APPROVAL` is where requisitions raised before those gates existed sit,
+ * so it stays on the rail rather than showing them as off-track.
+ */
+const ISSUE_LIFECYCLE = [
+  "DRAFT",
+  "PENDING_DEPARTMENT_APPROVAL",
+  "PENDING_HOD_APPROVAL",
+  "PENDING_CROSS_STORE_APPROVAL",
+  "APPROVED",
+  "PARTIALLY_ISSUED",
+  "ISSUED",
+  "CLOSED",
+] as const;
+
+/** Statuses at which a decision is still outstanding. */
+const AWAITING = [
+  "PENDING_APPROVAL",
+  "PENDING_DEPARTMENT_APPROVAL",
+  "PENDING_HOD_APPROVAL",
+  "PENDING_CROSS_STORE_APPROVAL",
+];
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -116,9 +147,12 @@ export default async function IssueDetailPage({ params }: { params: Promise<{ id
     issue.status === "PARTIALLY_ISSUED" ? "PARTIALLY_ISSUED" : issue.status,
     {
       DRAFT: { at: issue.requestedAt, owner: issue.requestedBy.name },
-      PENDING_APPROVAL: { at: issue.requestedAt, owner: issue.requestedBy.name },
+      PENDING_DEPARTMENT_APPROVAL: { at: issue.submittedAt ?? issue.requestedAt, owner: issue.requestedBy.name },
+      PENDING_HOD_APPROVAL: { at: issue.departmentApprovedAt },
+      PENDING_CROSS_STORE_APPROVAL: { at: issue.hodApprovedAt },
       APPROVED: { at: issue.approvedAt, owner: storeManager?.name ?? null },
       ISSUED: { at: issue.issuedAt, owner: null },
+      CLOSED: { at: issue.closedAt },
     },
     { terminalBad: issue.status === "REJECTED" || issue.status === "CANCELLED" },
   );
@@ -160,24 +194,46 @@ export default async function IssueDetailPage({ params }: { params: Promise<{ id
         }
         actions={
           <>
-            {issue.status === "PENDING_APPROVAL" && canApprove && (
+            {AWAITING.includes(issue.status) && canApprove && (
               <>
                 <ActionButton
                   action={decideIssueAction}
                   payload={{ issueId: issue.id, approve: "true" }}
-                  label="Approve issue"
+                  label={
+                    issue.status === "PENDING_HOD_APPROVAL"
+                      ? "Approve as head"
+                      : issue.status === "PENDING_CROSS_STORE_APPROVAL"
+                        ? "Release to the other store"
+                        : "Approve requisition"
+                  }
                   tone="primary"
                   confirm={`Approve ${issue.number}? The store will be authorised to release ${qty(requestedTotal)} across ${issue.items.length} line(s).`}
+                />
+                <ActionButton
+                  action={returnRequisitionAction}
+                  payload={{ issueId: issue.id }}
+                  label="Return for correction"
+                  tone="secondary"
+                  reasonLabel="What needs correcting?"
+                  reasonRequired
                 />
                 <ActionButton
                   action={decideIssueAction}
                   payload={{ issueId: issue.id, approve: "false" }}
                   label="Reject"
                   tone="danger-soft"
-                  reasonLabel="Why is this issue being rejected?"
+                  reasonLabel="Why is this requisition being rejected?"
                   reasonRequired
                 />
               </>
+            )}
+            {issue.status === "RETURNED" && issue.requestedById === user.id && (
+              <ActionButton
+                action={resubmitRequisitionAction}
+                payload={{ issueId: issue.id }}
+                label="Resubmit"
+                tone="primary"
+              />
             )}
             {["APPROVED", "PARTIALLY_ISSUED"].includes(issue.status) && canIssue && (
               <ActionButton
@@ -194,6 +250,23 @@ export default async function IssueDetailPage({ params }: { params: Promise<{ id
                 confirm={`Release ${qty(outstanding)} from ${issue.store.name}? Inventory will be reduced immediately and any asset custody transferred.`}
               />
             )}
+            {["ISSUED", "PARTIALLY_ISSUED", "APPROVED"].includes(issue.status) && canIssue && (
+              <ActionButton
+                action={closeRequisitionAction}
+                payload={{ issueId: issue.id }}
+                label="Close"
+                tone="secondary"
+                reasonLabel={
+                  outstanding > 0 ? "This requisition is short. Why is it being closed?" : "Closing note (optional)"
+                }
+                reasonRequired={outstanding > 0}
+                confirm={
+                  outstanding > 0
+                    ? `Close ${issue.number} with ${qty(outstanding)} not issued? Any stock still held for it is released.`
+                    : `Close ${issue.number}?`
+                }
+              />
+            )}
           </>
         }
       />
@@ -205,7 +278,7 @@ export default async function IssueDetailPage({ params }: { params: Promise<{ id
         />
       )}
 
-      {shortLines.length > 0 && ["PENDING_APPROVAL", "APPROVED", "PARTIALLY_ISSUED"].includes(issue.status) && (
+      {shortLines.length > 0 && [...AWAITING, "APPROVED", "PARTIALLY_ISSUED"].includes(issue.status) && (
         <BlockedNotice
           title="Stock is not available for every line"
           reasons={shortLines.map(
@@ -354,7 +427,7 @@ export default async function IssueDetailPage({ params }: { params: Promise<{ id
             </div>
           </SectionCard>
 
-          {issue.status === "PENDING_APPROVAL" && canApprove && (
+          {AWAITING.includes(issue.status) && canApprove && (
             <InlineAlert tone="info">
               Approving confirms the quantity is justified and available. The store still has to physically release the
               stock as a separate, recorded step.
