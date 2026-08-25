@@ -19,7 +19,10 @@ export type NavItem = {
     | "inspections"
     | "grnPending"
     | "requirementsPending"
-    | "srPending";
+    | "srPending"
+    | "vouchersPending"
+    | "variancesOpen"
+    | "returnsOpen";
   exact?: boolean;
 };
 
@@ -71,6 +74,20 @@ export const NAV: NavGroup[] = [
       { label: "Gate Passes", href: "/gate-passes", icon: "gate", perms: [P.GATE_PASS_VIEW] },
       { label: "Inspections", href: "/inspections", icon: "inspection", perms: [P.INSPECTION_VIEW], badge: "inspections" },
       { label: "GRNs", href: "/grn", icon: "grn", perms: [P.GRN_VIEW] },
+      {
+        label: "Variances",
+        href: "/receiving/variances",
+        icon: "variance",
+        perms: [P.VARIANCE_VIEW],
+        badge: "variancesOpen",
+      },
+      {
+        label: "Vendor Returns",
+        href: "/receiving/returns",
+        icon: "return",
+        perms: [P.RETURN_VIEW],
+        badge: "returnsOpen",
+      },
       { label: "Open POs", href: "/open-pos", icon: "clock", perms: [P.PO_VIEW], badge: "openPo" },
       { label: "Stores", href: "/stores", icon: "store", perms: [P.INVENTORY_VIEW] },
       { label: "Inventory", href: "/inventory", icon: "inventory", perms: [P.INVENTORY_VIEW] },
@@ -101,8 +118,17 @@ export const NAV: NavGroup[] = [
     label: "Finance",
     items: [
       { label: "Invoice Verification", href: "/invoices", icon: "invoice", perms: [P.INVOICE_VIEW], badge: "invoiceMismatch" },
+      {
+        label: "Payment Vouchers",
+        href: "/finance/vouchers",
+        icon: "voucher",
+        perms: [P.VOUCHER_VIEW],
+        badge: "vouchersPending",
+      },
       { label: "Payment Handoff", href: "/finance/handoffs", icon: "payment", perms: [P.INVOICE_VIEW, P.FINANCE_ACK] },
       { label: "Pending Payments", href: "/finance/pending", icon: "clock", perms: [P.INVOICE_VIEW] },
+      { label: "Budgets", href: "/finance/budgets", icon: "budget", perms: [P.BUDGET_VIEW] },
+      { label: "Tax Rates", href: "/finance/taxes", icon: "tax", perms: [P.TAX_VIEW] },
     ],
   },
   {

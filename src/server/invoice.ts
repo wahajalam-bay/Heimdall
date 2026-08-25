@@ -414,6 +414,28 @@ export async function verifyInvoice(user: SessionUser, invoiceId: string, db: Db
     },
   });
 
+  // The invoice holds the current verdict; the match record holds this attempt.
+  // A dispute about what was known at the time of payment cannot be settled from
+  // a field that has since been overwritten.
+  await db.threeWayMatch.create({
+    data: {
+      invoiceId,
+      poId: invoice.poId,
+      grnId: (await db.invoiceGrnLink.findFirst({ where: { invoiceId }, select: { grnId: true } }))?.grnId ?? null,
+      result: result.passed ? "PASSED" : "FAILED",
+      quantityMatched: !result.lines.some((l) => l.flag === "QTY_MISMATCH"),
+      priceMatched: !result.lines.some((l) => l.flag === "PRICE_MISMATCH"),
+      taxMatched: !result.lines.some((l) => l.flag === "TAX_MISMATCH"),
+      totalMatched: result.totalsMatch,
+      poTotal: round2(invoice.po?.total ?? 0),
+      grnValue: round2(result.computedTotal),
+      invoiceTotal: round2(result.invoiceTotal),
+      variance: round2(result.totalVariance),
+      detail: JSON.stringify(result.lines.filter((l) => l.flag !== "OK")),
+      runById: user.id,
+    },
+  });
+
   if (!result.passed) {
     await raiseException(
       {

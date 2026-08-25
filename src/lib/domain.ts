@@ -47,6 +47,58 @@ export const PR_STATUSES = [
 ] as const;
 export type PrStatus = (typeof PR_STATUSES)[number];
 
+/**
+ * Where the requisition module ends and the Purchase Order module begins.
+ *
+ * The requirement is explicit: the requisition covers the process up to
+ * approval, and after approval the transaction enters the Purchase Order and
+ * sourcing module. Both stages live on one case record — that is what makes the
+ * lifecycle traceable end to end — but they are two pieces of work owned by two
+ * different teams, and the boundary is named here so every gate reads it from
+ * one place instead of listing statuses by hand.
+ */
+export const PR_MODULE_BOUNDARY: PrStatus = "APPROVED";
+
+/** Statuses belonging to the requisition module: raising it and getting it approved. */
+export const REQUISITION_STAGE: PrStatus[] = [
+  "DRAFT",
+  "SUBMITTED",
+  "UNDER_DEPARTMENT_APPROVAL",
+  "RETURNED",
+];
+
+/** Statuses belonging to the Purchase Order module, which starts at approval. */
+export const PO_MODULE_STAGE: PrStatus[] = [
+  "APPROVED",
+  "PROCUREMENT_REVIEW",
+  "SOURCING",
+  "CPC_REVIEW",
+  "PO_PREPARATION",
+  "PO_APPROVED",
+  "PO_ISSUED",
+  "PARTIALLY_RECEIVED",
+  "FULLY_RECEIVED",
+  "GRN_COMPLETED",
+  "INVOICE_VERIFICATION",
+  "FINANCE_HANDOFF",
+];
+
+/** True once the requisition itself is finished and the case belongs to procurement. */
+export function requisitionComplete(status: string): boolean {
+  return PO_MODULE_STAGE.includes(status as PrStatus) || status === "CLOSED";
+}
+
+/** True while the requisition is still being raised or approved. */
+export function inRequisitionStage(status: string): boolean {
+  return REQUISITION_STAGE.includes(status as PrStatus);
+}
+
+/** Which module owns this case right now, for anything that needs to say so. */
+export function caseModule(status: string): "REQUISITION" | "PURCHASE_ORDER" | "CLOSED" {
+  if (["CLOSED", "REJECTED", "CANCELLED"].includes(status)) return "CLOSED";
+  return requisitionComplete(status) ? "PURCHASE_ORDER" : "REQUISITION";
+}
+
 /** Ordered happy-path lifecycle used by the workflow visualiser. */
 export const PR_LIFECYCLE: PrStatus[] = [
   "DRAFT",

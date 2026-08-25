@@ -106,7 +106,9 @@ async function allocateOutbound(
       type,
       {
         ...input,
-        quantity: round2(take),
+        // The issue types carry their direction in the type; an adjustment
+        // carries it in the sign, so the sign has to survive the split.
+        quantity: type === "ADJUSTMENT" ? -round2(take) : round2(take),
         batchNumber: bucket.batchNumber,
         serialNumber: bucket.serialNumber,
         locationId: input.locationId ?? bucket.locationId,
@@ -138,7 +140,12 @@ export async function postMovement(
   // this item from this store" and does not care which receipt it came from.
   // Availability is reported across every bucket, so consumption has to work the
   // same way — otherwise batch-tracked stock could be seen but never issued.
-  if (OUTBOUND.has(type) && key.batchNumber === null && key.serialNumber === null) {
+  // A negative adjustment is outbound in every way that matters: it takes stock
+  // off the shelf. Without this, goods found faulty after receipt could not be
+  // adjusted out of batch-tracked stock at all without naming the exact batch —
+  // which the person holding the broken item does not know.
+  const outboundAdjustment = type === "ADJUSTMENT" && input.quantity < 0;
+  if ((OUTBOUND.has(type) || outboundAdjustment) && key.batchNumber === null && key.serialNumber === null) {
     const allocated = await allocateOutbound(type, input, db, actor);
     if (allocated) return allocated;
   }

@@ -253,6 +253,127 @@ async function run() {
     unchecked.length ? unchecked.map((r) => r.number).join(", ") : "0 requirements bypassed the check",
   );
 
+  // ── Finance chain ──
+
+  // 21. No voucher exists for an invoice that has not passed or been waived. A
+  //     voucher is the last document before money moves; if one can be raised on
+  //     a failed match, every control upstream was decoration.
+  const badVouchers = await prisma.voucher.findMany({
+    where: {
+      status: { notIn: ["CANCELLED", "REJECTED"] },
+      invoice: { matchStatus: { in: ["PENDING", "FAILED"] }, exceptionApprovedAt: null },
+    },
+    select: { number: true, invoice: { select: { number: true, matchStatus: true } } },
+  });
+  add(
+    "No voucher raised on an unmatched invoice",
+    badVouchers.length === 0,
+    badVouchers.length
+      ? badVouchers.map((v) => `${v.number} on ${v.invoice.number} (${v.invoice.matchStatus})`).join(", ")
+      : "0 vouchers on unmatched invoices",
+  );
+
+  // 22. An approved voucher has every signature its ladder demanded.
+  const approvedVouchers = await prisma.voucher.findMany({
+    where: { status: { in: ["APPROVED", "PAID"] } },
+    select: { number: true, signatures: { select: { status: true } } },
+  });
+  const unsigned = approvedVouchers.filter((v) => v.signatures.some((s) => s.status === "PENDING"));
+  add(
+    "Every approved voucher is fully signed",
+    unsigned.length === 0,
+    unsigned.length ? unsigned.map((v) => v.number).join(", ") : `${approvedVouchers.length} voucher(s) fully signed`,
+  );
+
+  // 23. Signatures were given in sequence. A ladder climbed from the top is not a
+  //     ladder, and out-of-order approval is the classic way a large payment
+  //     bypasses the person meant to question it.
+  const ladders = await prisma.voucher.findMany({
+    where: { signatures: { some: { status: "APPROVED" } } },
+    select: { number: true, signatures: { orderBy: { sequence: "asc" }, select: { sequence: true, status: true } } },
+  });
+  const outOfOrder = ladders.filter((v) => {
+    const seen = v.signatures.map((s) => s.status === "APPROVED");
+    // Once a pending step appears, nothing after it may be approved.
+    const firstPending = seen.indexOf(false);
+    return firstPending !== -1 && seen.slice(firstPending).some(Boolean);
+  });
+  add(
+    "Voucher signatures were given in order",
+    outOfOrder.length === 0,
+    outOfOrder.length ? outOfOrder.map((v) => v.number).join(", ") : `${ladders.length} ladder(s) climbed in order`,
+  );
+
+  // 24. Voucher arithmetic. Gross less withholding less deductions is the net, or
+  //     somebody is being paid a figure the document does not support.
+  const voucherMaths = await prisma.voucher.findMany({
+    select: { number: true, grossAmount: true, withholdingTax: true, deductions: true, netAmount: true },
+  });
+  const wrongMaths = voucherMaths.filter(
+    (v) => Math.abs(v.grossAmount - v.withholdingTax - v.deductions - v.netAmount) > 0.01,
+  );
+  add(
+    "Voucher net equals gross less deductions",
+    wrongMaths.length === 0,
+    wrongMaths.length ? wrongMaths.map((v) => v.number).join(", ") : `${voucherMaths.length} voucher(s) reconcile`,
+  );
+
+  // ── Receiving exceptions ──
+
+  // 25. Rejected goods that were adjusted out actually moved. A rejection marked
+  //     as adjusted with no compensating movement means stock records still show
+  //     goods that were sent back.
+  const adjustedRejections = await prisma.rejectionRecord.findMany({
+    where: { inventoryAdjusted: true },
+    select: { number: true, itemId: true, quantity: true, raisedAt: true },
+  });
+  const withoutMovement: string[] = [];
+  for (const r of adjustedRejections) {
+    if (!r.itemId) continue;
+    const moved = await prisma.inventoryTransaction.count({
+      where: {
+        itemId: r.itemId,
+        type: "ADJUSTMENT",
+        quantity: { lt: 0 },
+        performedAt: { gte: new Date(r.raisedAt.getTime() - 60_000) },
+      },
+    });
+    if (!moved) withoutMovement.push(r.number);
+  }
+  add(
+    "Rejections marked adjusted have a matching movement",
+    withoutMovement.length === 0,
+    withoutMovement.length ? withoutMovement.join(", ") : `${adjustedRejections.length} adjusted rejection(s) reconcile`,
+  );
+
+  // 26. A closed return did not quietly abandon a replacement the vendor owed.
+  const abandoned = await prisma.vendorReturn.findMany({
+    where: { status: "CLOSED", replacementRequired: true, replacementStatus: "AWAITED" },
+    select: { number: true },
+  });
+  add(
+    "No return closed with a replacement still owed",
+    abandoned.length === 0,
+    abandoned.length ? abandoned.map((r) => r.number).join(", ") : "0 returns closed with goods outstanding",
+  );
+
+  // 27. Utilisation can never exceed commitment: goods cannot be received against
+  //     an order that was never placed. When this fails, the two figures are being
+  //     drawn from different sets of documents — which is exactly the bug that
+  //     reported a department utilising millions against a commitment of nought.
+  const { budgetPositions } = await import("../src/server/budget");
+  const positions = await budgetPositions({ entityIds: null });
+  const impossible = positions.filter((p) => p.utilised > p.committed + 0.01);
+  add(
+    "Budget utilisation never exceeds commitment",
+    impossible.length === 0,
+    impossible.length
+      ? impossible
+          .map((p) => `${p.departmentName ?? p.entityCode}: utilised ${p.utilised} vs committed ${p.committed}`)
+          .join("; ")
+      : `${positions.length} budget line(s) consistent`,
+  );
+
   // ── Report ──
   const pad = 58;
   process.stdout.write("\nData integrity report\n\n");

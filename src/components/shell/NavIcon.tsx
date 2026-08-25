@@ -7,6 +7,11 @@
  */
 
 export type NavIconName =
+  | "voucher"
+  | "budget"
+  | "tax"
+  | "variance"
+  | "return"
   | "dashboard"
   | "workspace"
   | "alerts"
@@ -87,6 +92,11 @@ const PATHS: Record<NavIconName, string> = {
   decision: "M4 4h16v16H4zM8 12l3 3 5-6",
   invoice: "M6 2h12v20l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3",
   payment: "M3 10l9-6 9 6M5 10v9h14v-9M9 19v-5h6v5",
+  voucher: "M5 3h14v18l-3-2-2 2-2-2-2 2-3-2zM8 8h8M8 12h8M8 16h4",
+  budget: "M4 20V9M10 20V4M16 20v-7M22 20H2M13 8l4-3 3 2",
+  tax: "M5 3h14v18H5zM9 8h6M9 12h6M9 16h3",
+  variance: "M4 18l6-8 4 4 6-9M4 21h17M14 5h6v6",
+  return: "M9 5L4 10l5 5M4 10h11a5 5 0 0 1 0 10h-6",
   asset: "M3 5h18v11H3zM9 20h6M12 16v4M7 9h5",
   disposal: "M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6",
   scrap: "M20 12a8 8 0 1 0-3 6.2M20 6v5h-5M12 8v5l3 2",

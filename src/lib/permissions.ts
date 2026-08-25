@@ -5,6 +5,30 @@
  */
 
 export const PERMISSIONS = {
+  // Finance — vouchers, tax, budget
+  VOUCHER_VIEW: "voucher.view",
+  VOUCHER_GENERATE: "voucher.generate",
+  VOUCHER_SIGN: "voucher.sign",
+  /// Signs any rung of the ladder, not only the one the holder's role names.
+  VOUCHER_SIGN_ANY: "voucher.sign_any",
+  TAX_VIEW: "tax.view",
+  TAX_MANAGE: "tax.manage",
+  TAX_VERIFY: "tax.verify",
+  BUDGET_VIEW: "budget.view",
+  BUDGET_MANAGE: "budget.manage",
+
+  // Receiving exceptions
+  VARIANCE_VIEW: "variance.view",
+  VARIANCE_RESOLVE: "variance.resolve",
+  RETURN_VIEW: "return.view",
+  RETURN_CREATE: "return.create",
+  RETURN_AUTHORISE: "return.authorise",
+
+  // Masters
+  MASTER_VIEW: "masters.view",
+  MASTER_MANAGE: "masters.manage",
+  ASSET_INSURANCE_MANAGE: "asset.insurance_manage",
+
   // Requirements — the demand front door
   REQUIREMENT_VIEW: "requirements.view",
   REQUIREMENT_VIEW_ALL: "requirements.view_all",
@@ -145,6 +169,23 @@ export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 type PermMeta = { group: string; name: string };
 
 export const PERMISSION_META: Record<string, PermMeta> = {
+  [PERMISSIONS.VOUCHER_VIEW]: { group: "Finance", name: "View payment vouchers" },
+  [PERMISSIONS.VOUCHER_GENERATE]: { group: "Finance", name: "Generate a payment voucher" },
+  [PERMISSIONS.VOUCHER_SIGN]: { group: "Finance", name: "Sign a voucher at your own rung" },
+  [PERMISSIONS.VOUCHER_SIGN_ANY]: { group: "Finance", name: "Sign any rung of the ladder" },
+  [PERMISSIONS.TAX_VIEW]: { group: "Finance", name: "View tax rates and lines" },
+  [PERMISSIONS.TAX_MANAGE]: { group: "Finance", name: "Maintain tax rates" },
+  [PERMISSIONS.TAX_VERIFY]: { group: "Finance", name: "Verify tax on an invoice" },
+  [PERMISSIONS.BUDGET_VIEW]: { group: "Finance", name: "View budgets and utilisation" },
+  [PERMISSIONS.BUDGET_MANAGE]: { group: "Finance", name: "Maintain budget allocations" },
+  [PERMISSIONS.VARIANCE_VIEW]: { group: "Receiving", name: "View receipt variances" },
+  [PERMISSIONS.VARIANCE_RESOLVE]: { group: "Receiving", name: "Resolve a receipt variance" },
+  [PERMISSIONS.RETURN_VIEW]: { group: "Receiving", name: "View vendor returns" },
+  [PERMISSIONS.RETURN_CREATE]: { group: "Receiving", name: "Raise a vendor return" },
+  [PERMISSIONS.RETURN_AUTHORISE]: { group: "Receiving", name: "Authorise a vendor return" },
+  [PERMISSIONS.MASTER_VIEW]: { group: "Masters", name: "View master data" },
+  [PERMISSIONS.MASTER_MANAGE]: { group: "Masters", name: "Maintain master data" },
+  [PERMISSIONS.ASSET_INSURANCE_MANAGE]: { group: "Assets", name: "Maintain asset insurance" },
   [PERMISSIONS.REQUIREMENT_VIEW]: { group: "Requirements", name: "View own/department requirements" },
   [PERMISSIONS.REQUIREMENT_VIEW_ALL]: { group: "Requirements", name: "View all requirements" },
   [PERMISSIONS.REQUIREMENT_CREATE]: { group: "Requirements", name: "Raise a requirement" },
@@ -277,6 +318,12 @@ const REQUESTER_BASE = [
 ];
 
 const PROCUREMENT_CORE = [
+  P.BUDGET_VIEW,
+  P.VARIANCE_VIEW,
+  P.RETURN_VIEW,
+  P.RETURN_AUTHORISE,
+  P.MASTER_VIEW,
+  P.TAX_VIEW,
   P.REQUIREMENT_VIEW,
   P.REQUIREMENT_VIEW_ALL,
   P.REQUIREMENT_CHECK_STOCK,
@@ -467,6 +514,15 @@ export const ROLE_DEFINITIONS: Array<{
       P.EXCEPTION_VIEW,
       P.INVENTORY_VIEW,
       P.ASSET_VIEW,
+      P.VOUCHER_VIEW,
+      P.VOUCHER_GENERATE,
+      P.VOUCHER_SIGN,
+      P.TAX_VIEW,
+      P.TAX_VERIFY,
+      P.BUDGET_VIEW,
+      P.VARIANCE_VIEW,
+      P.RETURN_VIEW,
+      P.MASTER_VIEW,
     ],
   },
   {
@@ -500,6 +556,19 @@ export const ROLE_DEFINITIONS: Array<{
       P.PETTY_CASH_RECONCILE,
       P.EXCEPTION_VIEW,
       P.AUDIT_VIEW,
+      P.VOUCHER_VIEW,
+      P.VOUCHER_GENERATE,
+      P.VOUCHER_SIGN,
+      P.TAX_VIEW,
+      P.TAX_MANAGE,
+      P.TAX_VERIFY,
+      P.BUDGET_VIEW,
+      P.BUDGET_MANAGE,
+      P.VARIANCE_VIEW,
+      P.VARIANCE_RESOLVE,
+      P.RETURN_VIEW,
+      P.RETURN_AUTHORISE,
+      P.MASTER_VIEW,
       P.DISPOSAL_VIEW,
       P.DISPOSAL_APPROVE,
     ],
@@ -564,6 +633,9 @@ export const ROLE_DEFINITIONS: Array<{
       P.SR_VIEW,
       P.SR_ISSUE,
       P.STORE_ISSUE,
+      P.VARIANCE_VIEW,
+      P.RETURN_VIEW,
+      P.RETURN_CREATE,
     ],
   },
   {
@@ -591,6 +663,12 @@ export const ROLE_DEFINITIONS: Array<{
       P.SR_APPROVE_CROSS_STORE,
       P.SR_ISSUE,
       P.INVENTORY_RESERVE,
+      P.VARIANCE_VIEW,
+      P.VARIANCE_RESOLVE,
+      P.RETURN_VIEW,
+      P.RETURN_CREATE,
+      P.ASSET_INSURANCE_MANAGE,
+      P.MASTER_VIEW,
       P.REQUIREMENT_VIEW_ALL,
       P.REQUIREMENT_CHECK_STOCK,
       P.STACKING_RECORD,

@@ -33,6 +33,9 @@ export async function navBadgeCounts(
     grnPending,
     requirementsPending,
     srPending,
+    vouchersPending,
+    variancesOpen,
+    returnsOpen,
   ] = await Promise.all([
       prisma.task.count({
         where: {
@@ -78,6 +81,11 @@ export async function navBadgeCounts(
           ...(Object.keys(entityWhere).length ? { store: entityWhere } : {}),
         },
       }),
+      prisma.voucher.count({ where: { status: "PENDING_SIGNATORIES", ...entityWhere } }),
+      prisma.poVariance.count({ where: { status: "OPEN", ...viaPo } }),
+      prisma.vendorReturn.count({
+        where: { status: { notIn: ["CLOSED", "CANCELLED"] }, ...(Object.keys(viaPo).length ? viaPo : {}) },
+      }),
     ]);
 
   return {
@@ -91,5 +99,8 @@ export async function navBadgeCounts(
     grnPending,
     requirementsPending,
     srPending,
+    vouchersPending,
+    variancesOpen,
+    returnsOpen,
   };
 }

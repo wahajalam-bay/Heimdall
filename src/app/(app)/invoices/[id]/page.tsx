@@ -4,6 +4,8 @@ import { prisma } from "@/lib/db";
 import { pageContext } from "@/lib/page";
 import { PERMISSIONS as P } from "@/lib/permissions";
 import { userHasPermission } from "@/lib/rbac";
+import { voucherReadiness } from "@/server/vouchers";
+import { generateVoucherAction, verifyTaxLinesAction } from "@/app/(app)/finance/actions";
 import { runThreeWayMatch, type MatchResult } from "@/server/invoice";
 import { getApprovalTrail } from "@/lib/approvals";
 import { documentTimeline } from "@/server/timeline";
@@ -115,17 +117,23 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       },
       handoffs: { orderBy: { handedOffAt: "desc" }, include: { handedOffBy: { select: { name: true } } } },
       verifiedBy: { select: { name: true, title: true } },
+      taxLines: { orderBy: { label: "asc" } },
+      vouchers: { orderBy: { preparedAt: "desc" }, select: { id: true, number: true, status: true, netAmount: true } },
+      matches: { orderBy: { runAt: "desc" }, take: 5 },
     },
   });
   if (!invoice) notFound();
 
-  const [events, trail, match, exceptionApprover] = await Promise.all([
+  const [events, trail, match, exceptionApprover, voucherCheck] = await Promise.all([
     documentTimeline("Invoice", invoice.id),
     getApprovalTrail("INVOICE", invoice.id),
     runThreeWayMatch(invoice.id).catch(() => null),
     invoice.exceptionApprovedById
       ? prisma.user.findUnique({ where: { id: invoice.exceptionApprovedById }, select: { name: true, title: true } })
       : Promise.resolve(null),
+    // Everything standing between this invoice and a voucher, listed rather than
+    // discovered one refusal at a time.
+    voucherReadiness(invoice.id).catch(() => ({ ready: false, blockers: ["Readiness could not be established."], warnings: [] })),
   ]);
 
   const stored: MatchResult | null = (() => {
@@ -142,6 +150,9 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
   const canApprove = userHasPermission(user, P.INVOICE_APPROVE);
   const canWaive = userHasPermission(user, P.INVOICE_EXCEPTION_APPROVE);
   const canHandoff = userHasPermission(user, P.FINANCE_HANDOFF);
+  const canVerifyTax = userHasPermission(user, P.TAX_VERIFY);
+  const liveVoucher = invoice.vouchers.find((v) => !["CANCELLED", "REJECTED"].includes(v.status)) ?? null;
+  const canGenerateVoucher = userHasPermission(user, P.VOUCHER_GENERATE) && !liveVoucher;
 
   const handoff = invoice.handoffs[0];
   const mismatchLines = invoice.items.filter((i) => i.matchFlag !== "OK");
@@ -295,6 +306,31 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                 disabledReason={paymentBlockers[0]}
                 reasonLabel="Notes for finance (optional)"
               />
+            )}
+            {canVerifyTax && invoice.taxLines.length > 0 && invoice.taxLines.some((t) => t.status !== "VERIFIED") && (
+              <ActionButton
+                action={verifyTaxLinesAction}
+                payload={{ invoiceId: invoice.id }}
+                label="Verify tax"
+                tone="secondary"
+                confirm={`Verify ${invoice.taxLines.length} tax line(s)? A voucher cannot be raised until tax is verified.`}
+              />
+            )}
+            {canGenerateVoucher && (
+              <ActionButton
+                action={generateVoucherAction}
+                payload={{ invoiceId: invoice.id }}
+                label="Raise payment voucher"
+                tone="primary"
+                disabled={!voucherCheck.ready}
+                disabledReason={voucherCheck.blockers[0]}
+                confirm={`Raise a voucher for ${money(invoice.netPayable, invoice.currency)}? It goes to the signatories configured for that amount.`}
+              />
+            )}
+            {liveVoucher && (
+              <Link href={`/finance/vouchers/${liveVoucher.id}`} className="btn btn-secondary btn-sm">
+                {liveVoucher.number}
+              </Link>
             )}
             {canVerify && !["PAID", "REJECTED", "ON_HOLD"].includes(invoice.status) && (
               <ActionButton

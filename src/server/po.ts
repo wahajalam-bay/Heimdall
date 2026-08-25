@@ -8,11 +8,12 @@ import { raiseException } from "@/lib/exceptions-service";
 import { startApproval, actOnApproval, getPendingApproval, type ApprovalDecision } from "@/lib/approvals";
 import { PERMISSIONS as P } from "@/lib/permissions";
 import { userHasPermission, type SessionUser } from "@/lib/rbac";
-import { PO_LIFECYCLE, type PoStatus } from "@/lib/domain";
+import { PO_LIFECYCLE, requisitionComplete, type PoStatus } from "@/lib/domain";
 import { round2 } from "@/lib/format";
-import { transitionPr } from "./pr";
+import { transitionPr, assertRequisitionComplete } from "./pr";
 import { checkVendorEligibility, effectiveQuoteTotal } from "./sourcing";
 import { allocate } from "./allocations";
+import { checkBudget } from "./budget";
 import { cpcRequirement } from "./cpc";
 
 /**
@@ -52,8 +53,14 @@ export async function poReadiness(prId: string, db: DbClient = prisma): Promise<
   if (!pr) throw new NotFoundError("Requisition");
 
   const issues: string[] = [];
-  if (!["SOURCING", "CPC_REVIEW", "PO_PREPARATION", "APPROVED", "PROCUREMENT_REVIEW"].includes(pr.status)) {
-    issues.push(`Requisition ${pr.number} is ${pr.status} and cannot generate a purchase order.`);
+  // The purchase order module begins once the requisition is approved; before
+  // that there is nothing for it to work on.
+  if (!requisitionComplete(pr.status)) {
+    issues.push(
+      `The purchase order module begins once the requisition is approved. ${pr.number} is currently ${pr.status.replace(/_/g, " ").toLowerCase()}.`,
+    );
+  } else if (["REJECTED", "CANCELLED", "ON_HOLD", "CLOSED"].includes(pr.status)) {
+    issues.push(`Requisition ${pr.number} is ${pr.status.toLowerCase()} and cannot generate a purchase order.`);
   }
   const comparative = pr.comparatives[0];
   const selected = comparative?.lines[0];
@@ -103,6 +110,7 @@ export async function createPoFromCase(user: SessionUser, input: PoInput, db: Db
   if (!userHasPermission(user, P.PO_CREATE)) {
     throw new ForbiddenError("You do not have permission to create purchase orders.");
   }
+  await assertRequisitionComplete(input.prId, "Raising a purchase order", db);
   const readiness = await poReadiness(input.prId, db);
   if (!readiness.ready) {
     throw new RuleViolationError("This case is not ready for a purchase order.", readiness.issues);
@@ -203,6 +211,11 @@ export async function createPoFromCase(user: SessionUser, input: PoInput, db: Db
       number,
       entityId: pr.entityId,
       prId: pr.id,
+      // The expenditure treatment is decided at the requisition and must not be
+      // re-decided here; finance reads it off the receipt without walking back
+      // up the chain.
+      expenditureType: pr.expenditureType,
+      costCenterId: pr.costCenterId,
       rfqId: comparative.rfqId,
       quoteId: quote.id,
       vendorId: vendor.id,
@@ -367,7 +380,47 @@ export async function submitPoForApproval(user: SessionUser, poId: string, db: D
     throw new RuleViolationError("Record a delivery location before submitting the purchase order.");
   }
 
+  // The order is where money is committed, so the budget is tested here rather
+  // than at the requisition — a requisition commits nothing. Whether an
+  // over-commitment blocks or merely warns is finance's setting, not ours.
   const primaryCategoryId = po.pr?.items[0]?.categoryId ?? null;
+  const budget = await checkBudget(
+    {
+      entityId: po.entityId,
+      amount: po.total,
+      departmentId: po.pr?.departmentId ?? null,
+      costCenterId: po.costCenterId,
+      categoryId: primaryCategoryId,
+      expenditureType: po.expenditureType,
+    },
+    db,
+  );
+  if (budget.blocked) {
+    throw new RuleViolationError("This order exceeds its budget.", [
+      budget.message ?? "The allocation for this spend is exhausted.",
+      "Raise the allocation, or have finance switch budget control to warn instead of block.",
+    ]);
+  }
+  if (budget.message && budget.control !== "OFF") {
+    await writeAudit(
+      {
+        entityType: "PurchaseOrder",
+        entityId: po.id,
+        entityRef: po.number,
+        action: "PO_BUDGET_CHECKED",
+        newValue: {
+          budgetId: budget.budgetId,
+          allocated: budget.allocated,
+          committed: budget.committed,
+          requested: budget.requested,
+        },
+        reason: budget.message,
+        actor: user,
+      },
+      db,
+    );
+  }
+
   const approval = await startApproval(
     {
       documentType: "PO",

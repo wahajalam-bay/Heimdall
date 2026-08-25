@@ -9,7 +9,7 @@ import { PERMISSIONS as P } from "@/lib/permissions";
 import { userHasPermission, type SessionUser } from "@/lib/rbac";
 import { VENDOR_SOURCEABLE_STATUSES, type ComplianceLevel } from "@/lib/domain";
 import { round2, variancePercent } from "@/lib/format";
-import { transitionPr } from "./pr";
+import { transitionPr, assertRequisitionComplete } from "./pr";
 
 /**
  * Sourcing: RFQ issue, vendor invitation, quotation capture, comparative
@@ -85,12 +85,8 @@ export async function createRfq(user: SessionUser, input: RfqInput, db: DbClient
   });
   if (!pr) throw new NotFoundError("Requisition");
 
-  const allowed = ["APPROVED", "PROCUREMENT_REVIEW", "SOURCING"];
-  if (!allowed.includes(pr.status)) {
-    throw new RuleViolationError(
-      `An RFQ can only be raised against an approved requisition. ${pr.number} is currently ${pr.status}.`,
-    );
-  }
+  // The requisition module has to be finished before this one starts.
+  await assertRequisitionComplete(pr.id, "Raising an RFQ", db);
   if (!input.vendorIds.length) throw new ValidationError("Invite at least one vendor.");
   if (input.responseDeadline.getTime() < Date.now() - 60_000) {
     throw new ValidationError("The response deadline must be in the future.");

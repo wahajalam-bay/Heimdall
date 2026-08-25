@@ -9,6 +9,7 @@ import { PERMISSIONS as P } from "@/lib/permissions";
 import { userHasPermission, type SessionUser } from "@/lib/rbac";
 import { STORE_ENTRY_DISPOSITIONS, type Disposition } from "@/lib/domain";
 import { round2 } from "@/lib/format";
+import { reconcileGrnToPo } from "./receiving-exceptions";
 import { postMovement } from "./inventory";
 import { recomputePoFulfilment } from "./po";
 import { transitionPr } from "./pr";
@@ -194,6 +195,8 @@ export async function createGrn(user: SessionUser, input: GrnInput, db: DbClient
       storeId,
       receivedById: user.id,
       receivedAt: new Date(),
+      // Carried from the order, so the receipt states its own treatment.
+      expenditureType: delivery.po.expenditureType,
       status: "DRAFT",
       inspectionStatus: readiness.inspectionStatus,
       totalValue,
@@ -412,6 +415,11 @@ export async function postGrn(user: SessionUser, grnId: string, db: DbClient = p
     db,
   );
 
+  // Squaring the receipt off against the order does not make the difference
+  // vanish: it records it, typed and owned, so the order can close while the
+  // shortfall or overage remains answerable.
+  const variances = await reconcileGrnToPo(grn.id, user.id, db);
+
   await writeAudit(
     {
       entityType: "Grn",
@@ -422,6 +430,7 @@ export async function postGrn(user: SessionUser, grnId: string, db: DbClient = p
         totalValue: grn.totalValue,
         store: grn.store.name,
         poFullyReceived: fulfilment.allComplete,
+        variancesRecorded: variances,
         lines: grn.items.map((i) => ({ line: i.lineNo, accepted: i.acceptedQty, disposition: i.disposition })),
       },
       caseKey: grn.po.pr?.number ?? null,

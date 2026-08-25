@@ -8,7 +8,14 @@ import { raiseException, autoResolveExceptions } from "@/lib/exceptions-service"
 import { startApproval, actOnApproval, getPendingApproval, type ApprovalDecision } from "@/lib/approvals";
 import { PERMISSIONS as P } from "@/lib/permissions";
 import { userHasPermission, type SessionUser } from "@/lib/rbac";
-import { PR_TRANSITIONS, type PrStatus, type Disposition } from "@/lib/domain";
+import {
+  PR_MODULE_BOUNDARY,
+  PR_TRANSITIONS,
+  inRequisitionStage,
+  requisitionComplete,
+  type PrStatus,
+  type Disposition,
+} from "@/lib/domain";
 import { round2 } from "@/lib/format";
 
 /**
@@ -358,6 +365,39 @@ export async function updatePr(user: SessionUser, prId: string, input: PrInput, 
  * Central transition guard. Rejects any move that is not in the allowed map and
  * records the change with its reason.
  */
+/**
+ * Refuses anything in the Purchase Order module against a requisition that has
+ * not finished its own module first.
+ *
+ * Every sourcing and order operation goes through here rather than listing the
+ * acceptable statuses itself, so the boundary cannot drift: one place decides
+ * when the requisition is done, and one message explains why it is not.
+ */
+export async function assertRequisitionComplete(
+  prId: string,
+  what: string,
+  db: DbClient = prisma,
+) {
+  const pr = await db.purchaseRequisition.findUnique({
+    where: { id: prId },
+    select: { id: true, number: true, status: true, approvedAt: true },
+  });
+  if (!pr) throw new NotFoundError("Requisition");
+
+  if (["REJECTED", "CANCELLED"].includes(pr.status)) {
+    throw new RuleViolationError(`${pr.number} was ${pr.status.toLowerCase()}; ${what} cannot proceed against it.`);
+  }
+  if (pr.status === "ON_HOLD") {
+    throw new RuleViolationError(`${pr.number} is on hold; ${what} cannot proceed until the hold is lifted.`);
+  }
+  if (!requisitionComplete(pr.status)) {
+    throw new RuleViolationError(
+      `${what} belongs to the purchase order module, which begins once the requisition is approved. ${pr.number} is currently ${pr.status.replace(/_/g, " ").toLowerCase()}.`,
+    );
+  }
+  return pr;
+}
+
 export async function transitionPr(
   user: SessionUser | null,
   prId: string,
@@ -403,6 +443,43 @@ export async function transitionPr(
     },
     db,
   );
+
+  // Approval is where one module ends and the next begins. Recording the handover
+  // separately from the status change is what lets somebody ask "when did this
+  // stop being the department's problem and become procurement's" and get an
+  // answer — and it is what puts the case on procurement's queue rather than
+  // leaving it to be noticed.
+  if (to === PR_MODULE_BOUNDARY && inRequisitionStage(from)) {
+    await writeAudit(
+      {
+        entityType: "PurchaseRequisition",
+        entityId: prId,
+        entityRef: pr.number,
+        action: "REQUISITION_COMPLETED",
+        newValue: { handedTo: "PURCHASE_ORDER_MODULE", estimatedValue: pr.estimatedValue },
+        reason: "The requisition is approved. Sourcing and the purchase order begin here.",
+        caseKey: pr.number,
+        actor: user,
+      },
+      db,
+    );
+    await createTask(
+      {
+        title: `Start sourcing — ${pr.number}`,
+        description:
+          "The requisition is approved and belongs to the purchase order module now: raise the RFQ, collect quotations and prepare the comparative.",
+        taskType: "ACTION",
+        assignedRoleCode: "PROCUREMENT_OFFICER",
+        entityId: pr.entityId,
+        documentType: "PR",
+        documentId: pr.id,
+        documentRef: pr.number,
+        slaHours: await getConfigNumber(CONFIG_KEYS.SLA_PROCUREMENT_REVIEW_HOURS, pr.entityId, db),
+        linkUrl: `/pr/${pr.id}?tab=rfq`,
+      },
+      db,
+    );
+  }
 
   return updated;
 }

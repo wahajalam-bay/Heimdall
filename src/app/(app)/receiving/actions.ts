@@ -16,6 +16,13 @@ import {
   type InspectionItemResult,
 } from "@/server/receiving";
 import { createGrn, postGrn, cancelGrn, recordStacking, grnReadiness } from "@/server/grn";
+import {
+  advanceReturn,
+  authoriseReturn,
+  createVendorReturn,
+  recordRejection,
+  resolveVariance,
+} from "@/server/receiving-exceptions";
 
 const blank = (v: FormDataEntryValue | null) => {
   const s = typeof v === "string" ? v.trim() : "";
@@ -427,4 +434,191 @@ export async function receivingOptions(entityId: string | null) {
     }),
   ]);
   return { stores, openPos, inspectors };
+}
+
+/** Revalidates the exception registers a change touches. */
+function touch(kind: "variances" | "returns", id?: string) {
+  revalidatePath(`/receiving/${kind}`);
+  revalidatePath("/receiving");
+  if (id) revalidatePath(`/receiving/${kind}/${id}`);
+}
+
+/* ── Variances ────────────────────────────────────────────── */
+
+export async function resolveVarianceAction(formData: FormData): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const varianceId = String(formData.get("varianceId") ?? "");
+    const status = String(formData.get("status") ?? "") as
+      | "ACCEPTED"
+      | "RECOVERED"
+      | "WRITTEN_OFF"
+      | "DISPUTED";
+    if (!["ACCEPTED", "RECOVERED", "WRITTEN_OFF", "DISPUTED"].includes(status)) {
+      throw new ValidationError("Choose how the variance was resolved.");
+    }
+    const v = await resolveVariance(user, {
+      varianceId,
+      status,
+      resolution: String(formData.get("reason") ?? ""),
+    });
+    touch("variances", varianceId);
+    return { ok: true, data: null, message: `${v.number} marked ${status.toLowerCase().replace("_", " ")}.` };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+/* ── Rejections ───────────────────────────────────────────── */
+
+export async function recordRejectionAction(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const quantity = num(formData.get("quantity"));
+    if (!quantity || quantity <= 0) throw new ValidationError("A rejected quantity is required.");
+    const rejection = await recordRejection(user, {
+      deliveryId: blank(formData.get("deliveryId")),
+      inspectionId: blank(formData.get("inspectionId")),
+      grnId: blank(formData.get("grnId")),
+      itemId: blank(formData.get("itemId")),
+      storeId: blank(formData.get("storeId")),
+      description: String(formData.get("description") ?? "").trim(),
+      quantity,
+      unit: String(formData.get("unit") ?? "EA"),
+      reasonCode: String(formData.get("reasonCode") ?? "OTHER"),
+      reason: blank(formData.get("reason")),
+      disposition: (blank(formData.get("disposition")) ?? "SPOT_REJECTION") as
+        | "SPOT_REJECTION"
+        | "ADJUSTED_OUT",
+    });
+    revalidatePath("/receiving");
+    revalidatePath("/inventory");
+    return {
+      ok: true,
+      data: { id: rejection.id, number: rejection.number },
+      message: `${rejection.number} recorded${rejection.inventoryAdjusted ? " and stock adjusted out" : ""}.`,
+    };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+/* ── Vendor returns ───────────────────────────────────────── */
+
+type ReturnLinePayload = {
+  itemId?: string | null;
+  description: string;
+  quantity: number;
+  unit: string;
+  unitValue?: number | null;
+  reasonCode?: string | null;
+};
+
+export async function createReturnAction(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    let items: ReturnLinePayload[];
+    try {
+      items = JSON.parse(String(formData.get("items") ?? "[]"));
+    } catch {
+      throw new ValidationError("The return lines could not be read.");
+    }
+    const clean = items.filter((l) => l.description?.trim() && Number(l.quantity) > 0);
+    if (!clean.length) throw new ValidationError("Add at least one line with a description and quantity.");
+
+    const ret = await createVendorReturn(user, {
+      vendorId: String(formData.get("vendorId") ?? ""),
+      poId: blank(formData.get("poId")),
+      grnId: blank(formData.get("grnId")),
+      reason: String(formData.get("reason") ?? ""),
+      replacementRequired:
+        formData.get("replacementRequired") === "on" || formData.get("replacementRequired") === "true",
+      items: clean.map((l) => ({
+        itemId: l.itemId || null,
+        description: l.description.trim(),
+        quantity: Number(l.quantity),
+        unit: l.unit || "EA",
+        unitValue: l.unitValue === null || l.unitValue === undefined ? null : Number(l.unitValue),
+        reasonCode: l.reasonCode || null,
+      })),
+      rejectionIds: String(formData.get("rejectionIds") ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    });
+    touch("returns", ret.id);
+    return { ok: true, data: { id: ret.id, number: ret.number }, message: `${ret.number} raised as a draft.` };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function authoriseReturnAction(formData: FormData): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const returnId = String(formData.get("returnId") ?? "");
+    const r = await authoriseReturn(user, returnId);
+    touch("returns", returnId);
+    return { ok: true, data: null, message: `${r.number} authorised for dispatch.` };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function advanceReturnAction(formData: FormData): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const returnId = String(formData.get("returnId") ?? "");
+    const to = String(formData.get("to") ?? "") as
+      | "DISPATCHED"
+      | "ACKNOWLEDGED"
+      | "REPLACED"
+      | "CREDITED"
+      | "CLOSED"
+      | "CANCELLED";
+    const r = await advanceReturn(user, {
+      returnId,
+      to,
+      gatePassRef: blank(formData.get("gatePassRef")),
+      creditNoteRef: blank(formData.get("creditNoteRef")),
+      creditNoteAmount: num(formData.get("creditNoteAmount")),
+      replacementGrnId: blank(formData.get("replacementGrnId")),
+      note: blank(formData.get("reason")),
+    });
+    touch("returns", returnId);
+    return { ok: true, data: null, message: `${r.number} is now ${to.toLowerCase()}.` };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+/* ── Options ──────────────────────────────────────────────── */
+
+export async function returnOptions() {
+  const user = await requireUser();
+  const [vendors, orders, items] = await Promise.all([
+    prisma.vendor.findMany({
+      where: { status: { in: ["APPROVED", "CONDITIONAL", "BLACKLISTED"] } },
+      select: { id: true, name: true, status: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.purchaseOrder.findMany({
+      where: { entityId: { in: user.entityIds }, status: { in: ["ISSUED", "PARTIALLY_RECEIVED", "FULLY_RECEIVED"] } },
+      select: { id: true, number: true, vendorId: true, vendor: { select: { name: true } } },
+      orderBy: { issuedAt: "desc" },
+      take: 200,
+    }),
+    prisma.item.findMany({
+      where: { active: true },
+      select: { id: true, sku: true, name: true, unit: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+  return { vendors, orders, items };
 }

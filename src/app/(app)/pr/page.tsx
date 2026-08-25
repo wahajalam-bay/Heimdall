@@ -6,7 +6,16 @@ import { userHasPermission } from "@/lib/rbac";
 import { prVisibilityFilter } from "@/server/pr";
 import { AccessDenied } from "@/components/ui/guard";
 import { DataTable, type BulkAction, type TableColumn, type TableRow } from "@/components/ui/DataTable";
-import { Badge, EmptyState, PageHeader, RefLink, StatTile, StatusBadge, UserChip } from "@/components/ui/primitives";
+import {
+  Badge,
+  EmptyState,
+  InlineAlert,
+  PageHeader,
+  RefLink,
+  StatTile,
+  StatusBadge,
+  UserChip,
+} from "@/components/ui/primitives";
 import { PROCUREMENT_TYPE_LABELS, PRIORITY_TONE, humanize, type ProcurementType } from "@/lib/domain";
 import { ageDays, fmtDate, money, qty, relativeTime } from "@/lib/format";
 
@@ -20,6 +29,8 @@ export default async function PrListPage() {
   }
 
   const canCreate = userHasPermission(user, P.PR_CREATE);
+  // Only the people who would act on it are told about the handover queue.
+  const canSeeSourcing = userHasPermission(user, P.RFQ_ISSUE, P.PO_CREATE);
   const seesAll = userHasPermission(user, P.PR_VIEW_ALL);
 
   const [prs, savedViews] = await Promise.all([
@@ -46,6 +57,13 @@ export default async function PrListPage() {
       select: { id: true, name: true, config: true, isShared: true },
     }),
   ]);
+
+  // Approved and waiting for the purchase order module to pick it up. This is the
+  // handover queue: the requisition has done its job and nobody has started
+  // sourcing, which is the gap where a case sits for a fortnight unnoticed.
+  const awaitingSourcing = prs.filter(
+    (p) => ["APPROVED", "PROCUREMENT_REVIEW"].includes(p.status) && !p.rfqs.length && !p.purchaseOrders.length,
+  );
 
   const openStatuses = [
     "SUBMITTED",
@@ -215,13 +233,36 @@ export default async function PrListPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      {awaitingSourcing.length > 0 && canSeeSourcing && (
+        <InlineAlert tone="warning">
+          {awaitingSourcing.length} approved requisition{awaitingSourcing.length === 1 ? "" : "s"} with no sourcing
+          started. The requisition module is finished on{" "}
+          {awaitingSourcing.slice(0, 5).map((p, i) => (
+            <span key={p.id}>
+              {i > 0 && ", "}
+              <Link href={`/pr/${p.id}?tab=rfq`} className="mono text-[var(--c-accent-text)]">
+                {p.number}
+              </Link>
+            </span>
+          ))}
+          {awaitingSourcing.length > 5 && ` and ${awaitingSourcing.length - 5} more`} — the purchase order module begins
+          with the RFQ.
+        </InlineAlert>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <StatTile label="Open requisitions" value={stats.open} hint={`${stats.total} total on record`} tone="accent" />
         <StatTile
           label="Awaiting approval"
           value={stats.awaitingApproval}
           hint="With a department head or procurement"
           tone={stats.awaitingApproval > 0 ? "warning" : "default"}
+        />
+        <StatTile
+          label="Awaiting sourcing"
+          value={awaitingSourcing.length}
+          hint="Approved; the order module has not started"
+          tone={awaitingSourcing.length > 0 ? "warning" : "default"}
         />
         <StatTile label="In sourcing" value={stats.inSourcing} hint="RFQ, comparative, committee or PO stage" />
         <StatTile
