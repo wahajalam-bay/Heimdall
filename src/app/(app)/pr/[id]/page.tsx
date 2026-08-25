@@ -9,7 +9,7 @@ import { Badge, Card, MetaItem, PageHeader, StatusBadge } from "@/components/ui/
 import { LifecycleRail, buildRail } from "@/components/ui/workflow";
 import { DocumentsPanel } from "@/components/domain/DocumentsPanel";
 import { ExceptionsPanel } from "@/components/domain/ExceptionsPanel";
-import { PR_LIFECYCLE, PR_RAIL_SEGMENTS, PRIORITY_TONE, humanize } from "@/lib/domain";
+import { PRIORITY_TONE, REQUISITION_RAIL, humanize } from "@/lib/domain";
 import { fmtDate, fmtDateTime, money } from "@/lib/format";
 import { canUserActOnApproval, getApprovalTrail } from "@/lib/approvals";
 import { NotFoundError } from "@/lib/errors";
@@ -149,7 +149,7 @@ export default async function ProcurementCasePage({
 
   const terminalBad = ["REJECTED", "CANCELLED"].includes(pr.status);
   const skipped = cpcInfo.required ? [] : ["CPC_REVIEW"];
-  const rail = buildRail(PR_LIFECYCLE, pr.status, reached, {
+  const rail = buildRail(REQUISITION_RAIL, pr.status, reached, {
     skipped,
     terminalBad,
     blockedNote: pr.status === "ON_HOLD" ? "On hold" : actability.reason && !actability.can ? actability.reason : null,
@@ -231,7 +231,7 @@ export default async function ProcurementCasePage({
         <CaseActions prId={pr.id} prNumber={pr.number} caps={caps} />
       </Card>
 
-      <LifecycleRail steps={rail} title="Lifecycle" segments={PR_RAIL_SEGMENTS} />
+      <LifecycleRail steps={rail} title="Requisition lifecycle" />
 
       <div>
         <TabNav tabs={tabs} active={tab} baseHref={`/pr/${pr.id}`} />

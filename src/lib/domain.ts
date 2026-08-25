@@ -117,22 +117,23 @@ export function caseModule(status: string): "REQUISITION" | "PURCHASE_ORDER" | "
 }
 
 /**
- * The rail's two labelled stretches, for the case screen.
+ * The requisition rail: what the requisition screen shows.
  *
- * `upToKey` names the last step of each, so the rail draws the handover exactly
- * where the requisition lifecycle ends.
+ * It ends at the approved order, because that is where the requisition
+ * lifecycle ends. What happens to the order afterwards is the order's own
+ * lifecycle and belongs on the order's own screen — showing both here made the
+ * requisition screen answer a question nobody had asked it.
  */
-export const PR_RAIL_SEGMENTS = [
-  {
-    label: "Requisition lifecycle",
-    description: "Raised, approved, sourced, order approved",
-    upToKey: "PO_APPROVED",
-  },
-  {
-    label: "Purchase order lifecycle",
-    description: "Issued, received, invoiced, paid",
-    upToKey: "CLOSED",
-  },
+export const REQUISITION_RAIL: PrStatus[] = [
+  "DRAFT",
+  "SUBMITTED",
+  "UNDER_DEPARTMENT_APPROVAL",
+  "APPROVED",
+  "PROCUREMENT_REVIEW",
+  "SOURCING",
+  "CPC_REVIEW",
+  "PO_PREPARATION",
+  "PO_APPROVED",
 ];
 
 /** Ordered happy-path lifecycle used by the workflow visualiser. */
