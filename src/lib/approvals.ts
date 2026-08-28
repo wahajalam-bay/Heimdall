@@ -4,6 +4,7 @@ import { writeAudit, type AuditActor } from "./audit";
 import { notify, createTask, completeTasks, usersForRoles } from "./notify";
 import { raiseException } from "./exceptions-service";
 import type { SessionUser } from "./rbac";
+import { lineManager, peopleAtOrAbove } from "@/server/org";
 
 /**
  * Configurable approval engine.
@@ -79,7 +80,14 @@ export async function findApprovalRule(input: RuleMatchInput, db: DbClient = pri
 type StepAssignment = { userIds: string[]; roleCode: string | null; label: string };
 
 async function resolveStepAssignees(
-  step: { approverType: string; roleId: string | null; specificUserId: string | null; name: string; role?: { code: string; name: string } | null },
+  step: {
+    approverType: string;
+    roleId: string | null;
+    specificUserId: string | null;
+    gradeCode?: string | null;
+    name: string;
+    role?: { code: string; name: string } | null;
+  },
   ctx: { entityId?: string | null; departmentId?: string | null; requesterId?: string | null },
   db: DbClient,
 ): Promise<StepAssignment> {
@@ -97,6 +105,19 @@ async function resolveStepAssignees(
   if (step.approverType === "CPC") {
     // CPC is handled by the CPC module; the approval step is informational.
     return { userIds: [], roleCode: "CPC_MEMBER", label: step.name };
+  }
+  // The organogram, rather than a role. A rule that says "this goes to the
+  // requester's line manager" names one person; the same rule expressed as a
+  // role names everybody who holds it and is decided by whoever looks first.
+  if (step.approverType === "LINE_MANAGER" && ctx.requesterId) {
+    const boss = await lineManager(ctx.requesterId, db);
+    if (boss) return { userIds: [boss.id], roleCode: null, label: step.name };
+    // Nobody above them on the chart: fall through to the role on the step, so
+    // the document waits with somebody rather than with nobody.
+  }
+  if (step.approverType === "GRADE" && step.gradeCode) {
+    const people = await peopleAtOrAbove(step.gradeCode, db);
+    if (people.length) return { userIds: people.map((p) => p.id), roleCode: null, label: step.name };
   }
   const roleCode = step.role?.code ?? null;
   const userIds = roleCode ? await usersForRoles([roleCode], ctx.entityId, db) : [];

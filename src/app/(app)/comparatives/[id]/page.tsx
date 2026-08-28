@@ -158,6 +158,9 @@ export default async function ComparativeDetailPage({ params }: { params: Promis
         }
         actions={
           <>
+            <Link href={`/comparatives/${c.id}/cost-analysis`} className="btn btn-secondary btn-sm">
+              Cost Analysis Form
+            </Link>
             {canRecommend && !["APPROVED", "SUPERSEDED", "REJECTED"].includes(c.status) && (
               <RecommendForm
                 comparativeId={c.id}

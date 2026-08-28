@@ -33,6 +33,17 @@ model User {
   primaryDepartmentId String?
   primaryDepartment   Department? @relation("UserPrimaryDept", fields: [primaryDepartmentId], references: [id])
 
+  /// Where this person sits on the supply chain organogram. `grade` is a code
+  /// from GRADES in src/lib/org.ts; `reportsTo` is the named line manager, which
+  /// may differ from the grade's default parent where the organogram says so.
+  grade       String?
+  scmFunction String?
+  reportsToId String?
+  reportsTo   User?   @relation("OrgLine", fields: [reportsToId], references: [id])
+  reports     User[]  @relation("OrgLine")
+  /// Position number on the source organogram, so the printed order is kept.
+  orgPosition Int?
+
   notifyInApp  Boolean @default(true)
   notifyEmail  Boolean @default(false)
   notifyDigest Boolean @default(true)
@@ -82,6 +93,8 @@ model User {
   rejectionsRaised  RejectionRecord[]   @relation("RejectionRaisedBy")
   returnsRaised     VendorReturn[]      @relation("ReturnRaisedBy")
   pocRoles          DepartmentPoc[]     @relation("PocUser")
+  comparativePocs   Comparative[]       @relation("ComparativePoc")
+  comparativesVerified Comparative[]    @relation("ComparativeVerifiedBy")
 
   @@index([email])
   @@map("users")
@@ -492,8 +505,12 @@ model ApprovalRuleStep {
   role     Role?        @relation(fields: [roleId], references: [id])
 
   /// ROLE | DEPARTMENT_HEAD | CPC | SPECIFIC_USER
+  /// ROLE | SPECIFIC_USER | DEPARTMENT_HEAD | CPC | LINE_MANAGER | GRADE.
+  /// LINE_MANAGER and GRADE read the supply chain organogram rather than a role,
+  /// which is how a step names one person instead of everybody who holds a role.
   approverType   String  @default("ROLE")
   specificUserId String?
+  gradeCode      String?
 
   /// Hours allowed before the step is flagged overdue
   slaHours        Int     @default(24)
@@ -820,6 +837,35 @@ model Comparative {
   savingsAmount  Float    @default(0)
   savingsPercent Float    @default(0)
   notes          String?
+
+  /// The Cost Analysis Form the comparative is signed off on.
+  ///
+  /// Every field here is a question the paper form asks and the record could not
+  /// previously answer: who the requisition's point of contact was, which legal
+  /// entity the invoice is charged to, and the four compliance questions that
+  /// decide whether an award above the lowest quotation is defensible.
+  pocUserId       String?
+  pocUser         User?   @relation("ComparativePoc", fields: [pocUserId], references: [id])
+  taxPercent      Float   @default(16)
+  invoiceChargedTo String?
+  awardedToVendorId String?
+  awardedToVendor   Vendor? @relation("ComparativeAwardedTo", fields: [awardedToVendorId], references: [id])
+  specialNotes    String?
+  remarks         String?
+
+  /// The four questions on the form. Null means nobody has answered yet, which
+  /// is not the same as "no" and blocks sign-off rather than passing quietly.
+  singleSourced        Boolean?
+  ratesLocked          Boolean?
+  vendorSelectionForm  Boolean?
+  higherRateReason     String?
+
+  /// Prepared by is already `preparedById`; a form is only complete once a
+  /// second person has verified it, which is what the paper signature block is.
+  verifiedById String?
+  verifiedBy   User?     @relation("ComparativeVerifiedBy", fields: [verifiedById], references: [id])
+  verifiedAt   DateTime?
+
   updatedAt      DateTime @updatedAt
 
   lines          ComparativeLine[]
@@ -862,6 +908,13 @@ model ComparativeLine {
   scoreTotal          Float?
   scoreBreakdown      String?
   notes               String?
+
+  /// The per-vendor terms grid at the foot of the Cost Analysis Form. Payment
+  /// terms and delivery days are already held above; these are the two the form
+  /// asks for that nothing recorded.
+  specifications   String?
+  taxInformation   String?
+  deliveryCommitment String?
 
   @@unique([comparativeId, quoteId])
   @@map("comparative_lines")
@@ -1939,6 +1992,7 @@ model Vendor {
   disposalBids     DisposalBid[]
   contacts         VendorContact[]
   comparativeLines ComparativeLine[]
+  comparativeAwards Comparative[]   @relation("ComparativeAwardedTo")
 
   returns VendorReturn[]
 

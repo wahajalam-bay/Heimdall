@@ -21,8 +21,21 @@ export default async function AdminPage() {
     return <AccessDenied title="Administration" message="You do not have permission to administer this system." />;
   }
 
-  const [users, roles, entities, departments, projects, stores, categories, items, rules, criteria, docTypes, overrides] =
-    await Promise.all([
+  const [
+    users,
+    roles,
+    entities,
+    departments,
+    projects,
+    stores,
+    categories,
+    items,
+    rules,
+    criteria,
+    docTypes,
+    overrides,
+    placedOnOrganogram,
+  ] = await Promise.all([
       prisma.user.count(),
       prisma.role.count(),
       prisma.entity.count(),
@@ -35,6 +48,7 @@ export default async function AdminPage() {
       prisma.evaluationCriterion.count(),
       prisma.documentType.count(),
       prisma.configSetting.count(),
+      prisma.user.count({ where: { grade: { not: null }, active: true } }),
     ]);
 
   const sections = [
@@ -43,6 +57,13 @@ export default async function AdminPage() {
       items: [
         { href: "/admin/users", label: "Users", count: users, perm: P.USER_MANAGE, note: "Accounts, roles and entity access" },
         { href: "/admin/roles", label: "Roles and permissions", count: roles, perm: P.ROLE_MANAGE, note: "What each role may do" },
+        {
+          href: "/admin/organogram",
+          label: "Organogram",
+          count: placedOnOrganogram,
+          perm: P.USER_MANAGE,
+          note: "Supply chain hierarchy, reporting lines and points of contact",
+        },
       ],
     },
     {
@@ -112,6 +133,12 @@ export default async function AdminPage() {
       <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
         <StatTile label="Users" value={users} href="/admin/users" />
         <StatTile label="Roles" value={roles} href="/admin/roles" />
+        <StatTile
+          label="On the organogram"
+          value={placedOnOrganogram}
+          hint="Supply chain hierarchy and points of contact"
+          href="/admin/organogram"
+        />
         <StatTile label="Approval rules" value={rules} href="/admin/approval-rules" />
         <StatTile
           label="Rule overrides in force"

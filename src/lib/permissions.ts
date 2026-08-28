@@ -68,6 +68,10 @@ export const PERMISSIONS = {
   QUOTE_VIEW: "quote.view",
   COMPARATIVE_CREATE: "comparative.create",
   COMPARATIVE_VIEW: "comparative.view",
+  /// The second signature on the Cost Analysis Form. Held separately from
+  /// building the comparative, because a form checked only by its author is not
+  /// checked at all.
+  COMPARATIVE_VERIFY: "comparative.verify",
   NEGOTIATE: "negotiate.record",
   VENDOR_SELECT: "sourcing.select_vendor",
 
@@ -218,6 +222,7 @@ export const PERMISSION_META: Record<string, PermMeta> = {
   [PERMISSIONS.QUOTE_VIEW]: { group: "Sourcing", name: "View quotations" },
   [PERMISSIONS.COMPARATIVE_CREATE]: { group: "Sourcing", name: "Build comparative analysis" },
   [PERMISSIONS.COMPARATIVE_VIEW]: { group: "Sourcing", name: "View comparatives" },
+  [PERMISSIONS.COMPARATIVE_VERIFY]: { group: "Sourcing", name: "Verify cost analysis form" },
   [PERMISSIONS.NEGOTIATE]: { group: "Sourcing", name: "Record negotiation rounds" },
   [PERMISSIONS.VENDOR_SELECT]: { group: "Sourcing", name: "Select awarded vendor" },
   [PERMISSIONS.CPC_VIEW]: { group: "CPC", name: "View CPC cases" },
@@ -446,6 +451,7 @@ export const ROLE_DEFINITIONS: Array<{
       P.PO_APPROVE,
       P.PO_ISSUE,
       P.PO_CLOSE,
+      P.COMPARATIVE_VERIFY,
       P.INVOICE_APPROVE,
       P.VENDOR_APPROVE,
       P.VENDOR_FINANCIALS_VIEW,
@@ -470,6 +476,7 @@ export const ROLE_DEFINITIONS: Array<{
       P.PO_ISSUE,
       P.PO_CLOSE,
       P.PO_CANCEL,
+      P.COMPARATIVE_VERIFY,
       P.INVOICE_APPROVE,
       P.INVOICE_EXCEPTION_APPROVE,
       P.FINANCE_HANDOFF,
