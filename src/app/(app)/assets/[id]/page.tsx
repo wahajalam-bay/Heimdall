@@ -181,7 +181,7 @@ export default async function AssetDetailPage({ params }: { params: Promise<{ id
         </InlineAlert>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
         <StatTile label="Purchase cost" value={money(asset.cost)} />
         <StatTile
           label="Current value"

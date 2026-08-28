@@ -142,7 +142,7 @@ export function Checkbox({
   ...rest
 }: React.InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string }) {
   return (
-    <label className="flex cursor-pointer items-start gap-2">
+    <label className="flex min-h-6 cursor-pointer items-start gap-2 py-0.5">
       <input type="checkbox" {...rest} className="mt-0.5" />
       <span className="min-w-0">
         <span className="block text-[0.8125rem] leading-5">{label}</span>

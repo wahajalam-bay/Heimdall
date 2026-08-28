@@ -161,7 +161,7 @@ export default async function InspectionDetailPage({ params }: { params: Promise
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
         <StatTile label="Presented" value={qty(presented)} hint={`${insp.items.length} line(s)`} />
         <StatTile label="Passed" value={qty(passed)} tone={passed > 0 ? "success" : "default"} />
         <StatTile label="Failed" value={failed > 0 ? qty(failed) : "—"} tone={failed > 0 ? "danger" : "default"} />
@@ -326,7 +326,7 @@ export default async function InspectionDetailPage({ params }: { params: Promise
                         ))}
                     </div>
                     {criteria.length > 0 && (
-                      <div className="mt-2.5 overflow-hidden rounded-lg border border-separator">
+                      <div className="mt-2.5 table-wrap rounded-lg border border-separator">
                         <table className="dt">
                           <thead>
                             <tr>

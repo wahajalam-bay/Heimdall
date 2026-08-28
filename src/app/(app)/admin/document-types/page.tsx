@@ -7,6 +7,7 @@ import { DataTable, type TableColumn, type TableRow } from "@/components/ui/Data
 import { Badge, EmptyState, InlineAlert, Mono, PageHeader, StatTile } from "@/components/ui/primitives";
 import { humanize } from "@/lib/domain";
 import { DocumentTypeForm } from "../AdminMasterForms";
+import { tableLink } from "@/lib/links";
 
 export const metadata = { title: "Document types" };
 export const dynamic = "force-dynamic";
@@ -138,15 +139,25 @@ export default async function AdminDocumentTypesPage() {
         actions={<DocumentTypeForm categories={categories.length ? categories : ["General"]} />}
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Document types" value={types.length} />
-        <StatTile label="Mandatory" value={mandatory.length} hint="Block a stage until attached" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Document types" value={types.length} href="/admin/document-types" />
+        <StatTile
+          label="Mandatory"
+          value={mandatory.length}
+          hint="Block a stage until attached"
+          href={tableLink("/admin/document-types", { required: "Mandatory" })}
+        />
         <StatTile
           label="Permission restricted"
           value={restricted.length}
           hint="Only visible to holders of a named permission"
+          href={tableLink("/admin/document-types", { restricted: "Restricted" })}
         />
-        <StatTile label="Files on record" value={types.reduce((a, t) => a + t._count.documents, 0)} />
+        <StatTile
+          label="Files on record"
+          value={types.reduce((a, t) => a + t._count.documents, 0)}
+          href={tableLink("/admin/document-types", undefined, { sort: "uploads:desc" })}
+        />
       </div>
 
       {mandatory.length > 0 && (

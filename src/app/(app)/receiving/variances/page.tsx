@@ -8,6 +8,7 @@ import { Badge, EmptyState, InlineAlert, PageHeader, RefLink, StatTile, StatusBa
 import { receivingExceptionStats } from "@/server/receiving-exceptions";
 import { humanize } from "@/lib/domain";
 import { ageDays, fmtDate, money, qty } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Receipt Variances" };
 export const dynamic = "force-dynamic";
@@ -129,24 +130,32 @@ export default async function VariancesPage() {
         </InlineAlert>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
         <StatTile
           label="Open variances"
           value={stats.openVariances}
           hint="Awaiting a resolution"
           tone={stats.openVariances ? "warning" : "default"}
+          href={statusLink("/receiving/variances", "status", ["OPEN"])}
         />
         <StatTile
           label="Net difference"
           value={money(stats.varianceValue, "PKR", { compact: true })}
           hint="Across every open variance"
+          href={tableLink("/receiving/variances", { status: humanize("OPEN") }, { sort: "value:desc" })}
         />
-        <StatTile label="Open returns" value={stats.openReturns} hint="Goods going back to vendors" />
+        <StatTile
+          label="Open returns"
+          value={stats.openReturns}
+          hint="Goods going back to vendors"
+          href={statusLink("/receiving/returns", "status", ["DRAFT", "AUTHORISED", "DISPATCHED", "ACKNOWLEDGED", "REPLACED", "CREDITED"])}
+        />
         <StatTile
           label="Replacements overdue"
           value={stats.replacementOverdue}
           hint="Past the date the vendor promised"
           tone={stats.replacementOverdue ? "danger" : "default"}
+          href={tableLink("/receiving/returns", { timing: "Overdue" })}
         />
       </div>
 

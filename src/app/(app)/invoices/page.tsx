@@ -16,8 +16,9 @@ import {
   StatTile,
   StatusBadge,
 } from "@/components/ui/primitives";
-import { humanize } from "@/lib/domain";
+import { INVOICE_STATUSES, humanize } from "@/lib/domain";
 import { ageDays, fmtDate, money, round2 } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Invoices" };
 export const dynamic = "force-dynamic";
@@ -84,6 +85,9 @@ export default async function InvoicesPage() {
 
   const failing = invoices.filter((i) => i.matchStatus === "FAILED");
   const blocked = invoices.filter((i) => i.exceptions.some((e) => e.blocking));
+  // Named once so the tile's figure and the filter behind its link are read
+  // from the same list rather than spelled out twice.
+  const UNPAID_STATUSES = INVOICE_STATUSES.filter((st) => st !== "PAID" && st !== "REJECTED");
   const unpaid = invoices.filter((i) => !["PAID", "REJECTED"].includes(i.status));
   const overdue = unpaid.filter((i) => i.dueDate && i.dueDate.getTime() < Date.now());
 
@@ -106,6 +110,9 @@ export default async function InvoicesPage() {
     { key: "handoff", header: "Finance handoff", sortable: true, width: "11rem" },
     { key: "paid", header: "Paid", sortable: true, width: "9.5rem" },
     { key: "age", header: "Age (days)", numeric: true, sortable: true, width: "8rem", defaultHidden: true },
+    // Being past due is a date against the clock, not a status, so the tile
+    // counting it needs a control of its own to point at.
+    { key: "dueState", header: "Payment timing", filterable: true, sortable: true, width: "11rem", defaultHidden: true },
   ];
 
   const rows: TableRow[] = invoices.map((i) => {
@@ -126,6 +133,7 @@ export default async function InvoicesPage() {
               : null,
       search: `${i.number} ${i.vendorInvoiceNumber} ${i.vendor.name} ${i.po.number}`,
       values: {
+        dueState: isOverdue ? "Past due" : i.dueDate ? "Within terms" : "No due date",
         number: i.number,
         vendorRef: i.vendorInvoiceNumber,
         vendor: i.vendor.name,
@@ -146,6 +154,11 @@ export default async function InvoicesPage() {
         age: ageDays(i.receivedDate) ?? 0,
       },
       cells: {
+        dueState: isOverdue ? (
+          <Badge tone="warning">Past due</Badge>
+        ) : (
+          <span className="text-[var(--c-text-tertiary)]">{i.dueDate ? "Within terms" : "No due date"}</span>
+        ),
         number: <RefLink href={`/invoices/${i.id}`}>{i.number}</RefLink>,
         vendorRef: <Mono>{i.vendorInvoiceNumber}</Mono>,
         vendor: (
@@ -198,20 +211,27 @@ export default async function InvoicesPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Invoices on file" value={invoices.length} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Invoices on file" value={invoices.length} href="/invoices" />
         <StatTile
           label="Failing the match"
           value={failing.length}
           tone={failing.length ? "danger" : "success"}
+          href={statusLink("/invoices", "matchStatus", ["FAILED"])}
           hint="Payment blocked until resolved or waived"
         />
         <StatTile
           label="Unpaid value"
           value={money(round2(unpaid.reduce((a, i) => a + i.netPayable, 0)))}
           hint={`${unpaid.length} open invoice${unpaid.length === 1 ? "" : "s"}`}
+          href={statusLink("/invoices", "status", UNPAID_STATUSES)}
         />
-        <StatTile label="Past due" value={overdue.length} tone={overdue.length ? "warning" : "default"} />
+        <StatTile
+          label="Past due"
+          value={overdue.length}
+          tone={overdue.length ? "warning" : "default"}
+          href={tableLink("/invoices", { dueState: "Past due" })}
+        />
       </div>
 
       {failing.length > 0 && (

@@ -34,6 +34,7 @@ import { PO_RAIL, PO_RAIL_LABELS, poRailStage, humanize } from "@/lib/domain";
 import { fmtDate, fmtDateTime, money, percent, qty, round2 } from "@/lib/format";
 import { AuditPanel } from "../../pr/[id]/panels2";
 import { PoActions, type PoCapabilities } from "./PoActions";
+import { searchLink } from "@/lib/links";
 
 export const dynamic = "force-dynamic";
 
@@ -294,13 +295,14 @@ export default async function PoDetailPage({
 
       <LifecycleRail steps={rail} title="Order lifecycle" />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
         <StatTile label="Order value" value={money(po.total)} hint={po.paymentTerms ?? "terms not stated"} />
         <StatTile
           label="Received"
           value={orderedQty > 0 ? percent((acceptedQty / orderedQty) * 100, 0) : "—"}
           hint={`${qty(acceptedQty)} of ${qty(orderedQty)} accepted`}
           tone={acceptedQty >= orderedQty && orderedQty > 0 ? "success" : acceptedQty > 0 ? "warning" : "default"}
+          href={po.grns.length ? searchLink("/grn", po.number) : undefined}
         />
         <StatTile
           label="Pending value"
@@ -312,12 +314,14 @@ export default async function PoDetailPage({
           label="Invoiced"
           value={invoicedValue > 0 ? money(invoicedValue) : "—"}
           hint={`${po.invoices.length} invoice(s)`}
+          href={po.invoices.length ? searchLink("/invoices", po.number) : undefined}
         />
         <StatTile
           label="Paid"
           value={paidValue > 0 ? money(paidValue) : "—"}
           hint={requireGrn ? "Payment requires a posted GRN" : "GRN not mandatory for payment"}
           tone={paidValue > 0 ? "success" : "default"}
+          href={searchLink("/finance/vouchers", po.number)}
         />
       </div>
 

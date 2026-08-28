@@ -8,6 +8,7 @@ import { DataTable, type TableColumn, type TableRow } from "@/components/ui/Data
 import { Badge, EmptyState, PageHeader, RefLink, StatTile, StatusBadge, Meter } from "@/components/ui/primitives";
 import { humanize } from "@/lib/domain";
 import { ageDays, fmtDate, money, relativeTime } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "RFQs" };
 export const dynamic = "force-dynamic";
@@ -79,6 +80,14 @@ export default async function RfqListPage() {
     { key: "comparative", header: "Comparative", sortable: true, width: "10rem" },
     { key: "raisedBy", header: "Raised by", sortable: true, width: "11rem", defaultHidden: true },
     { key: "age", header: "Age", numeric: true, sortable: true, width: "5rem" },
+    // Three states no status can express: whether vendors still owe a response,
+    // whether the deadline has passed, and whether the policy minimum was met.
+    // Each tile above points at one of these, and each is a control in its own
+    // right for somebody working the queue.
+    { key: "responses", header: "Responses", filterable: true, sortable: true, width: "10rem", defaultHidden: true },
+    { key: "timing", header: "Timing", filterable: true, sortable: true, width: "9rem", defaultHidden: true },
+    { key: "quorum", header: "Quorum", filterable: true, sortable: true, width: "10rem", defaultHidden: true },
+    { key: "comparativeState", header: "Comparative state", filterable: true, sortable: true, width: "11rem", defaultHidden: true },
   ];
 
   const rows: TableRow[] = rfqs.map((r) => {
@@ -88,6 +97,9 @@ export default async function RfqListPage() {
     const overdue = ["ISSUED", "RESPONSES_IN"].includes(r.status) && r.responseDeadline < now;
     const short = ["RESPONSES_IN", "CLOSED"].includes(r.status) && quoted < minQuotes;
     const comparative = r.comparatives[0];
+    const awaitingResponses =
+      ["ISSUED", "RESPONSES_IN"].includes(r.status) && r.vendors.some((v) => v.status === "INVITED");
+    const needComparative = quoted > 0 && r.comparatives.length === 0;
     return {
       id: r.id,
       href: `/rfq/${r.id}`,
@@ -109,8 +121,32 @@ export default async function RfqListPage() {
         comparative: comparative?.number ?? "",
         raisedBy: r.createdBy.name,
         age: ageDays(r.createdAt) ?? 0,
+        responses: awaitingResponses ? "Awaiting vendors" : "All in",
+        timing: overdue ? "Past deadline" : "Within deadline",
+        quorum: short ? "Below minimum" : "Minimum met",
+        comparativeState: needComparative ? "Pending" : comparative ? "Prepared" : "Not applicable",
       },
       cells: {
+        responses: awaitingResponses ? (
+          <Badge tone="warning">Awaiting vendors</Badge>
+        ) : (
+          <span className="text-[var(--c-text-tertiary)]">All in</span>
+        ),
+        timing: overdue ? (
+          <Badge tone="danger">Past deadline</Badge>
+        ) : (
+          <span className="text-[var(--c-text-tertiary)]">Within deadline</span>
+        ),
+        quorum: short ? (
+          <Badge tone="danger">Below minimum</Badge>
+        ) : (
+          <span className="text-[var(--c-text-tertiary)]">Minimum met</span>
+        ),
+        comparativeState: needComparative ? (
+          <Badge tone="warning">Pending</Badge>
+        ) : (
+          <span className="text-[var(--c-text-tertiary)]">{comparative ? "Prepared" : "Not applicable"}</span>
+        ),
         number: <RefLink href={`/rfq/${r.id}`}>{r.number}</RefLink>,
         title: (
           <span className="block max-w-[24rem] truncate" title={r.title}>
@@ -157,29 +193,38 @@ export default async function RfqListPage() {
         subtitle={`Sourcing events and vendor coverage. Procurement policy requires ${minQuotes} quotations above the waiver value.`}
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <StatTile label="Open RFQs" value={stats.open} tone="accent" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+        <StatTile
+          label="Open RFQs"
+          value={stats.open}
+          tone="accent"
+          href={statusLink("/rfq", "status", ["DRAFT", "ISSUED", "RESPONSES_IN"])}
+        />
         <StatTile
           label="Awaiting vendor response"
           value={stats.awaitingResponses}
           tone={stats.awaitingResponses ? "warning" : "default"}
+          href={tableLink("/rfq", { responses: "Awaiting vendors" })}
         />
         <StatTile
           label="Past deadline"
           value={stats.overdueDeadline}
           tone={stats.overdueDeadline ? "danger" : "default"}
+          href={tableLink("/rfq", { timing: "Past deadline" })}
         />
         <StatTile
           label={`Below ${minQuotes} quotations`}
           value={stats.belowMinimum}
           hint="Policy minimum not met"
           tone={stats.belowMinimum ? "danger" : "default"}
+          href={tableLink("/rfq", { quorum: "Below minimum" })}
         />
         <StatTile
           label="Comparative pending"
           value={stats.needComparative}
           hint="Quotes in, no comparative yet"
           tone={stats.needComparative ? "warning" : "default"}
+          href={tableLink("/rfq", { comparativeState: "Pending" })}
         />
       </div>
 

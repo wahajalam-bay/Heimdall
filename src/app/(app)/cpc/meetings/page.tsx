@@ -18,6 +18,7 @@ import { humanize } from "@/lib/domain";
 import { fmtDate, fmtDateTime, money, round2 } from "@/lib/format";
 import { cpcOptions } from "../actions";
 import { ScheduleMeetingForm } from "../CpcForms";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "CPC meetings" };
 export const dynamic = "force-dynamic";
@@ -65,6 +66,9 @@ export default async function CpcMeetingsPage() {
     { key: "savings", header: "Savings endorsed", numeric: true, sortable: true, width: "11rem" },
     { key: "location", header: "Location", sortable: true, width: "13rem", defaultHidden: true },
     { key: "minutes", header: "Minutes", filterable: true, sortable: true, width: "9rem" },
+    // Whether a meeting is still ahead is the clock against its scheduled date,
+    // not its status, so the tile counting them points here.
+    { key: "when", header: "When", filterable: true, sortable: true, width: "9rem", defaultHidden: true },
   ];
 
   const rows: TableRow[] = meetings.map((m) => {
@@ -80,6 +84,7 @@ export default async function CpcMeetingsPage() {
       flag: overdueMinutes ? "warning" : m.status === "COMPLETED" ? "success" : null,
       search: `${m.number} ${m.title} ${m.agenda ?? ""} ${m.location ?? ""}`,
       values: {
+        when: m.status === "CANCELLED" ? "Cancelled" : m.scheduledAt.getTime() >= now ? "Upcoming" : "Past",
         number: m.number,
         entity: m.entity.code,
         title: m.title,
@@ -94,6 +99,14 @@ export default async function CpcMeetingsPage() {
         minutes: m.minutes ? "On file" : "Missing",
       },
       cells: {
+        when:
+          m.status === "CANCELLED" ? (
+            <span className="text-[var(--c-text-tertiary)]">Cancelled</span>
+          ) : m.scheduledAt.getTime() >= now ? (
+            <Badge tone="accent">Upcoming</Badge>
+          ) : (
+            <span className="text-[var(--c-text-tertiary)]">Past</span>
+          ),
         number: <RefLink href={`/cpc/meetings/${m.id}`}>{m.number}</RefLink>,
         entity: <Badge tone="neutral">{m.entity.code}</Badge>,
         title: (
@@ -144,15 +157,26 @@ export default async function CpcMeetingsPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Meetings held or scheduled" value={meetings.length} />
-        <StatTile label="Upcoming" value={upcoming.length} tone={upcoming.length ? "accent" : "default"} />
-        <StatTile label="Completed" value={completed.length} tone="success" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Meetings held or scheduled" value={meetings.length} href="/cpc/meetings" />
+        <StatTile
+          label="Upcoming"
+          value={upcoming.length}
+          tone={upcoming.length ? "accent" : "default"}
+          href={tableLink("/cpc/meetings", { when: "Upcoming" }, { sort: "scheduled:asc" })}
+        />
+        <StatTile
+          label="Completed"
+          value={completed.length}
+          tone="success"
+          href={statusLink("/cpc/meetings", "status", ["COMPLETED"])}
+        />
         <StatTile
           label="Minutes outstanding"
           value={noMinutes.length}
           tone={noMinutes.length ? "warning" : "success"}
           hint="Meetings that have passed with no minutes on file"
+          href={tableLink("/cpc/meetings", { when: "Past", minutes: "No" })}
         />
       </div>
 

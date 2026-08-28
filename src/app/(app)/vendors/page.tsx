@@ -217,19 +217,32 @@ export default async function VendorsPage({ searchParams }: { searchParams: Prom
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Usable vendors" value={stats.approved} tone="success" hint="Approved or conditional" />
-        <StatTile label="In the pipeline" value={stats.pipeline} hint="Prospect, under evaluation or pending approval" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Usable vendors"
+          value={stats.approved}
+          tone="success"
+          hint="Approved or conditional"
+          href="/vendors?tab=approved"
+        />
+        <StatTile
+          label="In the pipeline"
+          value={stats.pipeline}
+          hint="Prospect, under evaluation or pending approval"
+          href="/vendors?tab=pipeline"
+        />
         <StatTile
           label="Suspended or blacklisted"
           value={stats.restricted}
           tone={stats.restricted ? "danger" : "default"}
+          href="/vendors?tab=restricted"
         />
         <StatTile
           label="Due re-evaluation"
           value={stats.dueReeval}
           tone={stats.dueReeval ? "warning" : "default"}
           hint="Past the configured re-evaluation interval"
+          href="/vendors/evaluations"
         />
       </div>
 

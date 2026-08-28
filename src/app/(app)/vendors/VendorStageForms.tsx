@@ -133,7 +133,7 @@ export function EvaluateVendorForm({
           {groups.map(([group, list]) => (
             <div key={group} className="space-y-1.5">
               <h4 className="label">{group}</h4>
-              <div className="overflow-hidden rounded-xl border border-border">
+              <div className="table-wrap rounded-xl border border-border">
                 <table className="dt">
                   <thead>
                     <tr>

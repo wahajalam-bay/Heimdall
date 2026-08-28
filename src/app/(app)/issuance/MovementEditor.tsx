@@ -110,7 +110,7 @@ export function MovementEditor({
   return (
     <div className="space-y-2.5">
       <input type="hidden" name={name} value={payload} />
-      <div className="overflow-hidden rounded-xl border border-border">
+      <div className="table-wrap rounded-xl border border-border">
         <table className="dt">
           <thead>
             <tr>

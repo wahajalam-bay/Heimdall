@@ -206,7 +206,7 @@ export default async function CpcCaseDetailPage({ params }: { params: Promise<{ 
       )}
       {notes.length > 0 && !decided && <BlockedNotice title="Points the committee should weigh" reasons={notes} />}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
         <StatTile label="Recommended value" value={money(kase.amount)} />
         <StatTile
           label="Savings claimed"

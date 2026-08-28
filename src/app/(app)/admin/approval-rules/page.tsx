@@ -102,7 +102,7 @@ export default async function AdminApprovalRulesPage({ searchParams }: { searchP
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
         <StatTile label="Rules" value={rules.length} />
         <StatTile label="Active" value={active.length} tone="success" />
         <StatTile
@@ -251,7 +251,7 @@ export default async function AdminApprovalRulesPage({ searchParams }: { searchP
                       This rule has no steps. Any matching document would be left without an approver.
                     </InlineAlert>
                   ) : (
-                    <div className="overflow-hidden rounded-xl border border-border">
+                    <div className="table-wrap rounded-xl border border-border">
                       <table className="dt">
                         <thead>
                           <tr>

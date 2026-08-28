@@ -7,6 +7,7 @@ import { Badge, EmptyState, InlineAlert, PageHeader, SectionCard, StatTile } fro
 import { humanize } from "@/lib/domain";
 import { money, percent } from "@/lib/format";
 import { TaxForm } from "./TaxForm";
+import { tableLink } from "@/lib/links";
 
 export const metadata = { title: "Tax Rates" };
 export const dynamic = "force-dynamic";
@@ -49,14 +50,30 @@ export default async function TaxesPage() {
         subtitle="The rates the system applies, held as data so finance can change them without a release."
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Rates on file" value={taxes.filter((t) => t.active).length} hint={`${taxes.length} including retired`} />
-        <StatTile label="Withholding rates" value={withheld.length} hint="Deducted from vendor payment" />
-        <StatTile label="Tax lines recorded" value={applied._count._all} hint="Across every invoice" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Rates on file"
+          value={taxes.filter((t) => t.active).length}
+          hint={`${taxes.length} including retired`}
+          href="#rates"
+        />
+        <StatTile
+          label="Withholding rates"
+          value={withheld.length}
+          hint="Deducted from vendor payment"
+          href="#rates"
+        />
+        <StatTile
+          label="Tax lines recorded"
+          value={applied._count._all}
+          hint="Across every invoice"
+          href="/invoices"
+        />
         <StatTile
           label="Tax value recorded"
           value={money(applied._sum.amount ?? 0, "PKR", { compact: true })}
           hint="Sum of every tax line"
+          href={tableLink("/invoices", undefined, { sort: "total:desc" })}
         />
       </div>
 
@@ -65,7 +82,7 @@ export default async function TaxesPage() {
         master and per-line application; the parking treatment awaits finance&rsquo;s confirmation.
       </InlineAlert>
 
-      <SectionCard title="Rates" bodyClassName="px-0 pb-0">
+      <SectionCard id="rates" title="Rates" bodyClassName="px-0 pb-0">
         {taxes.length === 0 ? (
           <EmptyState
             title="No tax rates defined"

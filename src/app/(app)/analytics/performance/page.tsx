@@ -21,6 +21,7 @@ import { humanize } from "@/lib/domain";
 import { fmtDate, money, round2 } from "@/lib/format";
 import { AnalyticsFilters } from "../AnalyticsFilters";
 import { buildFilter, filterOptions, periodLabel } from "../filters";
+import { tableLink } from "@/lib/links";
 
 export const metadata = { title: "Process performance" };
 export const dynamic = "force-dynamic";
@@ -252,26 +253,30 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
 
       <AnalyticsFilters entities={options.entities} departments={options.departments} show={["entity", "department", "from", "to"]} />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
         <StatTile
           label="Requisition to PO"
           value={`${kpis.avgCycleTimeDays} days`}
           hint="Average end to end"
           tone={kpis.avgCycleTimeDays > 21 ? "warning" : "default"}
+          href={tableLink("/analytics/performance", undefined, { sort: "endToEnd:desc" })}
         />
         <StatTile
           label="Approval turnaround"
           value={kpis.avgPrApprovalHours > 48 ? `${round2(kpis.avgPrApprovalHours / 24)} days` : `${kpis.avgPrApprovalHours} h`}
+          href={tableLink("/analytics/performance", undefined, { sort: "approvalHours:desc" })}
         />
         <StatTile
           label="Median PO to receipt"
           value={collect.poToDelivery.length ? `${median(collect.poToDelivery)} days` : "—"}
           hint={`${collect.poToDelivery.length} deliveries measured`}
+          href="/open-pos"
         />
         <StatTile
           label="Median invoice to payment"
           value={collect.invoiceToPayment.length ? `${median(collect.invoiceToPayment)} days` : "—"}
           hint={`${collect.invoiceToPayment.length} payments measured`}
+          href="/finance/handoffs"
         />
       </div>
 

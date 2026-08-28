@@ -18,6 +18,7 @@ import { fmtDateTime, money, relativeTime } from "@/lib/format";
 
 export const metadata = { title: "My Workspace" };
 import { ApprovalQueue, type QueueItem } from "./ApprovalQueue";
+import { statusLink } from "@/lib/links";
 
 export const dynamic = "force-dynamic";
 
@@ -138,22 +139,41 @@ export default async function WorkspacePage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <StatTile label="Open tasks" value={tasks.length} hint="Assigned to you or your role" tone="accent" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+        <StatTile
+          label="Open tasks"
+          value={tasks.length}
+          hint="Assigned to you or your role"
+          tone="accent"
+          href="#tasks"
+        />
         <StatTile
           label="Overdue"
           value={overdue.length}
           hint="Past their service-level target"
           tone={overdue.length ? "danger" : "default"}
+          href="#tasks"
         />
         <StatTile
           label="Approvals waiting"
           value={approvals.length + pendingVotes.length}
           hint={pendingVotes.length ? `${pendingVotes.length} committee vote(s) included` : "Decisions needing you"}
           tone={approvals.length + pendingVotes.length ? "warning" : "default"}
+          href={pendingVotes.length ? "#votes" : "#approvals"}
         />
-        <StatTile label="My drafts" value={drafts.length} hint="Not yet submitted" />
-        <StatTile label="Completed (30 days)" value={doneCount} hint="Tasks you closed" tone="success" />
+        <StatTile
+          label="My drafts"
+          value={drafts.length}
+          hint="Not yet submitted"
+          href={statusLink("/pr", "status", ["DRAFT"])}
+        />
+        <StatTile
+          label="Completed (30 days)"
+          value={doneCount}
+          hint="Tasks you closed"
+          tone="success"
+          href="#tasks"
+        />
       </div>
 
       {returned.length > 0 && (
@@ -189,6 +209,7 @@ export default async function WorkspacePage() {
 
       {pendingVotes.length > 0 && (
         <SectionCard
+          id="votes"
           title="Committee decisions awaiting your vote"
           description="You are an assigned member of these Central Procurement Committee cases."
           bodyClassName="px-0 py-0"
@@ -223,6 +244,7 @@ export default async function WorkspacePage() {
 
       {queueItems.length > 0 && (
         <SectionCard
+          id="approvals"
           title="Waiting on your decision"
           description={`${queueItems.length} approval${queueItems.length === 1 ? "" : "s"} — approve or return without leaving this page.`}
         >
@@ -234,6 +256,7 @@ export default async function WorkspacePage() {
         g.items.length === 0 ? null : (
           <SectionCard
             key={g.label}
+            id={g === groups[0] ? "tasks" : undefined}
             title={g.label}
             description={`${g.items.length} item(s) — ${g.description}`}
             bodyClassName="px-0 py-0"

@@ -10,6 +10,7 @@ import { Badge, EmptyState, Mono, PageHeader, RefLink, SectionCard, StatTile } f
 import { ColumnChart } from "@/components/ui/charts";
 import { humanize } from "@/lib/domain";
 import { fmtDate, percent, round2 } from "@/lib/format";
+import { tableLink } from "@/lib/links";
 
 export const metadata = { title: "Vendor evaluations" };
 export const dynamic = "force-dynamic";
@@ -131,10 +132,20 @@ export default async function VendorEvaluationsPage() {
         subtitle={`Every scoring sheet ever recorded, with the pass mark that applied at the time. Current policy: ${passMark} of ${configuredMax}.`}
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Evaluations recorded" value={evaluations.length} />
-        <StatTile label="Passed" value={passed} tone="success" />
-        <StatTile label="Failed" value={evaluations.length - passed} tone={evaluations.length - passed ? "warning" : "default"} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Evaluations recorded" value={evaluations.length} href="/vendors/evaluations" />
+        <StatTile
+          label="Passed"
+          value={passed}
+          tone="success"
+          href={tableLink("/vendors/evaluations", { outcome: "Passed" })}
+        />
+        <StatTile
+          label="Failed"
+          value={evaluations.length - passed}
+          tone={evaluations.length - passed ? "warning" : "default"}
+          href={tableLink("/vendors/evaluations", { outcome: "Failed" })}
+        />
         <StatTile
           label="Average percentage"
           value={
@@ -142,6 +153,7 @@ export default async function VendorEvaluationsPage() {
               ? percent(round2(evaluations.reduce((a, e) => a + e.percentage, 0) / evaluations.length), 1)
               : "—"
           }
+          href={tableLink("/vendors/evaluations", undefined, { sort: "percentage:desc" })}
         />
       </div>
 

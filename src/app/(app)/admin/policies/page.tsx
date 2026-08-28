@@ -95,11 +95,21 @@ export default async function AdminPoliciesPage({ searchParams }: { searchParams
         </form>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Rules defined" value={CONFIG_DEFS.length} />
-        <StatTile label="Global overrides" value={globalOverrideCount} hint="Changed from the shipped default" />
-        <StatTile label="Entity overrides" value={entityOverrideCount} hint="Differ from the global value" />
-        <StatTile label="Scope in view" value={scopeName ?? "Global"} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Rules defined" value={CONFIG_DEFS.length} href="/admin/policies" />
+        <StatTile
+          label="Global overrides"
+          value={globalOverrideCount}
+          hint="Changed from the shipped default"
+          href="#overrides"
+        />
+        <StatTile
+          label="Entity overrides"
+          value={entityOverrideCount}
+          hint="Differ from the global value"
+          href="#overrides"
+        />
+        <StatTile label="Scope in view" value={scopeName ?? "Global"} href="/admin/entities" />
       </div>
 
       {entityId ? (
@@ -215,6 +225,7 @@ export default async function AdminPoliciesPage({ searchParams }: { searchParams
       })}
 
       <SectionCard
+        id="overrides"
         title="Every override on record"
         description="Both global and entity-level, with who changed them. This is the answer to 'why did the threshold change?'"
         bodyClassName="px-0 py-0"

@@ -16,8 +16,9 @@ import {
   StatusBadge,
   UserChip,
 } from "@/components/ui/primitives";
-import { PROCUREMENT_TYPE_LABELS, PRIORITY_TONE, humanize, type ProcurementType } from "@/lib/domain";
+import { PROCUREMENT_TYPE_LABELS, PRIORITY_TONE, PR_STATUSES, humanize, type ProcurementType } from "@/lib/domain";
 import { ageDays, fmtDate, money, qty, relativeTime } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Purchase Requisitions" };
 export const dynamic = "force-dynamic";
@@ -64,23 +65,23 @@ export default async function PrListPage() {
   const awaitingSourcing = prs.filter(
     (p) => ["APPROVED", "PROCUREMENT_REVIEW"].includes(p.status) && !p.rfqs.length && !p.purchaseOrders.length,
   );
+  const awaitingSourcingIds = new Set(awaitingSourcing.map((p) => p.id));
 
-  const openStatuses = [
-    "SUBMITTED",
-    "UNDER_DEPARTMENT_APPROVAL",
-    "APPROVED",
-    "PROCUREMENT_REVIEW",
-    "SOURCING",
-    "CPC_REVIEW",
-    "PO_PREPARATION",
-  ];
+  // Each tile is a claim about a set of rows in the table below it, so the set is
+  // named once and both the count and the tile's link are read from it. Spelling
+  // the statuses out twice is how a figure and the filter it links to drift.
+  const AWAITING_APPROVAL = ["SUBMITTED", "UNDER_DEPARTMENT_APPROVAL"];
+  const IN_SOURCING = ["PROCUREMENT_REVIEW", "SOURCING", "CPC_REVIEW", "PO_PREPARATION"];
+  const openStatuses = ["SUBMITTED", "UNDER_DEPARTMENT_APPROVAL", "APPROVED", ...IN_SOURCING];
+  const LIVE = PR_STATUSES.filter((st) => st !== "REJECTED" && st !== "CANCELLED");
+
   const stats = {
     total: prs.length,
     drafts: prs.filter((p) => p.status === "DRAFT").length,
-    awaitingApproval: prs.filter((p) => ["SUBMITTED", "UNDER_DEPARTMENT_APPROVAL"].includes(p.status)).length,
-    inSourcing: prs.filter((p) => ["PROCUREMENT_REVIEW", "SOURCING", "CPC_REVIEW", "PO_PREPARATION"].includes(p.status)).length,
+    awaitingApproval: prs.filter((p) => AWAITING_APPROVAL.includes(p.status)).length,
+    inSourcing: prs.filter((p) => IN_SOURCING.includes(p.status)).length,
     open: prs.filter((p) => openStatuses.includes(p.status)).length,
-    value: prs.filter((p) => !["REJECTED", "CANCELLED"].includes(p.status)).reduce((a, p) => a + p.estimatedValue, 0),
+    value: prs.filter((p) => LIVE.includes(p.status as (typeof LIVE)[number])).reduce((a, p) => a + p.estimatedValue, 0),
     returned: prs.filter((p) => p.status === "RETURNED").length,
     exceptions: prs.reduce((a, p) => a + p.exceptions.length, 0),
   };
@@ -119,6 +120,9 @@ export default async function PrListPage() {
     { key: "age", header: "Age", numeric: true, sortable: true, width: "5.5rem" },
     { key: "progress", header: "Downstream", sortable: false, minWidth: "12rem" },
     { key: "flags", header: "Flags", sortable: false, width: "9rem" },
+    // Not a status: approved with nothing started downstream. The tile counting
+    // it needs a control it can point at, and a reader needs one to find it.
+    { key: "handover", header: "Handover", filterable: true, sortable: true, width: "10rem", defaultHidden: true },
   ];
 
   const rows: TableRow[] = prs.map((pr) => {
@@ -156,8 +160,14 @@ export default async function PrListPage() {
         age,
         progress: [rfq?.number, cpc?.number, po?.number].filter(Boolean).join(" "),
         flags: pr.exceptions.length,
+        handover: awaitingSourcingIds.has(pr.id) ? "Awaiting sourcing" : "Started",
       },
       cells: {
+        handover: awaitingSourcingIds.has(pr.id) ? (
+          <Badge tone="warning">Awaiting sourcing</Badge>
+        ) : (
+          <span className="text-[var(--c-text-tertiary)]">Started</span>
+        ),
         number: <RefLink href={`/pr/${pr.id}`}>{pr.number}</RefLink>,
         title: (
           <span className="block max-w-[26rem] truncate" title={pr.title}>
@@ -250,31 +260,46 @@ export default async function PrListPage() {
         </InlineAlert>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <StatTile label="Open requisitions" value={stats.open} hint={`${stats.total} total on record`} tone="accent" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
+        <StatTile
+          label="Open requisitions"
+          value={stats.open}
+          hint={`${stats.total} total on record`}
+          tone="accent"
+          href={statusLink("/pr", "status", openStatuses)}
+        />
         <StatTile
           label="Awaiting approval"
           value={stats.awaitingApproval}
           hint="With a department head or procurement"
           tone={stats.awaitingApproval > 0 ? "warning" : "default"}
+          href={statusLink("/pr", "status", AWAITING_APPROVAL)}
         />
         <StatTile
           label="Awaiting sourcing"
           value={awaitingSourcing.length}
           hint="Approved; the order module has not started"
           tone={awaitingSourcing.length > 0 ? "warning" : "default"}
+          href={tableLink("/pr", { handover: "Awaiting sourcing" })}
         />
-        <StatTile label="In sourcing" value={stats.inSourcing} hint="RFQ, comparative, committee or PO stage" />
+        <StatTile
+          label="In sourcing"
+          value={stats.inSourcing}
+          hint="RFQ, comparative, committee or PO stage"
+          href={statusLink("/pr", "status", IN_SOURCING)}
+        />
         <StatTile
           label="Returned"
           value={stats.returned}
           hint="Sent back to the requester"
           tone={stats.returned > 0 ? "warning" : "default"}
+          href={statusLink("/pr", "status", ["RETURNED"])}
         />
         <StatTile
           label="Live value"
           value={money(stats.value, "PKR", { compact: true })}
           hint="Excluding rejected and cancelled"
+          href={statusLink("/pr", "status", LIVE)}
         />
       </div>
 

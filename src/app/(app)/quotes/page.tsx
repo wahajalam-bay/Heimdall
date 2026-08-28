@@ -6,6 +6,7 @@ import { DataTable, type TableColumn, type TableRow } from "@/components/ui/Data
 import { Badge, EmptyState, PageHeader, RefLink, StatTile, StatusBadge } from "@/components/ui/primitives";
 import { humanize } from "@/lib/domain";
 import { fmtDate, money, percent, round2 } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Quotations" };
 export const dynamic = "force-dynamic";
@@ -71,6 +72,11 @@ export default async function QuotesPage() {
     { key: "quoteDate", header: "Quoted", sortable: true, width: "8rem" },
     { key: "validUntil", header: "Valid until", sortable: true, width: "8.5rem" },
     { key: "flags", header: "Flags", sortable: false, width: "12rem" },
+    // Two states the tiles count that no existing column can be filtered to:
+    // whether a round of negotiation happened, and whether validity has run out
+    // on a quotation nobody awarded.
+    { key: "negotiated", header: "Negotiated", filterable: true, sortable: true, width: "9rem", defaultHidden: true },
+    { key: "validity", header: "Validity", filterable: true, sortable: true, width: "10rem", defaultHidden: true },
   ];
 
   const rows: TableRow[] = quotes.map((q) => {
@@ -102,8 +108,20 @@ export default async function QuotesPage() {
         quoteDate: q.quoteDate.toISOString().slice(0, 10),
         validUntil: q.validUntil ? q.validUntil.toISOString().slice(0, 10) : "",
         flags: [q.status === "SELECTED" ? "Awarded" : "", expired ? "Expired" : ""].filter(Boolean).join(" "),
+        negotiated: neg ? "Negotiated" : "As quoted",
+        validity: expired ? "Expired & unawarded" : q.validUntil ? "Valid" : "No expiry",
       },
       cells: {
+        negotiated: neg ? (
+          <Badge tone="success">Negotiated</Badge>
+        ) : (
+          <span className="text-[var(--c-text-tertiary)]">As quoted</span>
+        ),
+        validity: expired ? (
+          <Badge tone="warning">Expired &amp; unawarded</Badge>
+        ) : (
+          <span className="text-[var(--c-text-tertiary)]">{q.validUntil ? "Valid" : "No expiry"}</span>
+        ),
         number: <RefLink href={`/rfq/${q.rfq.id}`}>{q.number}</RefLink>,
         vendor: (
           <span>
@@ -168,19 +186,31 @@ export default async function QuotesPage() {
         subtitle="Every quotation recorded against an RFQ, with its negotiation outcome and comparative standing."
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <StatTile label="Quotations" value={stats.total} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+        <StatTile label="Quotations" value={stats.total} href="/quotes" />
         <StatTile
           label="Technically compliant"
           value={stats.compliant}
           hint={stats.total ? percent((stats.compliant / stats.total) * 100, 0) : "—"}
+          href={statusLink("/quotes", "compliance", ["COMPLIANT"])}
         />
-        <StatTile label="Negotiated" value={stats.negotiated} hint="At least one recorded round" />
-        <StatTile label="Total conceded" value={money(stats.conceded, "PKR", { compact: true })} tone="success" />
+        <StatTile
+          label="Negotiated"
+          value={stats.negotiated}
+          hint="At least one recorded round"
+          href={tableLink("/quotes", { negotiated: "Negotiated" })}
+        />
+        <StatTile
+          label="Total conceded"
+          value={money(stats.conceded, "PKR", { compact: true })}
+          tone="success"
+          href={tableLink("/quotes", { negotiated: "Negotiated" }, { sort: "conceded:desc" })}
+        />
         <StatTile
           label="Expired & unawarded"
           value={stats.expired}
           tone={stats.expired ? "warning" : "default"}
+          href={tableLink("/quotes", { validity: "Expired & unawarded" })}
         />
       </div>
 

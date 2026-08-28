@@ -9,6 +9,7 @@ import { DataTable, type TableColumn, type TableRow } from "@/components/ui/Data
 import { Badge, EmptyState, PageHeader, RefLink, StatTile, StatusBadge } from "@/components/ui/primitives";
 import { humanize } from "@/lib/domain";
 import { ageHours, fmtDateTime, money, qty, round2 } from "@/lib/format";
+import { tableLink } from "@/lib/links";
 
 export const metadata = { title: "Receiving" };
 export const dynamic = "force-dynamic";
@@ -62,6 +63,11 @@ export default async function ReceivingPage() {
     { key: "discrepancies", header: "Discrepancies", sortable: true, width: "13rem" },
     { key: "inspection", header: "Inspection", filterable: true, sortable: true, width: "11rem" },
     { key: "grn", header: "GRN", sortable: true, width: "11rem" },
+    // Three states the tiles count that no column could be filtered to: whether
+    // a receipt is still waiting to become a GRN, whether that wait is past the
+    // target, and whether anything was short, damaged or wrong.
+    { key: "grnState", header: "GRN state", filterable: true, sortable: true, width: "11rem", defaultHidden: true },
+    { key: "discrepancyState", header: "Discrepancy", filterable: true, sortable: true, width: "11rem", defaultHidden: true },
     { key: "gatePass", header: "Gate pass", sortable: true, width: "9.5rem", defaultHidden: true },
     { key: "receivedBy", header: "Received by", sortable: true, width: "12rem", defaultHidden: true },
     { key: "date", header: "Received", sortable: true, width: "12rem" },
@@ -86,6 +92,8 @@ export default async function ReceivingPage() {
       flag: grnOverdue ? "danger" : discrepancies.length ? "warning" : grn ? "success" : null,
       search: `${d.number} ${d.po.number} ${d.vendor.name} ${d.deliveryNoteRef ?? ""}`,
       values: {
+        grnState: grn ? "Posted" : grnOverdue ? "Overdue" : d.status === "REJECTED" ? "Rejected" : "Awaiting GRN",
+        discrepancyState: discrepancies.length ? "With discrepancy" : "Clean",
         number: d.number,
         po: d.po.number,
         vendor: d.vendor.name,
@@ -108,6 +116,20 @@ export default async function ReceivingPage() {
         waiting: Math.floor(hours / 24),
       },
       cells: {
+        grnState: grn ? (
+          <span className="text-[var(--c-text-tertiary)]">Posted</span>
+        ) : grnOverdue ? (
+          <Badge tone="danger">Overdue</Badge>
+        ) : d.status === "REJECTED" ? (
+          <span className="text-[var(--c-text-tertiary)]">Rejected</span>
+        ) : (
+          <Badge tone="warning">Awaiting GRN</Badge>
+        ),
+        discrepancyState: discrepancies.length ? (
+          <Badge tone="warning">With discrepancy</Badge>
+        ) : (
+          <span className="text-[var(--c-text-tertiary)]">Clean</span>
+        ),
         number: <RefLink href={`/receiving/${d.id}`}>{d.number}</RefLink>,
         po: <RefLink href={`/po/${d.po.id}`}>{d.po.number}</RefLink>,
         vendor: <RefLink href={`/vendors/${d.vendor.id}`}>{d.vendor.name}</RefLink>,
@@ -184,31 +206,35 @@ export default async function ReceivingPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <StatTile label="Receipts recorded" value={deliveries.length} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+        <StatTile label="Receipts recorded" value={deliveries.length} href="/receiving" />
         <StatTile
           label="Awaiting GRN"
           value={awaitingGrn.length}
           hint="Received but not in inventory"
           tone={awaitingGrn.length ? "warning" : "default"}
+          href={tableLink("/receiving", { grnState: ["Awaiting GRN", "Overdue"] })}
         />
         <StatTile
           label="GRN overdue"
           value={overdueGrn.length}
           hint={`Beyond the ${grnSla}-hour target`}
           tone={overdueGrn.length ? "danger" : "default"}
+          href={tableLink("/receiving", { grnState: "Overdue" })}
         />
         <StatTile
           label="Blocked by inspection"
           value={blockedByInspection.length}
           hint="Mandatory inspection outstanding"
           tone={blockedByInspection.length ? "warning" : "default"}
+          href={tableLink("/receiving", { inspection: "Pending", grnState: ["Awaiting GRN", "Overdue"] })}
         />
         <StatTile
           label="With discrepancy"
           value={withDiscrepancy.length}
           hint="Short, damaged or wrong item"
           tone={withDiscrepancy.length ? "warning" : "default"}
+          href={tableLink("/receiving", { discrepancyState: "With discrepancy" })}
         />
       </div>
 

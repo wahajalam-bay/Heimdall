@@ -8,6 +8,7 @@ import { DataTable, type TableColumn, type TableRow } from "@/components/ui/Data
 import { Badge, EmptyState, PageHeader, RefLink, StatTile, StatusBadge } from "@/components/ui/primitives";
 import { humanize } from "@/lib/domain";
 import { fmtDateTime, money, qty, round2 } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "GRNs" };
 export const dynamic = "force-dynamic";
@@ -65,8 +66,8 @@ export default async function GrnListPage() {
     { key: "accepted", header: "Accepted", numeric: true, sortable: true, width: "8rem" },
     { key: "rejected", header: "Rejected", numeric: true, sortable: true, width: "8rem" },
     { key: "value", header: "Value taken in", numeric: true, sortable: true, width: "11rem" },
-    { key: "stacking", header: "Stacked", sortable: true, width: "8rem" },
-    { key: "invoiced", header: "Invoice matched", sortable: true, width: "11rem" },
+    { key: "stacking", header: "Stacked", filterable: true, sortable: true, width: "8rem" },
+    { key: "invoiced", header: "Invoice matched", filterable: true, sortable: true, width: "11rem" },
     { key: "receivedBy", header: "Received by", sortable: true, width: "12rem", defaultHidden: true },
     { key: "receivedAt", header: "Received", sortable: true, width: "12rem" },
     { key: "postedAt", header: "Posted", sortable: true, width: "12rem", defaultHidden: true },
@@ -169,22 +170,39 @@ export default async function GrnListPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <StatTile label="Posted GRNs" value={stats.posted} hint={`${stats.total} total including drafts`} tone="success" />
-        <StatTile label="Value taken into inventory" value={money(stats.value, "PKR", { compact: true })} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+        <StatTile
+          label="Posted GRNs"
+          value={stats.posted}
+          hint={`${stats.total} total including drafts`}
+          tone="success"
+          href={statusLink("/grn", "status", ["POSTED"])}
+        />
+        <StatTile
+          label="Value taken into inventory"
+          value={money(stats.value, "PKR", { compact: true })}
+          href={tableLink("/grn", { status: humanize("POSTED") }, { sort: "value:desc" })}
+        />
         <StatTile
           label="Drafts"
           value={stats.drafts}
           hint="Created but not posted — no inventory effect yet"
           tone={stats.drafts ? "warning" : "default"}
+          href={statusLink("/grn", "status", ["DRAFT"])}
         />
         <StatTile
           label="Awaiting stacking"
           value={stats.awaitingStacking}
           hint="In inventory but no bin recorded"
           tone={stats.awaitingStacking ? "warning" : "default"}
+          href={tableLink("/grn", { status: humanize("POSTED"), stacking: "No" })}
         />
-        <StatTile label="Not yet invoiced" value={stats.unmatched} hint="Received, awaiting the vendor invoice" />
+        <StatTile
+          label="Not yet invoiced"
+          value={stats.unmatched}
+          hint="Received, awaiting the vendor invoice"
+          href={tableLink("/grn", { invoiced: "Not matched" })}
+        />
       </div>
 
       <DataTable

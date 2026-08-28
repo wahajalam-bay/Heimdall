@@ -21,6 +21,7 @@ import { EXCEPTION_TYPES, SEVERITY_TONE, humanize } from "@/lib/domain";
 import { ageDays, fmtDate, round2 } from "@/lib/format";
 import { AnalyticsFilters } from "../AnalyticsFilters";
 import { buildFilter, filterOptions } from "../filters";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Exceptions" };
 export const dynamic = "force-dynamic";
@@ -177,20 +178,32 @@ export default async function ExceptionsPage({ searchParams }: { searchParams: P
 
       <AnalyticsFilters entities={options.entities} show={["entity", "from", "to"]} />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Open exceptions" value={open.length} tone={open.length ? "warning" : "success"} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Open exceptions"
+          value={open.length}
+          tone={open.length ? "warning" : "success"}
+          href={statusLink("/analytics/exceptions", "status", OPEN)}
+        />
         <StatTile
           label="Blocking"
           value={blocking.length}
           tone={blocking.length ? "danger" : "success"}
           hint="Stopping a transaction right now"
+          href={tableLink("/analytics/exceptions", { status: OPEN.map((st) => humanize(st)), blocking: "Yes" })}
         />
-        <StatTile label="Critical" value={critical.length} tone={critical.length ? "danger" : "default"} />
+        <StatTile
+          label="Critical"
+          value={critical.length}
+          tone={critical.length ? "danger" : "default"}
+          href={tableLink("/analytics/exceptions", { status: OPEN.map((st) => humanize(st)), severity: "CRITICAL" })}
+        />
         <StatTile
           label="Waived to date"
           value={waived.length}
           tone={waived.length ? "warning" : "default"}
           hint="Controls deliberately overridden"
+          href={statusLink("/analytics/exceptions", "status", ["WAIVED"])}
         />
       </div>
 
@@ -249,18 +262,41 @@ export default async function ExceptionsPage({ searchParams }: { searchParams: P
 
       <div className="grid gap-4 lg:grid-cols-3">
         <SectionCard title="By type" description="What actually goes wrong, all time.">
-          <RankedBars data={byType.sort((a, b) => b.value - a.value)} format="number" maxRows={10} />
+          <RankedBars
+            data={byType
+              .map((d) => ({ ...d, href: tableLink("/analytics/exceptions", { type: d.label }) }))
+              .sort((a, b) => b.value - a.value)}
+            format="number"
+            maxRows={10}
+          />
         </SectionCard>
         <SectionCard title="Open by severity">
           {severityMix.length > 0 ? (
-            <DonutChart data={severityMix} centerLabel="Open" centerValue={String(open.length)} format="number" />
+            <DonutChart
+            data={severityMix.map((d) => ({
+              ...d,
+              href: tableLink("/analytics/exceptions", {
+                status: OPEN.map((st) => humanize(st)),
+                severity: d.label.toUpperCase(),
+              }),
+            }))}
+            centerLabel="Open"
+            centerValue={String(open.length)}
+            format="number"
+          />
           ) : (
             <p className="py-8 text-center text-xs text-muted">Nothing open.</p>
           )}
         </SectionCard>
         <SectionCard title="Open by owner" description="Unassigned exceptions are nobody's problem — that is the risk.">
           <RankedBars
-            data={[...byOwner.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value)}
+            data={[...byOwner.entries()]
+              .map(([label, value]) => ({
+                label,
+                value,
+                href: tableLink("/analytics/exceptions", { owner: label }),
+              }))
+              .sort((a, b) => b.value - a.value)}
             format="number"
             colorIndex={2}
             maxRows={10}

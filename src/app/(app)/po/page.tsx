@@ -5,8 +5,9 @@ import { PERMISSIONS as P } from "@/lib/permissions";
 import { AccessDenied } from "@/components/ui/guard";
 import { DataTable, type TableColumn, type TableRow } from "@/components/ui/DataTable";
 import { Badge, EmptyState, Meter, PageHeader, RefLink, StatTile, StatusBadge } from "@/components/ui/primitives";
-import { humanize } from "@/lib/domain";
+import { PO_STATUSES, humanize } from "@/lib/domain";
 import { ageDays, fmtDate, money, qty, round2 } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Purchase Orders" };
 export const dynamic = "force-dynamic";
@@ -41,6 +42,10 @@ export default async function PoListPage() {
   ]);
 
   const now = new Date();
+  // Named once so the tile's figure and the filter it links to are read from the
+  // same list — the two drift the moment they are spelled out separately.
+  const LIVE_STATUSES = PO_STATUSES.filter((st) => st !== "CANCELLED" && st !== "CLOSED");
+  const UNSETTLED_ADVANCE = ["PENDING", "APPROVED", "PAID"];
   const live = pos.filter((p) => !["CANCELLED", "CLOSED"].includes(p.status));
   const stats = {
     live: live.length,
@@ -68,10 +73,13 @@ export default async function PoListPage() {
     { key: "issued", header: "Issued", sortable: true, width: "8.5rem", defaultHidden: true },
     { key: "grns", header: "GRNs", numeric: true, sortable: true, width: "5.5rem" },
     { key: "invoices", header: "Invoices", numeric: true, sortable: true, width: "6.5rem" },
-    { key: "advance", header: "Advance", sortable: true, width: "9rem", defaultHidden: true },
+    { key: "advance", header: "Advance", filterable: true, sortable: true, width: "9rem", defaultHidden: true },
     { key: "buyer", header: "Raised by", sortable: true, width: "11rem", defaultHidden: true },
     { key: "age", header: "Age", numeric: true, sortable: true, width: "5rem" },
     { key: "flags", header: "Flags", sortable: false, minWidth: "11rem" },
+    // Lateness is not a status, so no status filter reaches it. The tile counting
+    // overdue deliveries points here, and it doubles as a control of its own.
+    { key: "delivery", header: "Delivery", filterable: true, sortable: true, width: "9rem", defaultHidden: true },
   ];
 
   const rows: TableRow[] = pos.map((po) => {
@@ -108,8 +116,14 @@ export default async function PoListPage() {
         flags: [overdue ? "Overdue" : "", mismatch ? "Invoice mismatch" : "", po.exceptions.length ? "Exception" : ""]
           .filter(Boolean)
           .join(" "),
+        delivery: overdue ? "Overdue" : po.deliveryDate ? "On schedule" : "No date",
       },
       cells: {
+        delivery: overdue ? (
+          <Badge tone="danger">Overdue</Badge>
+        ) : (
+          <span className="text-[var(--c-text-tertiary)]">{po.deliveryDate ? "On schedule" : "No date"}</span>
+        ),
         number: <RefLink href={`/po/${po.id}`}>{po.number}</RefLink>,
         vendor: (
           <span>
@@ -174,17 +188,42 @@ export default async function PoListPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <StatTile label="Live orders" value={stats.live} tone="accent" />
-        <StatTile label="Live value" value={money(stats.liveValue, "PKR", { compact: true })} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
+        <StatTile
+          label="Live orders"
+          value={stats.live}
+          tone="accent"
+          href={statusLink("/po", "status", LIVE_STATUSES)}
+        />
+        <StatTile
+          label="Live value"
+          value={money(stats.liveValue, "PKR", { compact: true })}
+          href={statusLink("/po", "status", LIVE_STATUSES)}
+        />
         <StatTile
           label="Pending approval"
           value={stats.pendingApproval}
           tone={stats.pendingApproval ? "warning" : "default"}
+          href={statusLink("/po", "status", ["PENDING_APPROVAL"])}
         />
-        <StatTile label="Approved, not issued" value={stats.awaitingIssue} tone={stats.awaitingIssue ? "warning" : "default"} />
-        <StatTile label="Delivery overdue" value={stats.overdue} tone={stats.overdue ? "danger" : "default"} />
-        <StatTile label="Advances outstanding" value={stats.withAdvance} hint="Not yet settled against delivery" />
+        <StatTile
+          label="Approved, not issued"
+          value={stats.awaitingIssue}
+          tone={stats.awaitingIssue ? "warning" : "default"}
+          href={statusLink("/po", "status", ["APPROVED"])}
+        />
+        <StatTile
+          label="Delivery overdue"
+          value={stats.overdue}
+          tone={stats.overdue ? "danger" : "default"}
+          href={tableLink("/po", { delivery: "Overdue" })}
+        />
+        <StatTile
+          label="Advances outstanding"
+          value={stats.withAdvance}
+          hint="Not yet settled against delivery"
+          href={statusLink("/po", "advance", UNSETTLED_ADVANCE)}
+        />
       </div>
 
       <DataTable

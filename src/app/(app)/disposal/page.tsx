@@ -16,8 +16,9 @@ import {
   StatTile,
   StatusBadge,
 } from "@/components/ui/primitives";
-import { DISPOSAL_LIFECYCLE, humanize } from "@/lib/domain";
+import { DISPOSAL_LIFECYCLE, DISPOSAL_STAGES, humanize } from "@/lib/domain";
 import { ageDays, fmtDate, money, percent, round2 } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Disposal" };
 export const dynamic = "force-dynamic";
@@ -171,11 +172,35 @@ export default async function DisposalPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Open cases" value={open.length} tone={open.length ? "warning" : "default"} />
-        <StatTile label="Awaiting audit review" value={awaitingAudit.length} tone={awaitingAudit.length ? "accent" : "default"} />
-        <StatTile label="Completed" value={completed.length} tone="success" />
-        <StatTile label="Value realised" value={money(realised)} hint="From completed disposals" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Open cases"
+          value={open.length}
+          tone={open.length ? "warning" : "default"}
+          href={statusLink(
+            "/disposal",
+            "stage",
+            DISPOSAL_STAGES.filter((st) => !["COMPLETED", "REJECTED", "CANCELLED"].includes(st)),
+          )}
+        />
+        <StatTile
+          label="Awaiting audit review"
+          value={awaitingAudit.length}
+          tone={awaitingAudit.length ? "accent" : "default"}
+          href={statusLink("/disposal", "stage", ["AUDIT_REVIEW"])}
+        />
+        <StatTile
+          label="Completed"
+          value={completed.length}
+          tone="success"
+          href={statusLink("/disposal", "stage", ["COMPLETED"])}
+        />
+        <StatTile
+          label="Value realised"
+          value={money(realised)}
+          hint="From completed disposals"
+          href={tableLink("/disposal", { stage: humanize("COMPLETED") }, { sort: "realised:desc" })}
+        />
       </div>
 
       {open.length > 0 && (

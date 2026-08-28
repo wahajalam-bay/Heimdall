@@ -8,6 +8,7 @@ import { DataTable, type TableColumn, type TableRow } from "@/components/ui/Data
 import { Badge, EmptyState, PageHeader, RefLink, StatTile, StatusBadge } from "@/components/ui/primitives";
 import { humanize } from "@/lib/domain";
 import { ageHours, fmtDateTime, qty } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Inspections" };
 export const dynamic = "force-dynamic";
@@ -53,6 +54,9 @@ export default async function InspectionsPage() {
     { key: "delivery", header: "Receipt", sortable: true, width: "9.5rem" },
     { key: "store", header: "Store", filterable: true, sortable: true, width: "13rem" },
     { key: "inspector", header: "Inspector", filterable: true, sortable: true, width: "12rem" },
+    // Lateness is the clock against a target, not a result, so it needs its own
+    // control for the tile above to point at.
+    { key: "timing", header: "Timing", filterable: true, sortable: true, width: "9rem", defaultHidden: true },
     { key: "lines", header: "Lines", numeric: true, sortable: true, width: "5rem" },
     { key: "inspected", header: "Inspected", numeric: true, sortable: true, width: "8rem" },
     { key: "passed", header: "Passed", numeric: true, sortable: true, width: "7rem" },
@@ -76,6 +80,7 @@ export default async function InspectionsPage() {
       flag: i.result === "REJECTED" ? "danger" : isOverdue ? "warning" : i.result === "APPROVED" ? "success" : null,
       search: `${i.number} ${i.po?.number ?? ""} ${i.po?.vendor.name ?? ""} ${i.delivery?.number ?? ""}`,
       values: {
+        timing: isOverdue ? "Overdue" : isPending ? "Within target" : "Complete",
         number: i.number,
         type: humanize(i.inspectionType),
         result: humanize(i.result),
@@ -95,6 +100,11 @@ export default async function InspectionsPage() {
         signedBy: i.signedByName ?? "",
       },
       cells: {
+        timing: isOverdue ? (
+          <Badge tone="danger">Overdue</Badge>
+        ) : (
+          <span className="text-[var(--c-text-tertiary)]">{isPending ? "Within target" : "Complete"}</span>
+        ),
         number: <RefLink href={`/inspections/${i.id}`}>{i.number}</RefLink>,
         type: <Badge tone="neutral">{humanize(i.inspectionType)}</Badge>,
         result: (
@@ -133,27 +143,35 @@ export default async function InspectionsPage() {
         subtitle={`Mandatory for configured categories. A GRN cannot be posted while a required inspection is outstanding or failed. Target turnaround is ${sla} hours.`}
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <StatTile label="Inspections" value={inspections.length} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+        <StatTile label="Inspections" value={inspections.length} href="/inspections" />
         <StatTile
           label="Outstanding"
           value={pending.length}
           hint="Blocking a GRN"
           tone={pending.length ? "warning" : "default"}
+          href={statusLink("/inspections", "result", ["PENDING", "IN_PROGRESS", "RE_INSPECTION_REQUIRED"])}
         />
         <StatTile
           label="Overdue"
           value={overdue.length}
           hint={`Beyond the ${sla}-hour target`}
           tone={overdue.length ? "danger" : "default"}
+          href={tableLink("/inspections", { timing: "Overdue" })}
         />
         <StatTile
           label="Unassigned"
           value={unassigned.length}
           hint="No named inspector yet"
           tone={unassigned.length ? "warning" : "default"}
+          href={tableLink("/inspections", { inspector: "Unassigned" })}
         />
-        <StatTile label="Rejected" value={rejected.length} tone={rejected.length ? "danger" : "default"} />
+        <StatTile
+          label="Rejected"
+          value={rejected.length}
+          tone={rejected.length ? "danger" : "default"}
+          href={statusLink("/inspections", "result", ["REJECTED"])}
+        />
       </div>
 
       <DataTable

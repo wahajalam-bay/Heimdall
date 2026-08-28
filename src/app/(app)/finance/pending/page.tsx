@@ -19,6 +19,7 @@ import {
 import { ColumnChart, RankedBars } from "@/components/ui/charts";
 import { humanize } from "@/lib/domain";
 import { ageDays, fmtDate, money, round2 } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Pending payments" };
 export const dynamic = "force-dynamic";
@@ -141,16 +142,32 @@ export default async function PendingPaymentsPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Clear to pay" value={money(payableValue)} tone="success" hint={`${payable.length} invoice(s)`} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Clear to pay"
+          value={money(payableValue)}
+          tone="success"
+          hint={`${payable.length} invoice(s)`}
+          href={statusLink("/invoices", "status", ["APPROVED", "SENT_TO_FINANCE"])}
+        />
         <StatTile
           label="Blocked"
           value={money(blockedValue)}
           tone={blocked.length ? "danger" : "default"}
           hint={`${blocked.length} invoice(s)`}
+          href={statusLink("/invoices", "matchStatus", ["FAILED"])}
         />
-        <StatTile label="Awaiting approval" value={awaitingApproval.length} />
-        <StatTile label="Past due" value={overdue.length} tone={overdue.length ? "warning" : "default"} />
+        <StatTile
+          label="Awaiting approval"
+          value={awaitingApproval.length}
+          href={statusLink("/invoices", "status", ["RECEIVED", "UNDER_VERIFICATION", "MATCHED", "PENDING_APPROVAL"])}
+        />
+        <StatTile
+          label="Past due"
+          value={overdue.length}
+          tone={overdue.length ? "warning" : "default"}
+          href={tableLink("/invoices", { dueState: "Past due" })}
+        />
       </div>
 
       {blocked.length > 0 && (

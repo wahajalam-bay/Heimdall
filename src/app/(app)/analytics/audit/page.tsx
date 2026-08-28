@@ -20,6 +20,7 @@ import { humanize } from "@/lib/domain";
 import { fmtDateTime, relativeTime } from "@/lib/format";
 import { AnalyticsFilters } from "../AnalyticsFilters";
 import { buildFilter, filterOptions, periodLabel } from "../filters";
+import { tableLink } from "@/lib/links";
 
 export const metadata = { title: "Audit trail" };
 export const dynamic = "force-dynamic";
@@ -118,6 +119,8 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
     { key: "action", header: "Action", filterable: true, sortable: true, width: "18rem" },
     { key: "entityType", header: "Record type", filterable: true, sortable: true, width: "13rem" },
     { key: "entityRef", header: "Record", sortable: true, width: "12rem" },
+    { key: "sensitivity", header: "Sensitivity", filterable: true, sortable: true, width: "11rem", defaultHidden: true },
+    { key: "reasonGiven", header: "Reason given", filterable: true, sortable: true, width: "11rem", defaultHidden: true },
     { key: "case", header: "Case", filterable: true, sortable: true, width: "11rem" },
     { key: "reason", header: "Reason given", sortable: true, minWidth: "24rem" },
     { key: "changes", header: "Field changes", numeric: true, sortable: true, width: "11rem" },
@@ -149,10 +152,22 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
         entityRef: l.entityRef ?? "",
         case: l.caseKey ?? "",
         reason: l.reason ?? "",
+        sensitivity: isSensitive(l.action) ? "Sensitive" : "Routine",
+        reasonGiven: l.reason ? "Stated" : "None",
         changes: changeCount,
         ip: l.ip ?? "",
       },
       cells: {
+        sensitivity: isSensitive(l.action) ? (
+          <Badge tone="warning">Sensitive</Badge>
+        ) : (
+          <span className="text-[var(--c-text-tertiary)]">Routine</span>
+        ),
+        reasonGiven: l.reason ? (
+          <span className="text-[var(--c-text-tertiary)]">Stated</span>
+        ) : (
+          <span className="text-[var(--c-text-tertiary)]">None</span>
+        ),
         at: (
           <span>
             <span className="block text-xs">{fmtDateTime(l.createdAt)}</span>
@@ -225,16 +240,25 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
         </InlineAlert>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Entries shown" value={logs.length} hint={`${totalCount} in the full trail`} />
-        <StatTile label="Distinct actors" value={distinctActors} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Entries shown" value={logs.length} hint={`${totalCount} in the full trail`} href="/analytics/audit" />
+        <StatTile
+          label="Distinct actors"
+          value={distinctActors}
+          href={tableLink("/analytics/audit", undefined, { sort: "actor:asc" })}
+        />
         <StatTile
           label="Sensitive actions"
           value={sensitive.length}
           tone={sensitive.length ? "warning" : "default"}
           hint="Waivers, cancellations, payments, permission and configuration changes"
+          href={tableLink("/analytics/audit", { sensitivity: "Sensitive" })}
         />
-        <StatTile label="Entries with a stated reason" value={withReason.length} />
+        <StatTile
+          label="Entries with a stated reason"
+          value={withReason.length}
+          href={tableLink("/analytics/audit", { reasonGiven: "Stated" })}
+        />
       </div>
 
       {sensitive.length > 0 && (
@@ -287,7 +311,13 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
       <div className="grid gap-4 lg:grid-cols-2">
         <SectionCard title="Most frequent actions">
           <RankedBars
-            data={[...byAction.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value)}
+            data={[...byAction.entries()]
+              .map(([label, value]) => ({
+                label,
+                value,
+                href: tableLink("/analytics/audit", { action: label }),
+              }))
+              .sort((a, b) => b.value - a.value)}
             format="number"
             maxRows={10}
           />

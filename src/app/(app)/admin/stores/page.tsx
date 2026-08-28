@@ -18,6 +18,7 @@ import { humanize } from "@/lib/domain";
 import { money, round2 } from "@/lib/format";
 import { adminOptions } from "../actions";
 import { StoreForm } from "../AdminMasterForms";
+import { tableLink } from "@/lib/links";
 
 export const metadata = { title: "Stores" };
 export const dynamic = "force-dynamic";
@@ -69,6 +70,7 @@ export default async function AdminStoresPage() {
     { key: "receipts", header: "GRNs", numeric: true, sortable: true, width: "7.5rem" },
     { key: "issues", header: "Issues", numeric: true, sortable: true, width: "7.5rem" },
     { key: "transfers", header: "Transfers", numeric: true, sortable: true, width: "9rem" },
+    { key: "keeperState", header: "Storekeeper state", filterable: true, sortable: true, width: "12rem", defaultHidden: true },
     { key: "status", header: "Status", filterable: true, sortable: true, width: "8rem" },
     { key: "actions", header: "", width: "6rem", noExport: true },
   ];
@@ -97,9 +99,15 @@ export default async function AdminStoresPage() {
         issues: s._count.issues,
         transfers: s._count.transfersFrom + s._count.transfersTo,
         status: s.active ? "Active" : "Inactive",
+        keeperState: manager ? "Assigned" : "No storekeeper",
         actions: "",
       },
       cells: {
+        keeperState: manager ? (
+          <span className="text-[var(--c-text-tertiary)]">Assigned</span>
+        ) : (
+          <Badge tone="warning">No storekeeper</Badge>
+        ),
         code: <Mono>{s.code}</Mono>,
         name: <RefLink href={`/stores/${s.id}`}>{s.name}</RefLink>,
         kind: <Badge tone="neutral">{humanize(s.kind)}</Badge>,
@@ -163,16 +171,26 @@ export default async function AdminStoresPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Stores" value={stores.length} />
-        <StatTile label="Active" value={active.length} tone="success" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Stores" value={stores.length} href="/admin/stores" />
+        <StatTile
+          label="Active"
+          value={active.length}
+          tone="success"
+          href={tableLink("/admin/stores", { status: "Active" })}
+        />
         <StatTile
           label="Without a storekeeper"
           value={withoutKeeper.length}
           tone={withoutKeeper.length ? "warning" : "success"}
           hint="Store tasks have nobody to route to"
+          href={tableLink("/admin/stores", { keeperState: "No storekeeper" })}
         />
-        <StatTile label="Stock value held" value={money(totalValue)} />
+        <StatTile
+          label="Stock value held"
+          value={money(totalValue)}
+          href={tableLink("/admin/stores", undefined, { sort: "value:desc" })}
+        />
       </div>
 
       {withoutKeeper.length > 0 && (

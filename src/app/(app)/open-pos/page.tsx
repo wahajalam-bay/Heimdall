@@ -21,6 +21,7 @@ import {
 import { ChartFrame, ChartTable, RankedBars } from "@/components/ui/charts";
 import { humanize } from "@/lib/domain";
 import { fmtDate, money, qty, round2 } from "@/lib/format";
+import { tableLink } from "@/lib/links";
 
 export const metadata = { title: "Open POs" };
 export const dynamic = "force-dynamic";
@@ -88,6 +89,14 @@ export default async function OpenPosPage() {
     { key: "inspection", header: "Inspection", numeric: true, sortable: true, width: "8rem" },
     { key: "exceptions", header: "Exceptions", numeric: true, sortable: true, width: "8rem" },
     { key: "flags", header: "Why it is open", sortable: false, minWidth: "18rem" },
+    // The reasons above, one column each. A flag string holding several reasons
+    // cannot be filtered to any one of them, and every tile on this page counts
+    // exactly one reason.
+    { key: "receiptState", header: "Receipt state", filterable: true, sortable: true, width: "12rem", defaultHidden: true },
+    { key: "deliveryState", header: "Delivery", filterable: true, sortable: true, width: "11rem", defaultHidden: true },
+    { key: "grnAlert", header: "GRN alert", filterable: true, sortable: true, width: "11rem", defaultHidden: true },
+    { key: "ageState", header: "Time open", filterable: true, sortable: true, width: "12rem", defaultHidden: true },
+    { key: "inspectionState", header: "Inspection", filterable: true, sortable: true, width: "12rem", defaultHidden: true },
   ];
 
   const tableRows: TableRow[] = rows.map((r) => ({
@@ -119,8 +128,45 @@ export default async function OpenPosPage() {
       inspection: r.inspectionPending,
       exceptions: r.openExceptions,
       flags: r.flags.join(" "),
+      receiptState: r.grnCount === 0 ? "No GRN at all" : r.pendingQty > 0 ? "Partially received" : "Fully received",
+      deliveryState:
+        (r.daysOverdue ?? 0) > 0 ? "Overdue" : r.flags.includes("Due soon") ? "Due soon" : "On schedule",
+      grnAlert: r.flags.includes("Missing GRN") ? "Missing GRN" : "None",
+      ageState: r.flags.includes("Long outstanding") ? "Long outstanding" : "Within range",
+      inspectionState: r.inspectionPending > 0 ? "Pending" : "Clear",
     },
     cells: {
+      receiptState:
+        r.grnCount === 0 ? (
+          <Badge tone="danger">No GRN at all</Badge>
+        ) : r.pendingQty > 0 ? (
+          <Badge tone="warning">Partially received</Badge>
+        ) : (
+          <span className="text-[var(--c-text-tertiary)]">Fully received</span>
+        ),
+      deliveryState:
+        (r.daysOverdue ?? 0) > 0 ? (
+          <Badge tone="danger">Overdue</Badge>
+        ) : r.flags.includes("Due soon") ? (
+          <Badge tone="warning">Due soon</Badge>
+        ) : (
+          <span className="text-[var(--c-text-tertiary)]">On schedule</span>
+        ),
+      grnAlert: r.flags.includes("Missing GRN") ? (
+        <Badge tone="danger">Missing GRN</Badge>
+      ) : (
+        <span className="text-[var(--c-text-tertiary)]">None</span>
+      ),
+      ageState: r.flags.includes("Long outstanding") ? (
+        <Badge tone="warning">Long outstanding</Badge>
+      ) : (
+        <span className="text-[var(--c-text-tertiary)]">Within range</span>
+      ),
+      inspectionState: r.inspectionPending > 0 ? (
+        <Badge tone="warning">Pending</Badge>
+      ) : (
+        <span className="text-[var(--c-text-tertiary)]">Clear</span>
+      ),
       number: <RefLink href={`/po/${r.id}`}>{r.number}</RefLink>,
       vendor: <RefLink href={`/vendors/${r.vendorId}`}>{r.vendorName}</RefLink>,
       entity: <Badge tone="neutral">{r.entityCode}</Badge>,
@@ -214,51 +260,63 @@ export default async function OpenPosPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
         <StatTile
           label="Open orders"
           value={stats.count}
           hint={`${money(stats.value, "PKR", { compact: true })} of value outstanding`}
           tone="accent"
+          href={tableLink("/open-pos", undefined, { sort: "pendingValue:desc" })}
         />
         <StatTile
           label="No GRN at all"
           value={stats.noGrn}
           hint="Nothing recorded as received into inventory"
           tone={stats.noGrn ? "danger" : "default"}
+          href={tableLink("/open-pos", { receiptState: "No GRN at all" })}
         />
         <StatTile
           label="Delivery overdue"
           value={stats.overdue}
           hint={`${stats.dueSoon} due within 3 days`}
           tone={stats.overdue ? "warning" : "default"}
+          href={tableLink("/open-pos", { deliveryState: "Overdue" }, { sort: "daysOverdue:desc" })}
         />
         <StatTile
           label="Missing GRN alerts"
           value={stats.missingGrn}
           hint={`Past the ${missingGrnDays}-day threshold`}
           tone={stats.missingGrn ? "danger" : "default"}
+          href={tableLink("/open-pos", { grnAlert: "Missing GRN" })}
         />
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Partially received" value={stats.partial} hint="Some quantity still outstanding" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Partially received"
+          value={stats.partial}
+          hint="Some quantity still outstanding"
+          href={tableLink("/open-pos", { receiptState: "Partially received" })}
+        />
         <StatTile
           label="Long outstanding"
           value={stats.stale}
           hint={`Open more than ${staleDays} days`}
           tone={stats.stale ? "warning" : "default"}
+          href={tableLink("/open-pos", { ageState: "Long outstanding" }, { sort: "daysOpen:desc" })}
         />
         <StatTile
           label="Inspection pending"
           value={stats.inspectionPending}
           hint="GRN blocked until inspection is signed"
           tone={stats.inspectionPending ? "warning" : "default"}
+          href={tableLink("/open-pos", { inspectionState: "Pending" })}
         />
         <StatTile
           label="Vendors with exposure"
           value={vendorExposure.length}
           hint={vendorExposure[0] ? `Largest: ${vendorExposure[0].label}` : undefined}
+          href="/analytics/vendors"
         />
       </div>
 
@@ -281,7 +339,12 @@ export default async function OpenPosPage() {
           }
         >
           <RankedBars
-            data={vendorExposure.map((v) => ({ label: v.label, value: v.value, sub: `${v.count} PO` }))}
+            data={vendorExposure.map((v) => ({
+              label: v.label,
+              value: v.value,
+              sub: `${v.count} PO`,
+              href: tableLink("/open-pos", undefined, { q: v.label, sort: "pendingValue:desc" }),
+            }))}
             format="moneyCompact"
             maxRows={8}
             colorIndex={2}

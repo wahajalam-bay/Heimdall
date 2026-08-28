@@ -7,6 +7,7 @@ import { DataTable, type TableColumn, type TableRow } from "@/components/ui/Data
 import { Badge, EmptyState, InlineAlert, PageHeader, RefLink, StatTile, StatusBadge } from "@/components/ui/primitives";
 import { humanize } from "@/lib/domain";
 import { ageDays, fmtDate, money } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Vendor Returns" };
 export const dynamic = "force-dynamic";
@@ -62,6 +63,8 @@ export default async function ReturnsPage() {
     { key: "raisedBy", header: "Raised by", sortable: true, width: "12rem" },
     { key: "raised", header: "Raised", sortable: true, width: "9rem" },
     { key: "age", header: "Age (days)", numeric: true, sortable: true, width: "7.5rem", defaultHidden: true },
+    // Being past the promised replacement date is a clock rather than a status.
+    { key: "timing", header: "Timing", filterable: true, sortable: true, width: "10rem", defaultHidden: true },
   ];
 
   const rows: TableRow[] = returns.map((r) => {
@@ -73,6 +76,7 @@ export default async function ReturnsPage() {
       flag: late ? "danger" : r.status === "CLOSED" ? "success" : open.includes(r) ? "warning" : null,
       search: `${r.number} ${r.vendor.name} ${r.po?.number ?? ""} ${r.reason}`,
       values: {
+        timing: late ? "Overdue" : r.replacementDueDate ? "Within promise" : "No promise",
         number: r.number,
         entity: r.po?.entity.code ?? "",
         vendor: r.vendor.name,
@@ -89,6 +93,11 @@ export default async function ReturnsPage() {
         age: ageDays(r.createdAt) ?? 0,
       },
       cells: {
+        timing: late ? (
+          <Badge tone="danger">Overdue</Badge>
+        ) : (
+          <span className="text-[var(--c-text-tertiary)]">{r.replacementDueDate ? "Within promise" : "No promise"}</span>
+        ),
         number: <RefLink href={`/receiving/returns/${r.id}`}>{r.number}</RefLink>,
         entity: r.po ? <Badge tone="neutral">{r.po.entity.code}</Badge> : "—",
         vendor: r.vendor.name,
@@ -133,19 +142,32 @@ export default async function ReturnsPage() {
         </InlineAlert>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Open returns" value={open.length} hint="Not yet closed" tone={open.length ? "warning" : "default"} />
-        <StatTile label="Value out" value={money(value, "PKR", { compact: true })} hint="Goods away from site" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Open returns"
+          value={open.length}
+          hint="Not yet closed"
+          tone={open.length ? "warning" : "default"}
+          href={statusLink("/receiving/returns", "status", ["DRAFT", "AUTHORISED", "DISPATCHED", "ACKNOWLEDGED", "REPLACED", "CREDITED"])}
+        />
+        <StatTile
+          label="Value out"
+          value={money(value, "PKR", { compact: true })}
+          hint="Goods away from site"
+          href={tableLink("/receiving/returns", undefined, { sort: "value:desc" })}
+        />
         <StatTile
           label="Replacements awaited"
           value={open.filter((r) => r.replacementStatus === "AWAITED").length}
           hint="Vendor owes goods"
+          href={statusLink("/receiving/returns", "replacement", ["AWAITED"])}
         />
         <StatTile
           label="Overdue"
           value={overdue.length}
           hint="Past the promised date"
           tone={overdue.length ? "danger" : "default"}
+          href={tableLink("/receiving/returns", { timing: "Overdue" }, { sort: "due:asc" })}
         />
       </div>
 

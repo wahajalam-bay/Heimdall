@@ -18,6 +18,7 @@ import {
 import { ColumnChart } from "@/components/ui/charts";
 import { humanize } from "@/lib/domain";
 import { ageDays, fmtDate, money, round2 } from "@/lib/format";
+import { statusLink } from "@/lib/links";
 
 export const metadata = { title: "Finance handoffs" };
 export const dynamic = "force-dynamic";
@@ -180,15 +181,26 @@ export default async function HandoffsPage() {
         subtitle="The formal transfer of an approved invoice to finance, with the receipt and match evidence attached. Procurement's side ends here; the payment record continues."
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Handoffs raised" value={handoffs.length} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Handoffs raised" value={handoffs.length} href="/finance/handoffs" />
         <StatTile
           label="Awaiting finance acknowledgement"
           value={pending.length}
           tone={pending.length ? "warning" : "success"}
+          href={statusLink("/finance/handoffs", "status", ["PENDING"])}
         />
-        <StatTile label="Acknowledged or scheduled" value={scheduled.length} tone="accent" />
-        <StatTile label="Outstanding value" value={money(outstandingValue)} hint={`${paid.length} paid to date`} />
+        <StatTile
+          label="Acknowledged or scheduled"
+          value={scheduled.length}
+          tone="accent"
+          href={statusLink("/finance/handoffs", "status", ["ACKNOWLEDGED", "SCHEDULED"])}
+        />
+        <StatTile
+          label="Outstanding value"
+          value={money(outstandingValue)}
+          hint={`${paid.length} paid to date`}
+          href={statusLink("/finance/handoffs", "status", ["PENDING", "ACKNOWLEDGED", "SCHEDULED"])}
+        />
       </div>
 
       {handoffs.some((h) => !["PAID", "REJECTED"].includes(h.status)) && (

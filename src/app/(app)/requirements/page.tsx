@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/primitives";
 import { humanize } from "@/lib/domain";
 import { ageDays, fmtDate, money } from "@/lib/format";
+import { statusLink } from "@/lib/links";
 
 export const metadata = { title: "Requirements" };
 export const dynamic = "force-dynamic";
@@ -121,12 +122,12 @@ export default async function RequirementsPage() {
         outcome: outcome ? (
           <span className="flex flex-wrap gap-1">
             {r.storeIssues.map((s) => (
-              <Link key={s.id} href={`/issuance/${s.id}`} className="mono text-2xs text-[var(--c-accent-text)]">
+              <Link key={s.id} href={`/issuance/${s.id}`} className="ref-chip mono text-2xs text-[var(--c-accent-text)]">
                 {s.number}
               </Link>
             ))}
             {r.requisitions.map((s) => (
-              <Link key={s.id} href={`/pr/${s.id}`} className="mono text-2xs text-[var(--c-accent-text)]">
+              <Link key={s.id} href={`/pr/${s.id}`} className="ref-chip mono text-2xs text-[var(--c-accent-text)]">
                 {s.number}
               </Link>
             ))}
@@ -163,16 +164,33 @@ export default async function RequirementsPage() {
         </InlineAlert>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
         <StatTile
           label="Awaiting decision"
           value={awaiting.length}
           hint="Submitted, not yet routed"
           tone={awaiting.length ? "warning" : "default"}
+          href={statusLink("/requirements", "status", ["SUBMITTED", "CHECKING_STOCK"])}
         />
-        <StatTile label="Met from stock" value={fromStock.length} hint="No purchase needed" tone="success" />
-        <StatTile label="Split" value={split.length} hint="Part issued, part bought" />
-        <StatTile label="Sent to procurement" value={bought.length} hint="Nothing on the shelf" />
+        <StatTile
+          label="Met from stock"
+          value={fromStock.length}
+          hint="No purchase needed"
+          tone="success"
+          href={statusLink("/requirements", "status", ["FULFILLED_FROM_STOCK"])}
+        />
+        <StatTile
+          label="Split"
+          value={split.length}
+          hint="Part issued, part bought"
+          href={statusLink("/requirements", "status", ["SPLIT"])}
+        />
+        <StatTile
+          label="Sent to procurement"
+          value={bought.length}
+          hint="Nothing on the shelf"
+          href={statusLink("/requirements", "status", ["SENT_TO_PROCUREMENT"])}
+        />
       </div>
 
       <DataTable

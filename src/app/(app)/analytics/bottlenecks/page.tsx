@@ -19,6 +19,7 @@ import { SEVERITY_TONE, humanize } from "@/lib/domain";
 import { money, round2 } from "@/lib/format";
 import { AnalyticsFilters } from "../AnalyticsFilters";
 import { buildFilter, filterOptions } from "../filters";
+import { tableLink } from "@/lib/links";
 
 export const metadata = { title: "Bottlenecks" };
 export const dynamic = "force-dynamic";
@@ -135,11 +136,31 @@ export default async function BottlenecksPage({ searchParams }: { searchParams: 
 
       <AnalyticsFilters entities={options.entities} show={["entity"]} />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Items waiting" value={rows.length} tone={rows.length ? "warning" : "success"} />
-        <StatTile label="Past SLA" value={overdue.length} tone={overdue.length ? "danger" : "success"} />
-        <StatTile label="Critical" value={critical.length} tone={critical.length ? "danger" : "default"} />
-        <StatTile label="Value held up" value={money(valueHeld)} hint="Order and invoice value in waiting states" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Items waiting"
+          value={rows.length}
+          tone={rows.length ? "warning" : "success"}
+          href="/analytics/bottlenecks"
+        />
+        <StatTile
+          label="Past SLA"
+          value={overdue.length}
+          tone={overdue.length ? "danger" : "success"}
+          href={tableLink("/analytics/bottlenecks", { overdue: "Yes" })}
+        />
+        <StatTile
+          label="Critical"
+          value={critical.length}
+          tone={critical.length ? "danger" : "default"}
+          href={tableLink("/analytics/bottlenecks", { severity: "CRITICAL" })}
+        />
+        <StatTile
+          label="Value held up"
+          value={money(valueHeld)}
+          hint="Order and invoice value in waiting states"
+          href={tableLink("/analytics/bottlenecks", undefined, { sort: "value:desc" })}
+        />
       </div>
 
       {rows.length === 0 ? (
@@ -163,14 +184,26 @@ export default async function BottlenecksPage({ searchParams }: { searchParams: 
           <div className="grid gap-4 lg:grid-cols-2">
             <SectionCard title="By stage" description="Which step in the chain is holding the most work.">
               <RankedBars
-                data={[...byStage.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value)}
+                data={[...byStage.entries()]
+                  .map(([label, value]) => ({
+                    label,
+                    value,
+                    href: tableLink("/analytics/bottlenecks", { stage: label }),
+                  }))
+                  .sort((a, b) => b.value - a.value)}
                 format="number"
                 maxRows={10}
               />
             </SectionCard>
             <SectionCard title="By owner" description="Who has the most sitting with them.">
               <RankedBars
-                data={[...byOwner.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value)}
+                data={[...byOwner.entries()]
+                  .map(([label, value]) => ({
+                    label,
+                    value,
+                    href: tableLink("/analytics/bottlenecks", { owner: label }),
+                  }))
+                  .sort((a, b) => b.value - a.value)}
                 format="number"
                 colorIndex={2}
                 maxRows={10}

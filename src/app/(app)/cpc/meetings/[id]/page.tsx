@@ -162,7 +162,7 @@ export default async function CpcMeetingDetailPage({ params }: { params: Promise
         </InlineAlert>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
         <StatTile label="Cases tabled" value={meeting.cases.length} />
         <StatTile label="Decided" value={decidedCases.length} tone={decidedCases.length ? "success" : "default"} />
         <StatTile label="Still open" value={undecided} tone={undecided ? "warning" : "success"} />

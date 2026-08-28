@@ -49,17 +49,23 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         subtitle="Every report exports as CSV through one audited endpoint, scoped to the entities you can read and gated on the same permission as the corresponding screen."
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Reports available to you" value={available.length} />
-        <StatTile label="Restricted by permission" value={restricted.length} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Reports available to you" value={available.length} href="#reports" />
+        <StatTile label="Restricted by permission" value={restricted.length} href="#reports" />
         <StatTile
           label="Entity scope"
           value={entity ? (ctx.entities.find((e) => e.id === entity)?.code ?? "Selected") : "All readable"}
+          href="#scope"
         />
-        <StatTile label="Date range" value={from || to ? `${from || "start"} → ${to || "now"}` : "All time"} />
+        <StatTile
+          label="Date range"
+          value={from || to ? `${from || "start"} → ${to || "now"}` : "All time"}
+          href="#scope"
+        />
       </div>
 
       <SectionCard
+        id="scope"
         title="Scope"
         description="Set the entity and date range once — every report below picks them up. Reports without a date dimension ignore the dates."
       >
@@ -98,7 +104,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         const inGroup = REPORT_CATALOGUE.filter((r) => r.group === group);
         if (inGroup.length === 0) return null;
         return (
-          <SectionCard key={group} title={group}>
+          <SectionCard key={group} id={group === REPORT_GROUPS[0] ? "reports" : undefined} title={group}>
             <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
               {inGroup.map((r) => {
                 const allowed = userHasPermission(user, ...r.perms);

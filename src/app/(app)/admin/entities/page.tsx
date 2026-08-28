@@ -70,14 +70,19 @@ export default async function AdminEntitiesPage() {
         actions={<EntityForm />}
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Entities" value={entities.length} />
-        <StatTile label="Active" value={active.length} tone="success" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Entities" value={entities.length} href="/admin/entities" />
+        <StatTile label="Active" value={active.length} tone="success" href="/admin/entities" />
         <StatTile
           label="Departments"
           value={entities.reduce((a, e) => a + e._count.departments, 0)}
+          href="/admin/departments"
         />
-        <StatTile label="Stores" value={entities.reduce((a, e) => a + e._count.stores, 0)} />
+        <StatTile
+          label="Stores"
+          value={entities.reduce((a, e) => a + e._count.stores, 0)}
+          href="/admin/stores"
+        />
       </div>
 
       <InlineAlert tone="info">

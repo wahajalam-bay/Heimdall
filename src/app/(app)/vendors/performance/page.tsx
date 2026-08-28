@@ -22,6 +22,7 @@ import { RankedBars } from "@/components/ui/charts";
 import { humanize } from "@/lib/domain";
 import { fmtDate, money, percent, round2 } from "@/lib/format";
 import { recomputePerformanceAction } from "../actions";
+import { tableLink } from "@/lib/links";
 
 export const metadata = { title: "Vendor performance" };
 export const dynamic = "force-dynamic";
@@ -54,6 +55,7 @@ export default async function VendorPerformancePage() {
 
   const columns: TableColumn[] = [
     { key: "vendor", header: "Vendor", locked: true, sortable: true, minWidth: "16rem" },
+    { key: "band", header: "Band", filterable: true, sortable: true, width: "11rem", defaultHidden: true },
     { key: "status", header: "Status", filterable: true, sortable: true, width: "10rem" },
     { key: "score", header: "Score", numeric: true, sortable: true, width: "10rem" },
     { key: "onTime", header: "On time", numeric: true, sortable: true, width: "8.5rem" },
@@ -82,6 +84,8 @@ export default async function VendorPerformancePage() {
       values: {
         vendor: v.name,
         status: humanize(v.status),
+        band:
+          v.performanceScore === null ? "Not scored" : score >= 70 ? "Performing well" : score < 50 ? "Underperforming" : "Middling",
         score: round2(score),
         onTime: round2(v.onTimePercent ?? 0),
         quality: round2(v.qualityPercent ?? 0),
@@ -98,6 +102,16 @@ export default async function VendorPerformancePage() {
         lastOrder: v.lastOrderAt ? v.lastOrderAt.toISOString() : "",
       },
       cells: {
+        band:
+          v.performanceScore === null ? (
+            <span className="text-[var(--c-text-tertiary)]">Not scored</span>
+          ) : score >= 70 ? (
+            <Badge tone="success">Performing well</Badge>
+          ) : score < 50 ? (
+            <Badge tone="danger">Underperforming</Badge>
+          ) : (
+            <span className="text-[var(--c-text-tertiary)]">Middling</span>
+          ),
         vendor: (
           <span>
             <RefLink href={`/vendors/${v.id}`}>{v.name}</RefLink>
@@ -156,11 +170,27 @@ export default async function VendorPerformancePage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Vendors with orders" value={vendors.length} />
-        <StatTile label="Scored" value={scored.length} />
-        <StatTile label="Performing well" value={strong.length} tone="success" hint="Score 70 or above" />
-        <StatTile label="Underperforming" value={weak.length} tone={weak.length ? "danger" : "default"} hint="Score below 50" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Vendors with orders" value={vendors.length} href="/vendors/performance" />
+        <StatTile
+          label="Scored"
+          value={scored.length}
+          href={tableLink("/vendors/performance", { band: ["Performing well", "Middling", "Underperforming"] })}
+        />
+        <StatTile
+          label="Performing well"
+          value={strong.length}
+          tone="success"
+          hint="Score 70 or above"
+          href={tableLink("/vendors/performance", { band: "Performing well" }, { sort: "score:desc" })}
+        />
+        <StatTile
+          label="Underperforming"
+          value={weak.length}
+          tone={weak.length ? "danger" : "default"}
+          hint="Score below 50"
+          href={tableLink("/vendors/performance", { band: "Underperforming" }, { sort: "score:asc" })}
+        />
       </div>
 
       {weak.length > 0 && (

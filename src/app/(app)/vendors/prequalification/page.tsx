@@ -22,6 +22,7 @@ import {
 import { humanize } from "@/lib/domain";
 import { ageDays, fmtDate, percent, round2 } from "@/lib/format";
 import { EvaluateVendorForm, VendorDecisionForm } from "../VendorStageForms";
+import { tableLink } from "@/lib/links";
 
 export const metadata = { title: "Vendor pre-qualification" };
 export const dynamic = "force-dynamic";
@@ -87,11 +88,21 @@ export default async function PrequalificationPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="In the queue" value={vendors.length} />
-        <StatTile label="Not yet scored" value={unscored.length} tone={unscored.length ? "warning" : "default"} />
-        <StatTile label="Scored" value={scored.length} />
-        <StatTile label="Passing, awaiting approval" value={passing.length} tone={passing.length ? "accent" : "default"} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="In the queue" value={vendors.length} href="/vendors?tab=pipeline" />
+        <StatTile
+          label="Not yet scored"
+          value={unscored.length}
+          tone={unscored.length ? "warning" : "default"}
+          href="/vendors/prequalification"
+        />
+        <StatTile label="Scored" value={scored.length} href="/vendors/evaluations" />
+        <StatTile
+          label="Passing, awaiting approval"
+          value={passing.length}
+          tone={passing.length ? "accent" : "default"}
+          href={tableLink("/vendors/evaluations", { outcome: "Passed" })}
+        />
       </div>
 
       <InlineAlert tone="info">

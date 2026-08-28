@@ -19,6 +19,7 @@ import {
 import { DonutChart, RankedBars } from "@/components/ui/charts";
 import { ASSET_STATUSES, humanize } from "@/lib/domain";
 import { ageDays, fmtDate, money, round2 } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Assets" };
 export const dynamic = "force-dynamic";
@@ -192,11 +193,26 @@ export default async function AssetsPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Assets on register" value={assets.length} />
-        <StatTile label="In use" value={active.length} tone="success" />
-        <StatTile label="Idle or in storage" value={idle.length} tone={idle.length ? "warning" : "default"} />
-        <StatTile label="Book value held" value={money(bookValue)} hint={`${disposed.length} disposed to date`} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Assets on register" value={assets.length} href="/assets" />
+        <StatTile
+          label="In use"
+          value={active.length}
+          tone="success"
+          href={statusLink("/assets", "status", ["ACTIVE", "ISSUED"])}
+        />
+        <StatTile
+          label="Idle or in storage"
+          value={idle.length}
+          tone={idle.length ? "warning" : "default"}
+          href={statusLink("/assets", "status", ["IDLE", "IN_STORAGE"])}
+        />
+        <StatTile
+          label="Book value held"
+          value={money(bookValue)}
+          hint={`${disposed.length} disposed to date`}
+          href={tableLink("/assets", undefined, { sort: "currentValue:desc" })}
+        />
       </div>
 
       {idle.length > 0 && (
@@ -256,12 +272,21 @@ export default async function AssetsPage() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <SectionCard title="Register by status" description="Where the asset base actually sits.">
-          <DonutChart data={statusMix} centerLabel="Assets" centerValue={String(assets.length)} format="number" />
+          <DonutChart
+            data={statusMix.map((d) => ({ ...d, href: tableLink("/assets", { status: d.label }) }))}
+            centerLabel="Assets"
+            centerValue={String(assets.length)}
+            format="number"
+          />
         </SectionCard>
         <SectionCard title="Value by category" description="Current value of assets still on the register.">
           <RankedBars
             data={[...byCategory.entries()]
-              .map(([label, value]) => ({ label, value }))
+              .map(([label, value]) => ({
+                label,
+                value,
+                href: tableLink("/assets", { category: label }, { sort: "currentValue:desc" }),
+              }))
               .sort((a, b) => b.value - a.value)}
             format="moneyCompact"
             maxRows={8}

@@ -22,6 +22,7 @@ import { humanize } from "@/lib/domain";
 import { fmtDate, money, percent, round2 } from "@/lib/format";
 import { AnalyticsFilters } from "../AnalyticsFilters";
 import { buildFilter, filterOptions } from "../filters";
+import { tableLink } from "@/lib/links";
 
 export const metadata = { title: "Vendor analytics" };
 export const dynamic = "force-dynamic";
@@ -162,20 +163,31 @@ export default async function VendorAnalyticsPage({ searchParams }: { searchPara
 
       <AnalyticsFilters entities={options.entities} show={["entity", "from", "to"]} />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Vendors transacting" value={transacting.length} hint={`${rows.length} on the register`} />
-        <StatTile label="Total spend" value={money(totalSpend)} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Vendors transacting"
+          value={transacting.length}
+          hint={`${rows.length} on the register`}
+          href={tableLink("/analytics/vendors", undefined, { sort: "orders:desc" })}
+        />
+        <StatTile
+          label="Total spend"
+          value={money(totalSpend)}
+          href={tableLink("/analytics/vendors", undefined, { sort: "spend:desc" })}
+        />
         <StatTile
           label="Top five share"
           value={percent(top5Share, 1)}
           tone={top5Share > 70 ? "warning" : "default"}
           hint="Concentration in the largest five vendors"
+          href={tableLink("/analytics/vendors", undefined, { sort: "concentration:desc" })}
         />
         <StatTile
           label="Underperforming"
           value={weak.length}
           tone={weak.length ? "danger" : "success"}
           hint="Performance score below 50"
+          href={tableLink("/vendors/performance", { band: "Underperforming" }, { sort: "score:asc" })}
         />
       </div>
 
@@ -201,7 +213,12 @@ export default async function VendorAnalyticsPage({ searchParams }: { searchPara
           />
         </SectionCard>
         <SectionCard title="Register by status" description="Composition of the vendor base.">
-          <DonutChart data={statusMix} centerLabel="Vendors" centerValue={String(rows.length)} format="number" />
+          <DonutChart
+            data={statusMix.map((d) => ({ ...d, href: tableLink("/analytics/vendors", { status: d.label }) }))}
+            centerLabel="Vendors"
+            centerValue={String(rows.length)}
+            format="number"
+          />
         </SectionCard>
         <SectionCard title="Performance leaders" description="Computed score, highest first.">
           <RankedBars

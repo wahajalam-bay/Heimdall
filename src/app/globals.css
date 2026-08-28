@@ -649,6 +649,34 @@
     color: var(--chip-fg);
   }
 
+  /* A row's selection box was the browser default: 13px, and the thing somebody
+     has to hit repeatedly to work a queue on a phone. The box grows; the column
+     it sits in was already wider than this. */
+  input[type="checkbox"],
+  input[type="radio"] {
+    @apply size-4.5;
+    accent-color: var(--accent);
+    cursor: var(--cursor-interactive);
+  }
+
+  /* A monospace reference rendered as a link: the text is deliberately small, so
+     the target is made big enough by padding rather than by type size. The
+     negative margin keeps the surrounding layout where it was. */
+  .ref-chip {
+    @apply -my-1 inline-flex min-h-6 items-center py-1;
+    cursor: var(--cursor-interactive);
+  }
+
+  /* A badge that is a link is a navigation target — the downstream references on
+     a table row are reached this way — and at 20px it was under the size a thumb
+     can reliably hit. Only the target grows: the pill keeps its proportions
+     because the extra height is padding either side of the same line. */
+  a.badge,
+  button.badge {
+    @apply min-h-6 py-1;
+    cursor: var(--cursor-interactive);
+  }
+
   .badge-neutral {
     --chip-bg: var(--default);
     --chip-fg: var(--default-foreground);

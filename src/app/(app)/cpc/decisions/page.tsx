@@ -17,6 +17,7 @@ import {
 import { RankedBars } from "@/components/ui/charts";
 import { humanize } from "@/lib/domain";
 import { fmtDateTime, money, percent, round2 } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "CPC decisions" };
 export const dynamic = "force-dynamic";
@@ -153,16 +154,27 @@ export default async function CpcDecisionsPage() {
         subtitle="Every individual vote ever cast, attributed by name and role. This is the accountability record — it is never edited, only added to."
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Votes cast" value={decisions.length} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Votes cast" value={decisions.length} href="/cpc/decisions" />
         <StatTile
           label="Approvals"
           value={approvals}
           hint={decisions.length ? percent(round2((approvals / decisions.length) * 100), 0) : undefined}
           tone="success"
+          href={statusLink("/cpc/decisions", "vote", ["APPROVE"])}
         />
-        <StatTile label="Dissents" value={dissents} tone={dissents ? "warning" : "default"} hint="Reject, return or clarification" />
-        <StatTile label="Abstentions" value={abstentions} />
+        <StatTile
+          label="Dissents"
+          value={dissents}
+          tone={dissents ? "warning" : "default"}
+          hint="Reject, return or clarification"
+          href={statusLink("/cpc/decisions", "vote", ["REJECT", "RETURN", "REQUEST_CLARIFICATION"])}
+        />
+        <StatTile
+          label="Abstentions"
+          value={abstentions}
+          href={statusLink("/cpc/decisions", "vote", ["ABSTAIN"])}
+        />
       </div>
 
       {byMember.size > 0 && (
@@ -172,7 +184,11 @@ export default async function CpcDecisionsPage() {
         >
           <RankedBars
             data={[...byMember.values()]
-              .map((m) => ({ label: m.name, value: m.count }))
+              .map((m) => ({
+                label: m.name,
+                value: m.count,
+                href: tableLink("/cpc/decisions", undefined, { q: m.name }),
+              }))
               .sort((a, b) => b.value - a.value)}
             format="number"
             maxRows={10}

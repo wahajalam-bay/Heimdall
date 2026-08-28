@@ -561,7 +561,7 @@ export function InspectionPanel({ pr }: { pr: ProcurementCase }) {
                     )}
                   </div>
                   {criteria.length > 0 && (
-                    <div className="mt-2.5 overflow-hidden rounded-lg border border-separator">
+                    <div className="mt-2.5 table-wrap rounded-lg border border-separator">
                       <table className="dt">
                         <thead>
                           <tr>

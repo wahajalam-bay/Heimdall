@@ -109,11 +109,16 @@ export default async function AdminPage() {
         subtitle="Access, business rules, organisation structure and the catalogue. Every change here is audited with the reason given."
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Users" value={users} />
-        <StatTile label="Roles" value={roles} />
-        <StatTile label="Approval rules" value={rules} />
-        <StatTile label="Rule overrides in force" value={overrides} hint="Entity or global overrides of a shipped default" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Users" value={users} href="/admin/users" />
+        <StatTile label="Roles" value={roles} href="/admin/roles" />
+        <StatTile label="Approval rules" value={rules} href="/admin/approval-rules" />
+        <StatTile
+          label="Rule overrides in force"
+          value={overrides}
+          hint="Entity or global overrides of a shipped default"
+          href="/admin/policies"
+        />
       </div>
 
       <InlineAlert tone="info">

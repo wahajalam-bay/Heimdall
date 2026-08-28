@@ -18,8 +18,9 @@ import {
   StatusBadge,
 } from "@/components/ui/primitives";
 import { RankedBars } from "@/components/ui/charts";
-import { humanize } from "@/lib/domain";
+import { DISPOSAL_STAGES, humanize } from "@/lib/domain";
 import { ageDays, fmtDate, money, percent, round2 } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Scrap and waste" };
 export const dynamic = "force-dynamic";
@@ -103,11 +104,25 @@ export default async function ScrapPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Scrap cases" value={scrapCases.length} />
-        <StatTile label="Open" value={open.length} tone={open.length ? "warning" : "default"} />
-        <StatTile label="Estimated value pending" value={money(estimatedOpen)} />
-        <StatTile label="Realised to date" value={money(realised)} tone="success" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Scrap cases" value={scrapCases.length} href="#cases" />
+        <StatTile
+          label="Open"
+          value={open.length}
+          tone={open.length ? "warning" : "default"}
+          href={statusLink(
+            "/disposal",
+            "stage",
+            DISPOSAL_STAGES.filter((st) => !["COMPLETED", "REJECTED", "CANCELLED"].includes(st)),
+          )}
+        />
+        <StatTile label="Estimated value pending" value={money(estimatedOpen)} href="#cases" />
+        <StatTile
+          label="Realised to date"
+          value={money(realised)}
+          tone="success"
+          href={tableLink("/disposal", { stage: "Completed" }, { sort: "realised:desc" })}
+        />
       </div>
 
       <InlineAlert tone="info">
@@ -115,7 +130,7 @@ export default async function ScrapPage() {
         clears the bidding threshold, bids are mandatory. That is what stops scrap quietly walking off a site.
       </InlineAlert>
 
-      <SectionCard title="Scrap and waste cases" bodyClassName="px-0 py-0">
+      <SectionCard id="cases" title="Scrap and waste cases" bodyClassName="px-0 py-0">
         {scrapCases.length === 0 ? (
           <EmptyState
             title="No scrap cases raised"
@@ -193,7 +208,11 @@ export default async function ScrapPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         {byCategory.length > 0 && (
           <SectionCard title="Cases by category">
-            <RankedBars data={byCategory} format="number" maxRows={5} />
+            <RankedBars
+            data={byCategory.map((d) => ({ ...d, href: tableLink("/disposal", { category: d.label }) }))}
+            format="number"
+            maxRows={5}
+          />
           </SectionCard>
         )}
         {byCondition.size > 0 && (

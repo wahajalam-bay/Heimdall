@@ -16,6 +16,7 @@ import { ActionButton } from "@/components/ui/forms";
 import { RankedBars } from "@/components/ui/charts";
 import { restoreRoleDefaultsAction } from "../actions";
 import { RoleForm } from "../AdminAccessForms";
+import { tableLink } from "@/lib/links";
 
 export const metadata = { title: "Roles and permissions" };
 export const dynamic = "force-dynamic";
@@ -72,20 +73,22 @@ export default async function AdminRolesPage() {
         subtitle={`${roles.length} roles across ${allPermissions.length} permissions. Every screen and every action re-checks these on the server — the interface never decides authority on its own.`}
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Roles" value={roles.length} />
-        <StatTile label="Permissions" value={allPermissions.length} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Roles" value={roles.length} href="#roles" />
+        <StatTile label="Permissions" value={allPermissions.length} href="#roles" />
         <StatTile
           label="Roles changed from shipped"
           value={drifted.length}
           tone={drifted.length ? "warning" : "default"}
           hint="Deliberate drift is fine; accidental drift is not"
+          href="#roles"
         />
         <StatTile
           label="Permissions held by nobody"
           value={orphanPermissions.length}
           tone={orphanPermissions.length ? "warning" : "success"}
           hint="Nobody can perform these actions at all"
+          href="#orphans"
         />
       </div>
 
@@ -108,10 +111,15 @@ export default async function AdminRolesPage() {
         </InlineAlert>
       )}
 
-      <SectionCard title="People per role" description="Where authority actually sits.">
+      <SectionCard id="roles" title="People per role" description="Where authority actually sits.">
         <RankedBars
           data={roles
-            .map((r) => ({ label: r.name, value: r.users.length, sub: `${r.permissions.length} permissions` }))
+            .map((r) => ({
+              label: r.name,
+              value: r.users.length,
+              sub: `${r.permissions.length} permissions`,
+              href: `/admin/users?q=${encodeURIComponent(r.name)}`,
+            }))
             .sort((a, b) => b.value - a.value)}
           format="number"
           maxRows={12}
@@ -227,6 +235,7 @@ export default async function AdminRolesPage() {
       )}
 
       <SectionCard
+        id="orphans"
         title="Permission catalogue"
         description="Every permission the system checks, grouped by area. The name is what the permission actually allows."
         bodyClassName="px-0 py-0"

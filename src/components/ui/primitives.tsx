@@ -57,6 +57,7 @@ export function Card({
 }
 
 export function SectionCard({
+  id,
   title,
   description,
   actions,
@@ -65,6 +66,8 @@ export function SectionCard({
   bodyClassName,
   footer,
 }: {
+  /** Anchor target, so a tile can link to the section it summarises. */
+  id?: string;
   title?: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
@@ -74,14 +77,17 @@ export function SectionCard({
   footer?: ReactNode;
 }) {
   return (
-    <section className={classNames("card overflow-hidden", className)}>
+    // scroll-mt keeps the heading clear of the sticky bar when arrived at by anchor.
+    <section id={id} className={classNames("card overflow-hidden", id && "scroll-mt-20", className)}>
       {(title || actions) && (
-        <header className="flex items-start justify-between gap-3 px-4 pt-4 pb-3">
+        <header className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 px-4 pt-4 pb-3">
           <div className="min-w-0">
             {title && <h3 className="text-sm leading-6 font-medium text-foreground">{title}</h3>}
             {description && <p className="text-sm leading-5 text-muted">{description}</p>}
           </div>
-          {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+          {actions && (
+            <div className="flex min-w-0 shrink flex-wrap items-center gap-2 sm:shrink-0">{actions}</div>
+          )}
         </header>
       )}
       <div className={classNames(bodyClassName ?? "px-4 pb-4")}>{children}</div>
@@ -128,7 +134,9 @@ export function PageHeader({
         )}
         {meta && <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5">{meta}</div>}
       </div>
-      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+      {actions && (
+        <div className="flex min-w-0 shrink flex-wrap items-center gap-2 sm:shrink-0">{actions}</div>
+      )}
     </header>
   );
 }
@@ -471,7 +479,7 @@ export function RefLink({ href, children }: { href: string; children: ReactNode 
   return (
     <Link
       href={href}
-      className="mono font-500 text-[var(--c-accent-text)] underline decoration-[var(--c-accent-soft-border)] decoration-1 underline-offset-2 hover:decoration-[var(--c-accent)]"
+      className="mono -my-1 inline-flex min-h-6 items-center py-1 font-500 text-[var(--c-accent-text)] underline decoration-[var(--c-accent-soft-border)] decoration-1 underline-offset-2 hover:decoration-[var(--c-accent)]"
     >
       {children}
     </Link>
@@ -533,13 +541,23 @@ export function KeyValueRow({ label, children }: { label: string; children: Reac
 }
 
 export function InlineAlert({
+  id,
   tone = "info",
   children,
 }: {
+  /** Anchor target, so a tile can link to the warning it is counting. */
+  id?: string;
   tone?: "info" | "success" | "warning" | "danger";
   children: ReactNode;
 }) {
   return (
-    <div className={classNames("alert px-4 py-3 text-xs leading-5", `alert-${tone}`)}>{children}</div>
+    // scroll-mt keeps the alert clear of the sticky bar when arrived at by anchor.
+    <div id={id} className={classNames("alert px-4 py-3 text-xs leading-5", id && "scroll-mt-20", `alert-${tone}`)}>
+      {/* `.alert` is a non-wrapping flex row, so passing a sentence straight in
+          made every inline element inside it — a <Mono>, a badge, a link — its own
+          flex item laid out in a row that ran off the side of a phone. One block
+          child gives the text back its normal flow. */}
+      <div className="min-w-0 flex-1 break-words">{children}</div>
+    </div>
   );
 }

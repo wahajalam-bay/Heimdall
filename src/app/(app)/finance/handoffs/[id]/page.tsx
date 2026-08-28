@@ -236,7 +236,7 @@ export default async function HandoffDetailPage({ params }: { params: Promise<{ 
 
       <LifecycleRail steps={rail} title="Handoff lifecycle" />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
         <StatTile label="Amount payable" value={money(handoff.amount)} />
         <StatTile label="Invoice total" value={money(invoice.total)} hint={`Order ${money(invoice.po.total)}`} />
         <StatTile

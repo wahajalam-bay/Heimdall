@@ -7,6 +7,7 @@ import { DataTable, type TableColumn, type TableRow } from "@/components/ui/Data
 import { Badge, EmptyState, InlineAlert, Mono, PageHeader, StatTile } from "@/components/ui/primitives";
 import { adminOptions } from "../actions";
 import { DepartmentForm } from "../AdminMasterForms";
+import { tableLink } from "@/lib/links";
 
 export const metadata = { title: "Departments" };
 export const dynamic = "force-dynamic";
@@ -48,6 +49,7 @@ export default async function AdminDepartmentsPage() {
     { key: "pettyCash", header: "Petty cash", numeric: true, sortable: true, width: "9rem" },
     { key: "rules", header: "Approval rules", numeric: true, sortable: true, width: "10rem" },
     { key: "status", header: "Status", filterable: true, sortable: true, width: "8rem" },
+    { key: "headship", header: "Headship", filterable: true, sortable: true, width: "10rem", defaultHidden: true },
     { key: "actions", header: "", width: "6rem", noExport: true },
   ];
 
@@ -68,9 +70,15 @@ export default async function AdminDepartmentsPage() {
         pettyCash: d._count.pettyCash,
         rules: d._count.approvalRules,
         status: d.active ? "Active" : "Inactive",
+        headship: head ? "Assigned" : "No head",
         actions: "",
       },
       cells: {
+        headship: head ? (
+          <span className="text-[var(--c-text-tertiary)]">Assigned</span>
+        ) : (
+          <Badge tone="warning">No head</Badge>
+        ),
         code: <Mono>{d.code}</Mono>,
         name: d.name,
         entity: <Badge tone="neutral">{d.entity.code}</Badge>,
@@ -118,16 +126,26 @@ export default async function AdminDepartmentsPage() {
         actions={<DepartmentForm entities={options.entities} users={options.users} />}
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Departments" value={departments.length} />
-        <StatTile label="Active" value={active.length} tone="success" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Departments" value={departments.length} href="/admin/departments" />
+        <StatTile
+          label="Active"
+          value={active.length}
+          tone="success"
+          href={tableLink("/admin/departments", { status: "Active" })}
+        />
         <StatTile
           label="Without a head"
           value={withoutHead.length}
           tone={withoutHead.length ? "warning" : "success"}
           hint="Department-head approvals cannot be routed"
+          href={tableLink("/admin/departments", { headship: "No head" })}
         />
-        <StatTile label="Requisitions raised" value={departments.reduce((a, d) => a + d._count.requisitions, 0)} />
+        <StatTile
+          label="Requisitions raised"
+          value={departments.reduce((a, d) => a + d._count.requisitions, 0)}
+          href={tableLink("/admin/departments", undefined, { sort: "requisitions:desc" })}
+        />
       </div>
 
       {withoutHead.length > 0 && (

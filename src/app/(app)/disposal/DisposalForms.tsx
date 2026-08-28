@@ -202,7 +202,7 @@ export function DisposalForm({
 
       <FormSection title="Items" columns={1}>
         <div className="space-y-2.5 sm:col-span-full">
-          <div className="overflow-hidden rounded-xl border border-border">
+          <div className="table-wrap rounded-xl border border-border">
             <table className="dt">
               <thead>
                 <tr>

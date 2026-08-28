@@ -648,7 +648,7 @@ export function ApprovalRuleForm({
 
           <FormSection title="Approval chain" columns={1} description="Steps run in order. An optional step can be skipped; a required one cannot.">
             <div className="space-y-2.5 sm:col-span-full">
-              <div className="overflow-hidden rounded-xl border border-border">
+              <div className="table-wrap rounded-xl border border-border">
                 <table className="dt">
                   <thead>
                     <tr>

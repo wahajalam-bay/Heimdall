@@ -15,8 +15,9 @@ import {
   StatTile,
   StatusBadge,
 } from "@/components/ui/primitives";
-import { BLACKLIST_LIFECYCLE, humanize } from "@/lib/domain";
+import { BLACKLIST_LIFECYCLE, BLACKLIST_STAGES, humanize } from "@/lib/domain";
 import { ageDays, fmtDate } from "@/lib/format";
+import { statusLink } from "@/lib/links";
 
 export const metadata = { title: "Vendor investigations" };
 export const dynamic = "force-dynamic";
@@ -146,14 +147,33 @@ export default async function BlacklistPage() {
         subtitle="Blacklisting is the outcome of a case, never a switch someone flips. Evidence is collected, the vendor replies, procurement reviews and audit signs off before any decision."
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Open investigations" value={openCases.length} tone={openCases.length ? "warning" : "default"} />
-        <StatTile label="Awaiting vendor reply" value={awaitingVendor.length} />
-        <StatTile label="Awaiting audit review" value={awaitingAudit.length} tone={awaitingAudit.length ? "accent" : "default"} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Open investigations"
+          value={openCases.length}
+          tone={openCases.length ? "warning" : "default"}
+          href={statusLink(
+            "/vendors/blacklist",
+            "stage",
+            BLACKLIST_STAGES.filter((st) => st !== "CLOSED"),
+          )}
+        />
+        <StatTile
+          label="Awaiting vendor reply"
+          value={awaitingVendor.length}
+          href={statusLink("/vendors/blacklist", "stage", ["VENDOR_RESPONSE_AWAITED"])}
+        />
+        <StatTile
+          label="Awaiting audit review"
+          value={awaitingAudit.length}
+          tone={awaitingAudit.length ? "accent" : "default"}
+          href={statusLink("/vendors/blacklist", "stage", ["AUDIT_REVIEW"])}
+        />
         <StatTile
           label="Currently blacklisted"
           value={blacklisted.length}
           tone={blacklisted.length ? "danger" : "success"}
+          href={statusLink("/vendors/blacklist", "vendorStatus", ["BLACKLISTED"])}
         />
       </div>
 

@@ -285,7 +285,7 @@ export function RecordPurchaseForm({
             </Field>
           </FormSection>
 
-          <div className="overflow-hidden rounded-xl border border-border">
+          <div className="table-wrap rounded-xl border border-border">
             <table className="dt">
               <thead>
                 <tr>
@@ -436,7 +436,7 @@ export function StoreEntryForm({
             </Field>
           </FormSection>
 
-          <div className="overflow-hidden rounded-xl border border-border">
+          <div className="table-wrap rounded-xl border border-border">
             <table className="dt">
               <thead>
                 <tr>

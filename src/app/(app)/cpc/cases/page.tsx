@@ -8,6 +8,7 @@ import { DataTable, type TableColumn, type TableRow } from "@/components/ui/Data
 import { Badge, EmptyState, PageHeader, RefLink, StatTile, StatusBadge } from "@/components/ui/primitives";
 import { humanize } from "@/lib/domain";
 import { ageDays, fmtDate, money, round2 } from "@/lib/format";
+import { statusLink } from "@/lib/links";
 
 export const metadata = { title: "CPC cases" };
 export const dynamic = "force-dynamic";
@@ -144,11 +145,26 @@ export default async function CpcCasesPage() {
         subtitle="Every case the committee has ever seen, with the votes cast and the turnaround achieved."
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Cases raised" value={cases.length} />
-        <StatTile label="Open" value={open.length} tone={open.length ? "warning" : "success"} />
-        <StatTile label="Approved" value={approved.length} tone="success" />
-        <StatTile label="Rejected or returned" value={rejected.length} tone={rejected.length ? "danger" : "default"} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Cases raised" value={cases.length} href="/cpc/cases" />
+        <StatTile
+          label="Open"
+          value={open.length}
+          tone={open.length ? "warning" : "success"}
+          href={statusLink("/cpc/cases", "status", ["PENDING", "SCHEDULED", "UNDER_REVIEW"])}
+        />
+        <StatTile
+          label="Approved"
+          value={approved.length}
+          tone="success"
+          href={statusLink("/cpc/cases", "status", ["APPROVED"])}
+        />
+        <StatTile
+          label="Rejected or returned"
+          value={rejected.length}
+          tone={rejected.length ? "danger" : "default"}
+          href={statusLink("/cpc/cases", "status", ["REJECTED", "RETURNED", "CLARIFICATION"])}
+        />
       </div>
 
       <DataTable

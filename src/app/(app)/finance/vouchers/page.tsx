@@ -8,6 +8,7 @@ import { Badge, EmptyState, InlineAlert, PageHeader, RefLink, StatTile, StatusBa
 import { voucherStats } from "@/server/vouchers";
 import { humanize } from "@/lib/domain";
 import { ageDays, fmtDate, money } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Payment Vouchers" };
 export const dynamic = "force-dynamic";
@@ -148,20 +149,38 @@ export default async function VouchersPage() {
         </InlineAlert>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
         <StatTile
           label="Awaiting signature"
           value={stats.awaitingSignature}
           hint="Raised, not yet fully signed"
           tone={stats.awaitingSignature ? "warning" : "default"}
+          href={statusLink("/finance/vouchers", "status", ["PENDING_SIGNATORIES"])}
         />
-        <StatTile label="Signed, awaiting payment" value={stats.approved} hint="Ready for release" tone="accent" />
+        <StatTile
+          label="Signed, awaiting payment"
+          value={stats.approved}
+          hint="Ready for release"
+          tone="accent"
+          href={statusLink("/finance/vouchers", "status", ["APPROVED"])}
+        />
         <StatTile
           label="Value in the queue"
           value={money(stats.valueAwaiting, "PKR", { compact: true })}
           hint="Raised but not yet paid"
+          href={tableLink(
+            "/finance/vouchers",
+            { status: ["PENDING_SIGNATORIES", "APPROVED"].map((st) => humanize(st)) },
+            { sort: "net:desc" },
+          )}
         />
-        <StatTile label="Paid" value={stats.paid} hint="Settled through a voucher" tone="success" />
+        <StatTile
+          label="Paid"
+          value={stats.paid}
+          hint="Settled through a voucher"
+          tone="success"
+          href={statusLink("/finance/vouchers", "status", ["PAID"])}
+        />
       </div>
 
       <DataTable

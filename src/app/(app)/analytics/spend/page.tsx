@@ -10,6 +10,7 @@ import { RankedBars, TrendChart } from "@/components/ui/charts";
 import { money, percent, round2 } from "@/lib/format";
 import { AnalyticsFilters } from "../AnalyticsFilters";
 import { buildFilter, filterOptions, periodLabel } from "../filters";
+import { tableLink } from "@/lib/links";
 
 export const metadata = { title: "Spend analysis" };
 export const dynamic = "force-dynamic";
@@ -119,18 +120,30 @@ export default async function SpendPage({ searchParams }: { searchParams: Promis
         show={["entity", "department", "category", "vendor", "project", "from", "to"]}
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Total spend" value={money(total)} hint={`${orders} order line groups`} />
-        <StatTile label="Distinct values" value={slices.length} hint={DIMENSIONS.find((d) => d.key === dimension)!.label} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Total spend"
+          value={money(total)}
+          hint={`${orders} order line groups`}
+          href={tableLink("/analytics/spend", undefined, { dimension, sort: "value:desc" })}
+        />
+        <StatTile
+          label="Distinct values"
+          value={slices.length}
+          hint={DIMENSIONS.find((d) => d.key === dimension)!.label}
+          href={tableLink("/analytics/spend", undefined, { dimension, sort: "label:asc" })}
+        />
         <StatTile
           label="Top three share"
           value={percent(top3Share, 1)}
           tone={top3Share > 70 ? "warning" : "default"}
           hint="Concentration in the largest three"
+          href={tableLink("/analytics/spend", undefined, { dimension, sort: "share:desc" })}
         />
         <StatTile
           label="Average order value"
           value={orders > 0 ? money(round2(total / orders)) : "—"}
+          href={tableLink("/analytics/spend", undefined, { dimension, sort: "average:desc" })}
         />
       </div>
 

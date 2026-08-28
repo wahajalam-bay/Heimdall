@@ -22,6 +22,7 @@ import { humanize } from "@/lib/domain";
 import { ageDays, fmtDate, fmtDateTime, money, round2 } from "@/lib/format";
 import { cpcOptions } from "./actions";
 import { ScheduleMeetingForm } from "./CpcForms";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Central Procurement Committee" };
 export const dynamic = "force-dynamic";
@@ -136,15 +137,34 @@ export default async function CpcPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Open cases" value={stats.pending} tone={stats.pending ? "warning" : "success"} />
-        <StatTile label="Value under review" value={money(round2(pendingCases.reduce((a, c) => a + c.amount, 0)))} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Open cases"
+          value={stats.pending}
+          tone={stats.pending ? "warning" : "success"}
+          href={statusLink("/cpc/cases", "status", ["PENDING", "SCHEDULED", "UNDER_REVIEW"])}
+        />
+        <StatTile
+          label="Value under review"
+          value={money(round2(pendingCases.reduce((a, c) => a + c.amount, 0)))}
+          href={tableLink(
+            "/cpc/cases",
+            { status: ["PENDING", "SCHEDULED", "UNDER_REVIEW"].map((st) => humanize(st)) },
+            { sort: "amount:desc" },
+          )}
+        />
         <StatTile
           label="Average time to decision"
           value={stats.avgApprovalHours > 48 ? `${round2(stats.avgApprovalHours / 24)} days` : `${stats.avgApprovalHours} h`}
           hint="From case creation to recorded outcome"
+          href="/cpc/decisions"
         />
-        <StatTile label="Savings endorsed" value={money(stats.totalSavings)} tone="success" />
+        <StatTile
+          label="Savings endorsed"
+          value={money(stats.totalSavings)}
+          tone="success"
+          href="/analytics/savings"
+        />
       </div>
 
       {myCases.length > 0 && (

@@ -11,6 +11,32 @@ import { ChartFrame, ChartTable, DonutChart, RankedBars } from "@/components/ui/
 import { AdjustStockForm } from "./AdjustStockForm";
 import { humanize } from "@/lib/domain";
 import { fmtDate, fmtDateTime, money, qty, round2 } from "@/lib/format";
+import { tableLink } from "@/lib/links";
+
+/**
+ * The document behind a ledger entry.
+ *
+ * A movement always names what caused it; this turns that name into somewhere to
+ * go. Anything unrecognised returns null rather than guessing at a route, because
+ * a link to a page that does not exist is worse than plain text.
+ */
+function movementSource(kind: string, id: string | null): string | null {
+  if (!id) return null;
+  switch (kind) {
+    case "GRN":
+      return `/grn/${id}`;
+    case "ISSUE":
+      return `/issuance/${id}`;
+    case "TRANSFER":
+      return `/transfers/${id}`;
+    case "REQUIREMENT":
+      return `/requirements/${id}`;
+    case "PETTY_CASH":
+      return `/petty-cash/${id}`;
+    default:
+      return null;
+  }
+}
 
 export const metadata = { title: "Inventory" };
 export const dynamic = "force-dynamic";
@@ -90,6 +116,11 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
     { key: "warranty", header: "Warranty until", sortable: true, width: "9.5rem", defaultHidden: true },
     { key: "project", header: "Project", filterable: true, sortable: true, width: "12rem", defaultHidden: true },
     { key: "flags", header: "Flags", sortable: false, width: "12rem" },
+    // Three conditions the tiles above count. None is a property of the item, so
+    // none could be reached from an existing filter.
+    { key: "reorderState", header: "Reorder", filterable: true, sortable: true, width: "10rem", defaultHidden: true },
+    { key: "expiryState", header: "Shelf life", filterable: true, sortable: true, width: "11rem", defaultHidden: true },
+    { key: "binState", header: "Binning", filterable: true, sortable: true, width: "10rem", defaultHidden: true },
   ];
 
   const rows: TableRow[] = stock.map((s) => ({
@@ -115,8 +146,27 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
       warranty: s.warrantyUntil ? s.warrantyUntil.toISOString().slice(0, 10) : "",
       project: s.projectName ?? "",
       flags: [s.belowReorder ? "Below reorder" : "", s.expiringSoon ? "Expiring" : ""].filter(Boolean).join(" "),
+      reorderState: s.belowReorder ? "Below reorder" : "At or above",
+      expiryState: s.expiringSoon ? "Expiring soon" : s.expiryDate ? "In date" : "No expiry",
+      binState: !s.locationLabel && s.quantity > 0 ? "Unassigned" : "Assigned",
     },
     cells: {
+      reorderState: s.belowReorder ? (
+        <Badge tone="warning">Below reorder</Badge>
+      ) : (
+        <span className="text-[var(--c-text-tertiary)]">At or above</span>
+      ),
+      expiryState: s.expiringSoon ? (
+        <Badge tone="danger">Expiring soon</Badge>
+      ) : (
+        <span className="text-[var(--c-text-tertiary)]">{s.expiryDate ? "In date" : "No expiry"}</span>
+      ),
+      binState:
+        !s.locationLabel && s.quantity > 0 ? (
+          <Badge tone="warning">Unassigned</Badge>
+        ) : (
+          <span className="text-[var(--c-text-tertiary)]">Assigned</span>
+        ),
       sku: <span className="mono">{s.sku}</span>,
       item: s.itemName,
       category: s.categoryName,
@@ -169,23 +219,36 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <StatTile label="Inventory value" value={money(totalValue, "PKR", { compact: true })} tone="accent" />
-        <StatTile label="Stock lines" value={stock.length} hint={`Across ${storeValues.length} store(s)`} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+        <StatTile
+          label="Inventory value"
+          value={money(totalValue, "PKR", { compact: true })}
+          tone="accent"
+          href={tableLink("/inventory", undefined, { sort: "value:desc" })}
+        />
+        <StatTile
+          label="Stock lines"
+          value={stock.length}
+          hint={`Across ${storeValues.length} store(s)`}
+          href="/inventory"
+        />
         <StatTile
           label="Below reorder"
           value={belowReorder.length}
           tone={belowReorder.length ? "warning" : "default"}
+          href={tableLink("/inventory", { reorderState: "Below reorder" })}
         />
         <StatTile
           label="Expiring within 60 days"
           value={expiring.length}
           tone={expiring.length ? "danger" : "default"}
+          href={tableLink("/inventory", { expiryState: "Expiring soon" }, { sort: "expiry:asc" })}
         />
         <StatTile
           label="Unassigned to a bin"
           value={unbinned.length}
           tone={unbinned.length ? "warning" : "default"}
+          href={tableLink("/inventory", { binState: "Unassigned" })}
         />
       </div>
 
@@ -260,7 +323,12 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
           }
         >
           <RankedBars
-            data={storeValues.map((s) => ({ label: s.label, value: s.value, sub: `${s.count} lines` }))}
+            data={storeValues.map((s) => ({
+              label: s.label,
+              value: s.value,
+              sub: `${s.count} lines`,
+              href: tableLink("/inventory", { store: s.label }, { sort: "value:desc" }),
+            }))}
             format="moneyCompact"
             maxRows={8}
             colorIndex={1}
@@ -276,7 +344,11 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
           }
         >
           <DonutChart
-            data={categoryValues.slice(0, 8).map((c) => ({ label: c.label, value: c.value }))}
+            data={categoryValues.slice(0, 8).map((c) => ({
+              label: c.label,
+              value: c.value,
+              href: tableLink("/inventory", { category: c.label }, { sort: "value:desc" }),
+            }))}
             format="moneyCompact"
             centerLabel="Inventory value"
           />
@@ -326,7 +398,9 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                 </tr>
               </thead>
               <tbody>
-                {recentTxns.map((t) => (
+                {recentTxns.map((t) => {
+                  const source = movementSource(t.sourceType, t.sourceId);
+                  return (
                   <tr key={t.id}>
                     <td className="mono text-2xs">{t.number}</td>
                     <td>
@@ -336,7 +410,9 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                       {t.item.name}
                       <span className="mono mt-0.5 block text-2xs text-[var(--c-text-tertiary)]">{t.item.sku}</span>
                     </td>
-                    <td className="text-xs">{t.store.name}</td>
+                    <td className="text-xs">
+                      <RefLink href={`/stores/${t.storeId}`}>{t.store.name}</RefLink>
+                    </td>
                     <td className="num font-500">
                       <span className={t.quantity < 0 ? "text-[var(--c-danger)]" : "text-[var(--c-success)]"}>
                         {t.quantity > 0 ? "+" : ""}
@@ -346,11 +422,22 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                     <td className="num text-xs">{qty(t.balanceAfter)}</td>
                     <td className="text-2xs">
                       {humanize(t.sourceType)}
-                      {t.sourceRef && <span className="mono block">{t.sourceRef}</span>}
+                      {t.sourceRef &&
+                        (source ? (
+                          <Link
+                            href={source}
+                            className="mono -my-0.5 inline-flex min-h-6 items-center py-1 text-[var(--c-accent-text)] hover:underline"
+                          >
+                            {t.sourceRef}
+                          </Link>
+                        ) : (
+                          <span className="mono block">{t.sourceRef}</span>
+                        ))}
                     </td>
                     <td className="text-2xs">{fmtDateTime(t.performedAt)}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

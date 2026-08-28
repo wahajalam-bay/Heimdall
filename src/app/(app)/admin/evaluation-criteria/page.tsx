@@ -70,11 +70,26 @@ export default async function AdminCriteriaPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Criteria" value={criteria.length} hint={`${activeCriteria.length} active`} />
-        <StatTile label="Groups" value={groups.length} />
-        <StatTile label="Raw weighted maximum" value={rawMax} hint={`Scaled to ${configuredMax} on every evaluation`} />
-        <StatTile label="Pass mark" value={`${passMark} of ${configuredMax}`} hint="Configurable per entity" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Criteria"
+          value={criteria.length}
+          hint={`${activeCriteria.length} active`}
+          href="/admin/evaluation-criteria"
+        />
+        <StatTile label="Groups" value={groups.length} href="#weights" />
+        <StatTile
+          label="Raw weighted maximum"
+          value={rawMax}
+          hint={`Scaled to ${configuredMax} on every evaluation`}
+          href="#weights"
+        />
+        <StatTile
+          label="Pass mark"
+          value={`${passMark} of ${configuredMax}`}
+          hint="Configurable per entity"
+          href="/admin/policies"
+        />
       </div>
 
       <InlineAlert tone="info">
@@ -91,7 +106,11 @@ export default async function AdminCriteriaPage() {
         />
       ) : (
         <>
-          <SectionCard title="Weight by group" description="Where the scoring sheet actually puts its emphasis.">
+          <SectionCard
+            id="weights"
+            title="Weight by group"
+            description="Where the scoring sheet actually puts its emphasis."
+          >
             <RankedBars
               data={byGroup
                 .map((g) => ({

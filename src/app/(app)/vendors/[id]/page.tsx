@@ -38,6 +38,7 @@ import {
   UpdateIssueForm,
   VendorDecisionForm,
 } from "../VendorStageForms";
+import { searchLink, tableLink } from "@/lib/links";
 
 export const dynamic = "force-dynamic";
 
@@ -246,7 +247,7 @@ export default async function VendorDetailPage({
         </InlineAlert>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
         <StatTile
           label="Performance score"
           value={vendor.performanceScore !== null ? round2(vendor.performanceScore) : "—"}
@@ -260,13 +261,23 @@ export default async function VendorDetailPage({
                   ? "warning"
                   : "danger"
           }
+          href="/vendors/performance"
         />
-        <StatTile label="On-time delivery" value={vendor.onTimePercent !== null ? percent(vendor.onTimePercent, 0) : "—"} />
-        <StatTile label="Quality acceptance" value={vendor.qualityPercent !== null ? percent(vendor.qualityPercent, 0) : "—"} />
+        <StatTile
+          label="On-time delivery"
+          value={vendor.onTimePercent !== null ? percent(vendor.onTimePercent, 0) : "—"}
+          href="/vendors/performance"
+        />
+        <StatTile
+          label="Quality acceptance"
+          value={vendor.qualityPercent !== null ? percent(vendor.qualityPercent, 0) : "—"}
+          href="/vendors/performance"
+        />
         <StatTile
           label="Negotiation savings realised"
           value={money(history.totals.negotiationSavings)}
           hint="Across orders placed with this vendor"
+          href="/analytics/savings"
         />
       </div>
 
@@ -453,28 +464,41 @@ export default async function VendorDetailPage({
 
       {tab === "history" && (
         <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <StatTile label="Purchase orders" value={history.totals.orders} />
-            <StatTile label="Total spend" value={money(history.totals.spend)} />
-            <StatTile label="Goods receipts" value={history.totals.grns} />
+          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+            <StatTile label="Purchase orders" value={history.totals.orders} href={searchLink("/po", vendor.name)} />
+            <StatTile
+              label="Total spend"
+              value={money(history.totals.spend)}
+              href={tableLink("/po", undefined, { q: vendor.name, sort: "total:desc" })}
+            />
+            <StatTile label="Goods receipts" value={history.totals.grns} href={searchLink("/grn", vendor.name)} />
             <StatTile
               label="Invoice issues"
               value={history.totals.invoiceIssues}
               tone={history.totals.invoiceIssues ? "warning" : "default"}
+              href={tableLink("/invoices", { matchStatus: humanize("FAILED") }, { q: vendor.name })}
             />
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
             <SectionCard title="Spend by category" description="Where this vendor's value actually sits.">
               <RankedBars
-                data={history.categorySpend.map((c) => ({ label: c.category, value: c.spend }))}
+                data={history.categorySpend.map((c) => ({
+                  label: c.category,
+                  value: c.spend,
+                  href: tableLink("/analytics/savings", { vendor: vendor.name, category: c.category }),
+                }))}
                 format="moneyCompact"
                 maxRows={8}
               />
             </SectionCard>
             <SectionCard title="Spend by project">
               <RankedBars
-                data={history.projectSpend.map((p) => ({ label: p.project, value: p.spend }))}
+                data={history.projectSpend.map((p) => ({
+                  label: p.project,
+                  value: p.spend,
+                  href: tableLink("/pr", { project: p.project }),
+                }))}
                 format="moneyCompact"
                 colorIndex={1}
                 maxRows={8}
@@ -844,7 +868,7 @@ export default async function VendorDetailPage({
 
       {tab === "issues" && (
         <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
             <StatTile label="Total issues" value={vendor.issues.length} />
             <StatTile label="Open" value={openIssues.length} tone={openIssues.length ? "warning" : "success"} />
             <StatTile

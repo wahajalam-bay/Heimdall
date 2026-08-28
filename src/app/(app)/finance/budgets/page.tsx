@@ -4,10 +4,11 @@ import { userHasPermission, visibleEntityIds } from "@/lib/rbac";
 import { CONFIG_KEYS, getConfig } from "@/lib/config";
 import { AccessDenied } from "@/components/ui/guard";
 import { DataTable, type TableColumn, type TableRow } from "@/components/ui/DataTable";
-import { Badge, EmptyState, InlineAlert, Meter, PageHeader, StatTile } from "@/components/ui/primitives";
+import { Badge, EmptyState, InlineAlert, Meter, PageHeader, RefLink, StatTile } from "@/components/ui/primitives";
 import { budgetPositions } from "@/server/budget";
 import { money, percent, round2 } from "@/lib/format";
 import { humanize } from "@/lib/domain";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Budgets" };
 export const dynamic = "force-dynamic";
@@ -57,6 +58,7 @@ export default async function BudgetsPage() {
 
   const rows: TableRow[] = positions.map((p) => ({
     id: p.budgetId,
+    href: p.departmentName ? tableLink("/pr", { department: p.departmentName }) : undefined,
     flag:
       p.state === "OVERCOMMITTED"
         ? "danger"
@@ -83,7 +85,11 @@ export default async function BudgetsPage() {
     cells: {
       year: p.year,
       entity: <Badge tone="neutral">{p.entityCode}</Badge>,
-      department: p.departmentName ?? <span className="text-[var(--c-text-tertiary)]">All departments</span>,
+      department: p.departmentName ? (
+        <RefLink href={tableLink("/pr", { department: p.departmentName })}>{p.departmentName}</RefLink>
+      ) : (
+        <span className="text-[var(--c-text-tertiary)]">All departments</span>
+      ),
       costCenter: p.costCenterCode ?? "—",
       category: p.categoryName ?? "—",
       type: p.expenditureType === "BOTH" ? "Capital & operating" : humanize(p.expenditureType),
@@ -147,25 +153,33 @@ export default async function BudgetsPage() {
         </InlineAlert>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Allocated" value={money(totals.allocated, "PKR", { compact: true })} hint={`${positions.length} budget line(s)`} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Allocated"
+          value={money(totals.allocated, "PKR", { compact: true })}
+          hint={`${positions.length} budget line(s)`}
+          href={tableLink("/finance/budgets", undefined, { sort: "allocated:desc" })}
+        />
         <StatTile
           label="Committed"
           value={money(totals.committed, "PKR", { compact: true })}
           hint="Live orders against these allocations"
           tone="accent"
+          href={tableLink("/finance/budgets", undefined, { sort: "committed:desc" })}
         />
         <StatTile
           label="Utilised"
           value={money(totals.utilised, "PKR", { compact: true })}
           hint="Value actually received"
           tone="success"
+          href={tableLink("/finance/budgets", undefined, { sort: "utilised:desc" })}
         />
         <StatTile
           label="Needing attention"
           value={overcommitted.length + nearing.length}
           hint={`${overcommitted.length} over, ${nearing.length} close to exhausted`}
           tone={overcommitted.length ? "danger" : nearing.length ? "warning" : "default"}
+          href={statusLink("/finance/budgets", "state", ["OVERCOMMITTED", "EXHAUSTED", "WARN"])}
         />
       </div>
 

@@ -29,6 +29,7 @@ import { DocumentsPanel } from "@/components/domain/DocumentsPanel";
 import { humanize } from "@/lib/domain";
 import { fmtDate, fmtDateTime, money, percent, round2, variancePercent } from "@/lib/format";
 import { RaiseCpcButton, RecommendForm } from "./RecommendForm";
+import { tableLink } from "@/lib/links";
 
 export const dynamic = "force-dynamic";
 
@@ -207,7 +208,7 @@ export default async function ComparativeDetailPage({ params }: { params: Promis
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
         <StatTile
           label="Previous purchase price"
           value={c.previousPrice ? money(c.previousPrice, "PKR", { compact: true }) : "No history"}
@@ -416,6 +417,7 @@ export default async function ComparativeDetailPage({ params }: { params: Promis
         >
           <RankedBars
             data={c.lines.map((l) => ({
+              href: `/vendors/${l.vendor.id}`,
               label: `${l.vendor.name}${l.isSelected ? " (awarded)" : ""}`,
               value: l.netTotal,
               sub: humanize(l.technicalCompliance).slice(0, 9),

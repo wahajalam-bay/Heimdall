@@ -239,7 +239,7 @@ export function InvoiceForm({ pos, defaultPoId }: { pos: InvoicePo[]; defaultPoI
         <>
           <FormSection title="Lines" columns={1} description="Quantities default to what has been accepted and not yet invoiced.">
             <div className="sm:col-span-full">
-              <div className="overflow-hidden rounded-xl border border-border">
+              <div className="table-wrap rounded-xl border border-border">
                 <table className="dt">
                   <thead>
                     <tr>

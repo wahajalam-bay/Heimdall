@@ -8,6 +8,7 @@ import { DataTable, type TableColumn, type TableRow } from "@/components/ui/Data
 import { Badge, EmptyState, Mono, PageHeader, RefLink, StatTile, StatusBadge } from "@/components/ui/primitives";
 import { humanize } from "@/lib/domain";
 import { ageHours, fmtDateTime, qty } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Gate Passes" };
 export const dynamic = "force-dynamic";
@@ -63,6 +64,9 @@ export default async function GatePassesPage() {
     { key: "receipt", header: "Receipt", sortable: true, width: "11rem" },
     { key: "arrived", header: "Arrived", sortable: true, width: "12rem" },
     { key: "recordedBy", header: "Recorded by", sortable: true, width: "11rem", defaultHidden: true },
+    // Whether the goods behind a gate pass have been verified is not its status,
+    // so the tile counting the gap points here.
+    { key: "verification", header: "Verification", filterable: true, sortable: true, width: "11rem", defaultHidden: true },
   ];
 
   const rows: TableRow[] = passes.map((g) => {
@@ -74,6 +78,7 @@ export default async function GatePassesPage() {
       flag: awaiting && (ageHours(g.arrivedAt) ?? 0) > 8 ? "warning" : delivery ? "success" : null,
       search: `${g.number} ${g.serial} ${g.vendor?.name ?? ""} ${g.vehicleNumber ?? ""} ${g.driverName ?? ""} ${g.materialSummary ?? ""}`,
       values: {
+        verification: awaiting ? "Awaiting verification" : delivery ? "Verified" : "Rejected",
         number: g.number,
         serial: g.serial,
         direction: humanize(g.direction),
@@ -93,6 +98,11 @@ export default async function GatePassesPage() {
         recordedBy: g.recordedBy.name,
       },
       cells: {
+        verification: awaiting ? (
+          <Badge tone="warning">Awaiting verification</Badge>
+        ) : (
+          <span className="text-[var(--c-text-tertiary)]">{delivery ? "Verified" : "Rejected"}</span>
+        ),
         number: <RefLink href={`/gate-passes/${g.id}`}>{g.number}</RefLink>,
         serial: <Mono>{g.serial}</Mono>,
         direction: <Badge tone={g.direction === "INWARD" ? "info" : "neutral"}>{humanize(g.direction)}</Badge>,
@@ -150,16 +160,27 @@ export default async function GatePassesPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Gate passes" value={stats.total} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Gate passes" value={stats.total} href="/gate-passes" />
         <StatTile
           label="Awaiting verification"
           value={stats.awaitingReceipt}
           hint="Vehicle in, goods not yet verified"
           tone={stats.awaitingReceipt ? "warning" : "default"}
+          href={tableLink("/gate-passes", { verification: "Awaiting verification" })}
         />
-        <StatTile label="Arrived in last 24h" value={stats.today} tone="accent" />
-        <StatTile label="Fully received" value={stats.received} tone="success" />
+        <StatTile
+          label="Arrived in last 24h"
+          value={stats.today}
+          tone="accent"
+          href={tableLink("/gate-passes", undefined, { sort: "arrived:desc" })}
+        />
+        <StatTile
+          label="Fully received"
+          value={stats.received}
+          tone="success"
+          href={statusLink("/gate-passes", "status", ["RECEIVED"])}
+        />
       </div>
 
       <DataTable

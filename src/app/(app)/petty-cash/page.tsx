@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/primitives";
 import { humanize } from "@/lib/domain";
 import { ageDays, fmtDate, money, round2 } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Petty Cash" };
 export const dynamic = "force-dynamic";
@@ -95,6 +96,10 @@ export default async function PettyCashPage() {
     { key: "requester", header: "Requested by", sortable: true, width: "12rem" },
     { key: "raised", header: "Raised", sortable: true, width: "8.5rem" },
     { key: "age", header: "Age (days)", numeric: true, sortable: true, width: "7.5rem", defaultHidden: true },
+    // "Store entry" counts the lines still outstanding, so its values differ per
+    // row and nothing could filter on them. This says only whether a gap exists,
+    // which is what the tile above is counting.
+    { key: "storeGapState", header: "Store gap", filterable: true, sortable: true, width: "10rem", defaultHidden: true },
   ];
 
   const rows: TableRow[] = requests.map((r) => {
@@ -114,6 +119,7 @@ export default async function PettyCashPage() {
       flag: blocked ? "danger" : r.status === "CLOSED" ? "success" : r.status === "PENDING_APPROVAL" ? "warning" : null,
       search: `${r.number} ${r.purpose} ${r.department.name} ${selected?.vendorName ?? ""}`,
       values: {
+        storeGapState: !r.storeRequired ? "Not required" : storePending > 0 ? "Outstanding" : "Complete",
         number: r.number,
         entity: r.entity.code,
         department: r.department.name,
@@ -131,6 +137,14 @@ export default async function PettyCashPage() {
         age: ageDays(r.createdAt) ?? 0,
       },
       cells: {
+        storeGapState:
+          !r.storeRequired ? (
+            <span className="text-[var(--c-text-tertiary)]">Not required</span>
+          ) : storePending > 0 ? (
+            <Badge tone="danger">Outstanding</Badge>
+          ) : (
+            <span className="text-[var(--c-text-tertiary)]">Complete</span>
+          ),
         number: <RefLink href={`/petty-cash/${r.id}`}>{r.number}</RefLink>,
         entity: <Badge tone="neutral">{r.entity.code}</Badge>,
         department: r.department.name,
@@ -182,20 +196,30 @@ export default async function PettyCashPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Open requests" value={stats.open} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Open requests"
+          value={stats.open}
+          href={statusLink("/petty-cash", "status", OPEN_STATUSES.filter((st) => st !== "RECONCILED"))}
+        />
         <StatTile
           label="Awaiting approval"
           value={stats.awaitingApproval}
           tone={stats.awaitingApproval ? "warning" : "default"}
+          href={statusLink("/petty-cash", "status", ["PENDING_APPROVAL"])}
         />
         <StatTile
           label="Missing store entry"
           value={stats.storeGap}
           tone={stats.storeGap ? "danger" : "success"}
           hint="Purchased, stored, never booked into inventory"
+          href={tableLink("/petty-cash", { storeGapState: "Outstanding" })}
         />
-        <StatTile label="Cash committed on open requests" value={money(stats.spentOpen)} />
+        <StatTile
+          label="Cash committed on open requests"
+          value={money(stats.spentOpen)}
+          href={statusLink("/petty-cash", "status", OPEN_STATUSES)}
+        />
       </div>
 
       {gap.length > 0 && (

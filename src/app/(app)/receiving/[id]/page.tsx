@@ -152,7 +152,7 @@ export default async function DeliveryDetailPage({ params }: { params: Promise<{
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
         <StatTile label="Delivered" value={qty(delivered)} hint={`${d.items.length} line(s)`} />
         <StatTile label="Accepted" value={qty(accepted)} tone={accepted > 0 ? "success" : "default"} />
         <StatTile
@@ -166,6 +166,7 @@ export default async function DeliveryDetailPage({ params }: { params: Promise<{
           value={grn ? humanize(grn.status) : readiness.ready ? "Ready" : "Blocked"}
           hint={grn ? grn.number : readiness.issues[0]}
           tone={grn?.status === "POSTED" ? "success" : readiness.ready ? "accent" : "warning"}
+          href={grn ? `/grn/${grn.id}` : undefined}
         />
       </div>
 

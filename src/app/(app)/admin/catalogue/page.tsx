@@ -8,6 +8,7 @@ import { Badge, EmptyState, InlineAlert, Mono, PageHeader, StatTile } from "@/co
 import { humanize } from "@/lib/domain";
 import { money, qty } from "@/lib/format";
 import { CategoryForm, ItemForm } from "../AdminMasterForms";
+import { tableLink } from "@/lib/links";
 
 export const metadata = { title: "Catalogue" };
 export const dynamic = "force-dynamic";
@@ -114,6 +115,9 @@ export default async function AdminCataloguePage({ searchParams }: { searchParam
     { key: "unit", header: "Unit", filterable: true, sortable: true, width: "6.5rem" },
     { key: "brand", header: "Brand", filterable: true, sortable: true, width: "11rem", defaultHidden: true },
     { key: "standardPrice", header: "Standard price", numeric: true, sortable: true, width: "12rem" },
+    // A missing standard price is a gap in the data rather than a value, so the
+    // tile counting it points here.
+    { key: "priceState", header: "Price set", filterable: true, sortable: true, width: "9rem", defaultHidden: true },
     { key: "onHand", header: "On hand", numeric: true, sortable: true, width: "9rem" },
     { key: "stockValue", header: "Stock value", numeric: true, sortable: true, width: "12rem" },
     { key: "reorder", header: "Reorder level", numeric: true, sortable: true, width: "10rem" },
@@ -141,6 +145,7 @@ export default async function AdminCataloguePage({ searchParams }: { searchParam
         unit: i.unit,
         brand: i.brand ?? "",
         standardPrice: i.standardPrice ?? 0,
+        priceState: i.standardPrice ? "Set" : "Not set",
         onHand,
         stockValue,
         reorder: i.reorderLevel ?? 0,
@@ -171,6 +176,11 @@ export default async function AdminCataloguePage({ searchParams }: { searchParam
         unit: i.unit,
         brand: i.brand ?? "—",
         standardPrice: i.standardPrice ? <Mono>{money(i.standardPrice)}</Mono> : <Badge tone="warning">Not set</Badge>,
+        priceState: i.standardPrice ? (
+          <span className="text-[var(--c-text-tertiary)]">Set</span>
+        ) : (
+          <Badge tone="warning">Not set</Badge>
+        ),
         onHand: onHand > 0 ? qty(onHand, i.unit) : "—",
         stockValue: stockValue > 0 ? <Mono>{money(stockValue)}</Mono> : "—",
         reorder: i.reorderLevel ?? "—",
@@ -223,19 +233,21 @@ export default async function AdminCataloguePage({ searchParams }: { searchParam
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Categories" value={categories.length} />
-        <StatTile label="Items" value={items.length} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Categories" value={categories.length} href="/admin/catalogue?tab=categories" />
+        <StatTile label="Items" value={items.length} href="/admin/catalogue?tab=items" />
         <StatTile
           label="Inspection-required categories"
           value={inspectionCategories.length}
           hint="Goods cannot be received without QC"
+          href={tableLink("/admin/catalogue", { inspection: "Required" }, { tab: "categories" })}
         />
         <StatTile
           label="Items without a standard price"
           value={withoutPrice.length}
           tone={withoutPrice.length ? "warning" : "success"}
           hint="No baseline for variance analysis"
+          href={tableLink("/admin/catalogue", { priceState: "Not set" }, { tab: "items" })}
         />
       </div>
 

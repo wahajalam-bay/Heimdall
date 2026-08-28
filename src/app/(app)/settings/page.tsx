@@ -46,11 +46,26 @@ export default async function SettingsPage() {
         subtitle="Your profile, notification preferences and the exact access your roles grant you."
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Roles held" value={user.roleNames.length} hint={user.roleNames.join(", ") || "—"} />
-        <StatTile label="Permissions" value={user.permissions.length} hint="Effective, across all your roles" />
-        <StatTile label="Entities" value={user.entityIds.length} hint={ctx.entities.map((e) => e.code).join(", ")} />
-        <StatTile label="Active sessions" value={sessions.length} hint="Signed-in devices" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Roles held"
+          value={user.roleNames.length}
+          hint={user.roleNames.join(", ") || "—"}
+          href="#access"
+        />
+        <StatTile
+          label="Permissions"
+          value={user.permissions.length}
+          hint="Effective, across all your roles"
+          href="#access"
+        />
+        <StatTile
+          label="Entities"
+          value={user.entityIds.length}
+          hint={ctx.entities.map((e) => e.code).join(", ")}
+          href="#access"
+        />
+        <StatTile label="Active sessions" value={sessions.length} hint="Signed-in devices" href="#sessions" />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
@@ -87,6 +102,7 @@ export default async function SettingsPage() {
       </div>
 
       <SectionCard
+        id="access"
         title="My access"
         description="The effective permissions granted by your roles. Access is enforced server-side on every request."
       >
@@ -110,6 +126,7 @@ export default async function SettingsPage() {
       </SectionCard>
 
       <SectionCard
+        id="sessions"
         title="Active sessions"
         description="Sessions expire automatically. Signing out ends the current session immediately."
         bodyClassName="px-0 py-0"

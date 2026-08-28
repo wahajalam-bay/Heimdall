@@ -21,6 +21,7 @@ import {
 import { DataTable, type TableColumn, type TableRow } from "@/components/ui/DataTable";
 import { humanize } from "@/lib/domain";
 import { amount, fmtDate, fmtDateTime, money, qty, round2 } from "@/lib/format";
+import { tableLink } from "@/lib/links";
 
 export const dynamic = "force-dynamic";
 
@@ -224,24 +225,37 @@ export default async function StoreDetailPage({
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <StatTile label="Stock value" value={money(totalValue, "PKR", { compact: true })} tone="accent" />
-        <StatTile label="Stock lines" value={stock.length} hint={`${store.locations.length} bin(s) configured`} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+        <StatTile
+          label="Stock value"
+          value={money(totalValue, "PKR", { compact: true })}
+          tone="accent"
+          href={tableLink("/inventory", { store: store.name }, { sort: "value:desc" })}
+        />
+        <StatTile
+          label="Stock lines"
+          value={stock.length}
+          hint={`${store.locations.length} bin(s) configured`}
+          href={tableLink("/inventory", { store: store.name })}
+        />
         <StatTile
           label="Below reorder"
           value={belowReorder.length}
           tone={belowReorder.length ? "warning" : "default"}
+          href={tableLink("/inventory", { store: store.name, reorderState: "Below reorder" })}
         />
         <StatTile
           label="Expiring within 60 days"
           value={expiring.length}
           tone={expiring.length ? "danger" : "default"}
+          href={tableLink("/inventory", { store: store.name, expiryState: "Expiring soon" }, { sort: "expiry:asc" })}
         />
         <StatTile
           label="Unassigned to a bin"
           value={unbinned.length}
           hint="In stock but no location recorded"
           tone={unbinned.length ? "warning" : "default"}
+          href={tableLink("/inventory", { store: store.name, binState: "Unassigned" })}
         />
       </div>
 

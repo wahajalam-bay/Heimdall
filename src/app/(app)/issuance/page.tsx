@@ -18,6 +18,7 @@ import {
 import { RankedBars } from "@/components/ui/charts";
 import { humanize } from "@/lib/domain";
 import { ageDays, fmtDate, qty, round2 } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 const AWAITING = [
   "PENDING_APPROVAL",
@@ -197,20 +198,32 @@ export default async function IssuancePage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Open requisitions" value={stats.open} hint="Not yet fully issued" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Open requisitions"
+          value={stats.open}
+          hint="Not yet fully issued"
+          href={statusLink("/issuance", "status", ["DRAFT", "RETURNED", "APPROVED", "PARTIALLY_ISSUED", ...AWAITING])}
+        />
         <StatTile
           label="Awaiting approval"
           value={stats.awaitingApproval}
           tone={stats.awaitingApproval ? "warning" : "default"}
+          href={statusLink("/issuance", "status", AWAITING)}
         />
         <StatTile
           label="Approved, not released"
           value={stats.awaitingRelease}
           hint="Store has authority to hand over"
           tone={stats.awaitingRelease ? "accent" : "default"}
+          href={statusLink("/issuance", "status", ["APPROVED", "PARTIALLY_ISSUED"])}
         />
-        <StatTile label="Released in last 30 days" value={stats.issuedThisMonth} tone="success" />
+        <StatTile
+          label="Released in last 30 days"
+          value={stats.issuedThisMonth}
+          tone="success"
+          href={statusLink("/issuance", "status", ["ISSUED", "PARTIALLY_ISSUED"])}
+        />
       </div>
 
       {consumerRows.length > 0 && (
@@ -218,7 +231,12 @@ export default async function IssuancePage() {
           title="Consumption by cost centre"
           description="Units released, grouped by the project or department the stock was charged to."
         >
-          <RankedBars data={consumerRows} format="number" maxRows={8} secondaryLabel="units issued" />
+          <RankedBars
+            data={consumerRows.map((r) => ({ ...r, href: tableLink("/issuance", { consumer: r.label }) }))}
+            format="number"
+            maxRows={8}
+            secondaryLabel="units issued"
+          />
         </SectionCard>
       )}
 

@@ -45,7 +45,7 @@ export function OverviewPanel({
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
         <StatTile label="Estimated value" value={money(pr.estimatedValue)} hint={pr.budgetAmount ? `Budget ${money(pr.budgetAmount)}` : "No budget stated"} />
         <StatTile
           label="Ordered value"
@@ -261,7 +261,7 @@ export function ItemsPanel({
                                 <Link
                                   key={o.poId}
                                   href={`/po/${o.poId}`}
-                                  className="mono text-2xs text-[var(--c-accent-text)]"
+                                  className="ref-chip mono text-2xs text-[var(--c-accent-text)]"
                                   title={`${o.quantity} ${c.unit}${o.vendorName ? ` — ${o.vendorName}` : ""}`}
                                 >
                                   {o.poNumber}

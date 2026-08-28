@@ -18,6 +18,7 @@ import { RankedBars } from "@/components/ui/charts";
 import { fmtDateTime, relativeTime } from "@/lib/format";
 import { adminOptions, toggleUserAction } from "../actions";
 import { ResetPasswordForm, UserForm } from "../AdminAccessForms";
+import { tableLink } from "@/lib/links";
 
 export const metadata = { title: "Users" };
 export const dynamic = "force-dynamic";
@@ -69,6 +70,8 @@ export default async function AdminUsersPage() {
     { key: "roleCount", header: "Role count", numeric: true, sortable: true, width: "8.5rem", defaultHidden: true },
     { key: "entityAccess", header: "Entity access", sortable: true, width: "11rem" },
     { key: "status", header: "Status", filterable: true, sortable: true, width: "8rem" },
+    { key: "roleState", header: "Role state", filterable: true, sortable: true, width: "10rem", defaultHidden: true },
+    { key: "sessionState", header: "Session", filterable: true, sortable: true, width: "10rem", defaultHidden: true },
     { key: "lastLogin", header: "Latest session", sortable: true, width: "13rem" },
     { key: "actions", header: "", width: "16rem", noExport: true },
   ];
@@ -89,10 +92,22 @@ export default async function AdminUsersPage() {
         roleCount: u.roles.length,
         entityAccess: u.entityAccess.map((a) => a.entity.code).join(", "),
         status: u.active ? "Active" : "Inactive",
+        roleState: u.roles.length ? "Has a role" : "No role",
+        sessionState: u.sessions[0] ? "Signed in" : "No session",
         lastLogin: u.sessions[0] ? u.sessions[0].createdAt.toISOString() : "",
         actions: "",
       },
       cells: {
+        roleState: u.roles.length ? (
+          <span className="text-[var(--c-text-tertiary)]">Has a role</span>
+        ) : (
+          <Badge tone="warning">No role</Badge>
+        ),
+        sessionState: u.sessions[0] ? (
+          <Badge tone="success">Signed in</Badge>
+        ) : (
+          <span className="text-[var(--c-text-tertiary)]">No session</span>
+        ),
         name: (
           <span>
             <span className="block text-xs font-500">{u.name}</span>
@@ -189,16 +204,26 @@ export default async function AdminUsersPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Accounts" value={users.length} />
-        <StatTile label="Active" value={active.length} tone="success" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Accounts" value={users.length} href="/admin/users" />
+        <StatTile
+          label="Active"
+          value={active.length}
+          tone="success"
+          href={tableLink("/admin/users", { status: "Active" })}
+        />
         <StatTile
           label="Active with no role"
           value={noRoles.length}
           tone={noRoles.length ? "warning" : "default"}
           hint="Can sign in but see almost nothing"
+          href={tableLink("/admin/users", { status: "Active", roleState: "No role" })}
         />
-        <StatTile label="With a live session" value={withSessions.length} />
+        <StatTile
+          label="With a live session"
+          value={withSessions.length}
+          href={tableLink("/admin/users", { sessionState: "Signed in" }, { sort: "lastLogin:desc" })}
+        />
       </div>
 
       {noRoles.length > 0 && (
@@ -211,7 +236,13 @@ export default async function AdminUsersPage() {
 
       <SectionCard title="People per role" description="How authority is actually distributed.">
         <RankedBars
-          data={[...byRole.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value)}
+          data={[...byRole.entries()]
+            .map(([label, value]) => ({
+              label,
+              value,
+              href: tableLink("/admin/users", undefined, { q: label }),
+            }))
+            .sort((a, b) => b.value - a.value)}
           format="number"
           maxRows={12}
         />

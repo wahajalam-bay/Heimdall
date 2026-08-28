@@ -12,6 +12,7 @@ import { PillNav } from "@/components/ui/nav";
 import { SEVERITY_TONE, humanize } from "@/lib/domain";
 import { fmtDate, money, relativeTime } from "@/lib/format";
 import { MarkAllRead } from "./MarkAllRead";
+import { tableLink } from "@/lib/links";
 
 export const metadata = { title: "Alerts" };
 export const dynamic = "force-dynamic";
@@ -71,21 +72,21 @@ export default async function AlertsPage({ searchParams }: { searchParams: Promi
         actions={unread > 0 ? <MarkAllRead unread={unread} /> : undefined}
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <StatTile label="Unread notifications" value={unread} tone={unread ? "accent" : "default"} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+        <StatTile label="Unread notifications" value={unread} tone={unread ? "accent" : "default"} href="#inbox" />
         <StatTile
           label="Overdue deliveries"
           value={overduePos.length}
           hint="Past the promised date"
           tone={overduePos.length ? "warning" : "default"}
-          href="/open-pos"
+          href={tableLink("/open-pos", { deliveryState: "Overdue" }, { sort: "daysOverdue:desc" })}
         />
         <StatTile
           label="Missing GRNs"
           value={missingGrn.length}
           hint="Delivered value not in inventory"
           tone={missingGrn.length ? "danger" : "default"}
-          href="/open-pos"
+          href={tableLink("/open-pos", { grnAlert: "Missing GRN" })}
         />
         <StatTile
           label="Critical exceptions"
@@ -98,7 +99,7 @@ export default async function AlertsPage({ searchParams }: { searchParams: Promi
           value={pcGap.length}
           hint="Purchased but not booked into store"
           tone={pcGap.length ? "warning" : "default"}
-          href="/petty-cash"
+          href={tableLink("/petty-cash", { storeGapState: "Outstanding" })}
         />
       </div>
 
@@ -106,6 +107,7 @@ export default async function AlertsPage({ searchParams }: { searchParams: Promi
 
       {view !== "systemic" && (
         <SectionCard
+          id="inbox"
           title={view === "unread" ? "Unread notifications" : "Notifications"}
           description={`${notifications.length} shown`}
           bodyClassName="px-0 py-0"

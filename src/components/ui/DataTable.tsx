@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { classNames, toCsv } from "@/lib/format";
 
 /**
@@ -83,6 +83,39 @@ type ViewConfig = {
 
 const PAGE_SIZES = [25, 50, 100, 250];
 
+/**
+ * Prefix for a column filter carried in the address.
+ *
+ * Namespaced so a table filter can never collide with a parameter the page
+ * itself reads — an entity, a date range, a tab.
+ */
+const URL_FILTER_PREFIX = "f_";
+
+/** Separates the several values one filter is allowed to accept. */
+const FILTER_OR = "|";
+
+/** Reads the parts of a view the address is allowed to carry. */
+function readUrlView(search: string): { q?: string; filters?: Record<string, string>; sort?: SortState } {
+  const params = new URLSearchParams(search);
+  const out: { q?: string; filters?: Record<string, string>; sort?: SortState } = {};
+
+  const q = params.get("q");
+  if (q !== null) out.q = q;
+
+  const filters: Record<string, string> = {};
+  for (const [key, value] of params.entries()) {
+    if (key.startsWith(URL_FILTER_PREFIX) && value) filters[key.slice(URL_FILTER_PREFIX.length)] = value;
+  }
+  if (Object.keys(filters).length) out.filters = filters;
+
+  const sort = params.get("sort");
+  if (sort) {
+    const [key, dir] = sort.split(":");
+    if (key) out.sort = { key, dir: dir === "desc" ? "desc" : "asc" };
+  }
+  return out;
+}
+
 export function DataTable({
   id,
   columns,
@@ -117,6 +150,7 @@ export function DataTable({
   maxHeight?: string;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const storageKey = `pos.table.${id}`;
 
   const [q, setQ] = useState("");
@@ -137,23 +171,75 @@ export function DataTable({
   const deferredQ = useDeferredValue(q);
   const colMenuRef = useRef<HTMLDivElement>(null);
   const viewMenuRef = useRef<HTMLDivElement>(null);
+  /**
+   * The last query string this component itself wrote.
+   *
+   * Following a tile link is a navigation within the same route, so React keeps
+   * this component mounted and no mount effect fires. Without a record of what we
+   * wrote, the sync effect below could not tell the difference between "the
+   * address changed because we changed it" and "the address changed because
+   * somebody navigated" — and it chose wrongly, erasing the very filter the link
+   * had just asked for.
+   */
+  const writtenSearch = useRef<string | null>(null);
 
-  // Restore last-used local view state.
+  // Restore view state: the address first, then whatever this browser last used.
+  //
+  // A link that names a filter was written by somebody who meant it — a tile on
+  // the page above, or a colleague sharing what they were looking at — so it wins
+  // over the local memory of the last visit. Without this, following a link into
+  // "12 awaiting approval" landed on last week's filter instead.
+  //
+  // This runs again whenever the address changes, not only on mount: a tile links
+  // within the same route, which React serves by keeping this component mounted.
+  // Changes we made ourselves are recognised by `writtenSearch` and ignored.
+  const search = searchParams.toString();
   useEffect(() => {
+    if (writtenSearch.current === search) return;
+
+    // Column choice and page size are workspace preferences rather than part of
+    // what an address points at, so they always come from local state.
+    let stored: ViewConfig | null = null;
     try {
       const raw = window.localStorage.getItem(storageKey);
-      if (raw) {
-        const cfg = JSON.parse(raw) as ViewConfig;
-        if (cfg.sort) setSort(cfg.sort);
-        if (cfg.filters) setFilters(cfg.filters);
-        if (cfg.hidden) setHidden(cfg.hidden);
-        if (cfg.pageSize) setPageSize(cfg.pageSize);
-      }
+      if (raw) stored = JSON.parse(raw) as ViewConfig;
     } catch {
       /* ignore corrupt local state */
     }
+    if (stored?.hidden) setHidden(stored.hidden);
+    if (stored?.pageSize) setPageSize(stored.pageSize);
+
+    let url: ReturnType<typeof readUrlView> = {};
+    try {
+      url = readUrlView(search);
+    } catch {
+      /* a malformed address is not worth failing the table over */
+    }
+    const fromUrl = url.q !== undefined || Boolean(url.filters) || Boolean(url.sort);
+
+    if (fromUrl) {
+      setQ(url.q ?? "");
+      setFilters(url.filters ?? {});
+      setSort(url.sort ?? defaultSort ?? null);
+    } else if (!hydrated) {
+      // First arrival with a bare address: pick up where this browser left off.
+      if (stored?.sort) setSort(stored.sort);
+      if (stored?.filters) setFilters(stored.filters);
+    } else {
+      // The address was navigated back to its bare form — usually the reader
+      // clicking the module in the navigation. That means "show me everything",
+      // and leaving the previous filter applied would quietly contradict it.
+      setQ("");
+      setFilters({});
+      setSort(defaultSort ?? null);
+    }
+
+    writtenSearch.current = search;
     setHydrated(true);
-  }, [storageKey]);
+    // `hydrated` is read to tell first arrival from a later navigation, but must
+    // not re-trigger this effect: it is set here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, storageKey]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -166,6 +252,34 @@ export function DataTable({
       /* storage full or blocked — non-critical */
     }
   }, [hydrated, storageKey, sort, filters, hidden, pageSize]);
+
+  // Keep the address describing what is on screen, so the back button, a reload
+  // and a copied link all reproduce the same rows. history.replaceState rather
+  // than the router: this filtering is entirely client-side, and a router push
+  // would re-run the server component to render rows it already has.
+  useEffect(() => {
+    if (!hydrated || typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const before = url.search;
+
+    for (const key of [...url.searchParams.keys()]) {
+      if (key === "q" || key === "sort" || key.startsWith(URL_FILTER_PREFIX)) url.searchParams.delete(key);
+    }
+    if (q.trim()) url.searchParams.set("q", q.trim());
+    for (const [key, value] of Object.entries(filters)) {
+      if (value && value !== "__all") url.searchParams.set(URL_FILTER_PREFIX + key, value);
+    }
+    if (sort && (sort.key !== defaultSort?.key || sort.dir !== defaultSort?.dir)) {
+      url.searchParams.set("sort", `${sort.key}:${sort.dir}`);
+    }
+
+    if (url.search !== before) {
+      writtenSearch.current = url.searchParams.toString();
+      window.history.replaceState(null, "", url.toString());
+    } else {
+      writtenSearch.current = url.searchParams.toString();
+    }
+  }, [hydrated, q, filters, sort, defaultSort?.key, defaultSort?.dir]);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -206,10 +320,15 @@ export function DataTable({
 
   const filtered = useMemo(() => {
     const needle = deferredQ.trim().toLowerCase();
-    const activeFilters = Object.entries(filters).filter(([, v]) => v !== "" && v !== "__all");
+    // A filter may name several values, separated by a pipe. That is how a tile
+    // reading "Awaiting approval" links to the rows behind it: the count spans
+    // more than one status, and a single-value filter could not express it.
+    const activeFilters = Object.entries(filters)
+      .filter(([, v]) => v !== "" && v !== "__all")
+      .map(([k, v]) => [k, new Set(v.split(FILTER_OR))] as const);
     return rows.filter((r) => {
-      for (const [k, v] of activeFilters) {
-        if (String(r.values[k] ?? "") !== v) return false;
+      for (const [k, allowed] of activeFilters) {
+        if (!allowed.has(String(r.values[k] ?? ""))) return false;
       }
       if (!needle) return true;
       if (r.search && r.search.toLowerCase().includes(needle)) return true;
@@ -335,14 +454,16 @@ export function DataTable({
     }
   };
 
-  /** Copies a link that reproduces this view for somebody else. */
+  /**
+   * Copies a link that reproduces this view for somebody else.
+   *
+   * The address is already kept in step with the search, filters and sort, so
+   * there is nothing to assemble here — what is on screen is what the link says.
+   */
   const copyLink = async () => {
     if (typeof window === "undefined") return;
-    const url = new URL(window.location.href);
-    if (q.trim()) url.searchParams.set("q", q.trim());
-    else url.searchParams.delete("q");
     try {
-      await navigator.clipboard.writeText(url.toString());
+      await navigator.clipboard.writeText(window.location.href);
       setNotice({ tone: "ok", text: "Link copied. It reproduces this filter set." });
     } catch {
       setNotice({ tone: "err", text: "The browser would not give access to the clipboard." });
@@ -431,22 +552,31 @@ export function DataTable({
           />
         </div>
 
-        {filterableColumns.map((col) => (
-          <select
-            key={col.key}
-            className="field w-auto min-w-[8rem] max-w-[12rem]"
-            value={filters[col.key] ?? "__all"}
-            onChange={(e) => setFilters((f) => ({ ...f, [col.key]: e.target.value }))}
-            aria-label={`Filter by ${col.header}`}
-          >
-            <option value="__all">All {col.header.toLowerCase()}</option>
-            {(filterOptionsByKey[col.key] ?? []).map((opt) => (
-              <option key={opt} value={opt}>
-                {opt}
-              </option>
-            ))}
-          </select>
-        ))}
+        {filterableColumns.map((col) => {
+          const current = filters[col.key] ?? "__all";
+          const parts = current === "__all" ? [] : current.split(FILTER_OR);
+          // A link may have asked for several values at once. The select cannot
+          // show that, so the combination is named as its own option and stays
+          // selected until the reader picks something else or clears it.
+          const combined = parts.length > 1;
+          return (
+            <select
+              key={col.key}
+              className="field w-auto min-w-[8rem] max-w-[12rem]"
+              value={current}
+              onChange={(e) => setFilters((f) => ({ ...f, [col.key]: e.target.value }))}
+              aria-label={`Filter by ${col.header}`}
+            >
+              <option value="__all">All {col.header.toLowerCase()}</option>
+              {combined && <option value={current}>{parts.length} selected</option>}
+              {(filterOptionsByKey[col.key] ?? []).map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          );
+        })}
 
         {activeFilterCount > 0 && (
           <button type="button" className="btn btn-ghost btn-sm" onClick={clearAll}>
@@ -638,13 +768,15 @@ export function DataTable({
             <thead>
               <tr>
                 {selectable && (
-                  <th style={{ width: "2.25rem" }} className="!px-3">
-                    <input
-                      type="checkbox"
-                      checked={allPageSelected}
-                      onChange={togglePageSelection}
-                      aria-label="Select all rows on this page"
-                    />
+                  <th style={{ width: "2.75rem" }} className="!px-2">
+                    <label className="-m-1 flex min-h-6 cursor-[var(--cursor-interactive)] items-center justify-center p-1">
+                      <input
+                        type="checkbox"
+                        checked={allPageSelected}
+                        onChange={togglePageSelection}
+                        aria-label="Select all rows on this page"
+                      />
+                    </label>
                   </th>
                 )}
                 {visibleColumns.map((c, ci) => {
@@ -666,7 +798,7 @@ export function DataTable({
                           type="button"
                           onClick={() => toggleSort(c.key)}
                           className={classNames(
-                            "inline-flex items-center gap-1 uppercase tracking-[0.04em] hover:text-[var(--c-text)]",
+                            "-my-1 inline-flex min-h-6 items-center gap-1 py-1 uppercase tracking-[0.04em] hover:text-[var(--c-text)]",
                             active && "text-[var(--c-text)]",
                           )}
                         >
@@ -699,21 +831,23 @@ export function DataTable({
                   }
                 >
                   {selectable && (
-                    <td className="!px-3">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(r.id)}
-                        disabled={r.disabled}
-                        onChange={(e) =>
-                          setSelected((prev) => {
-                            const next = new Set(prev);
-                            if (e.target.checked) next.add(r.id);
-                            else next.delete(r.id);
-                            return next;
-                          })
-                        }
-                        aria-label={`Select row ${r.id}`}
-                      />
+                    <td className="!px-2">
+                      <label className="-m-1 flex min-h-6 cursor-[var(--cursor-interactive)] items-center justify-center p-1">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(r.id)}
+                          disabled={r.disabled}
+                          onChange={(e) =>
+                            setSelected((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(r.id);
+                              else next.delete(r.id);
+                              return next;
+                            })
+                          }
+                          aria-label={`Select row ${r.id}`}
+                        />
+                      </label>
                     </td>
                   )}
                   {visibleColumns.map((c, ci) => (

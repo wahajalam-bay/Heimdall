@@ -17,6 +17,7 @@ import {
 import { RankedBars } from "@/components/ui/charts";
 import { SEVERITY_TONE, humanize } from "@/lib/domain";
 import { ageDays, fmtDate } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Vendor issues" };
 export const dynamic = "force-dynamic";
@@ -135,17 +136,38 @@ export default async function VendorIssuesPage() {
         subtitle="Every recorded failure — late delivery, quality, short quantity, document tampering. These feed the performance score and form the evidence base for investigations."
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Issues recorded" value={issues.length} />
-        <StatTile label="Open" value={open.length} tone={open.length ? "warning" : "success"} />
-        <StatTile label="Critical" value={critical.length} tone={critical.length ? "danger" : "default"} />
-        <StatTile label="Escalated" value={escalated.length} tone={escalated.length ? "danger" : "default"} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Issues recorded" value={issues.length} href="/vendors/issues" />
+        <StatTile
+          label="Open"
+          value={open.length}
+          tone={open.length ? "warning" : "success"}
+          href={statusLink("/vendors/issues", "status", ["OPEN", "UNDER_INVESTIGATION", "ESCALATED", "AWAITING_VENDOR"])}
+        />
+        <StatTile
+          label="Critical"
+          value={critical.length}
+          tone={critical.length ? "danger" : "default"}
+          href={statusLink("/vendors/issues", "severity", ["CRITICAL"])}
+        />
+        <StatTile
+          label="Escalated"
+          value={escalated.length}
+          tone={escalated.length ? "danger" : "default"}
+          href={statusLink("/vendors/issues", "status", ["ESCALATED"])}
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <SectionCard title="Issues by type" description="What actually goes wrong, in order of frequency.">
           <RankedBars
-            data={[...byType.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value)}
+            data={[...byType.entries()]
+              .map(([label, value]) => ({
+                label,
+                value,
+                href: tableLink("/vendors/issues", { type: label }),
+              }))
+              .sort((a, b) => b.value - a.value)}
             format="number"
             maxRows={8}
           />

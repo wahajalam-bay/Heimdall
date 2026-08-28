@@ -26,6 +26,7 @@ import { SectionBoundary } from "@/components/ui/SectionBoundary";
 import { ChartFrame, ChartTable, RankedBars, TrendChart } from "@/components/ui/charts";
 import { fmtDate, money, percent, relativeTime } from "@/lib/format";
 import { SEVERITY_TONE, humanize } from "@/lib/domain";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Executive Dashboard" };
 export const dynamic = "force-dynamic";
@@ -352,7 +353,7 @@ async function Position({ ctx, scoped }: Scope) {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
         <StatTile
           label="Procurement value"
           value={money(kpis.totalProcurementValue, "PKR", { compact: true })}
@@ -392,11 +393,20 @@ async function Position({ ctx, scoped }: Scope) {
             title="Flow"
             items={[
               { label: "Requisitions raised", value: kpis.prCount, href: "/pr" },
-              { label: "Awaiting approval", value: kpis.prPendingApproval, href: "/pr", alert: kpis.prPendingApproval > 0 },
+              {
+                label: "Awaiting approval",
+                value: kpis.prPendingApproval,
+                href: statusLink("/pr", "status", ["SUBMITTED", "UNDER_DEPARTMENT_APPROVAL"]),
+                alert: kpis.prPendingApproval > 0,
+              },
               { label: "RFQs issued", value: kpis.rfqCount, href: "/rfq" },
-              { label: "Quotes per RFQ", value: kpis.avgQuotationsPerRfq ? kpis.avgQuotationsPerRfq.toFixed(1) : "—" },
-              { label: "Approval time", value: hours(kpis.avgPrApprovalHours) },
-              { label: "Requisition to closure", value: days(kpis.avgCycleTimeDays) },
+              {
+                label: "Quotes per RFQ",
+                value: kpis.avgQuotationsPerRfq ? kpis.avgQuotationsPerRfq.toFixed(1) : "—",
+                href: tableLink("/rfq", { quorum: "Below minimum" }),
+              },
+              { label: "Approval time", value: hours(kpis.avgPrApprovalHours), href: "/analytics/bottlenecks" },
+              { label: "Requisition to closure", value: days(kpis.avgCycleTimeDays), href: "/analytics/performance" },
             ]}
           />
           <MetricGroup
@@ -404,9 +414,13 @@ async function Position({ ctx, scoped }: Scope) {
             items={[
               { label: "Committee pending", value: cpc.pending, href: "/cpc", alert: cpc.pending > 0 },
               { label: "Committee approved", value: cpc.approved, href: "/cpc" },
-              { label: "Committee decision time", value: cpc.avgApprovalHours ? days(cpc.avgApprovalHours / 24) : "—" },
-              { label: "Approved vendors", value: kpis.activeVendors, href: "/vendors" },
-              { label: "Blacklisted vendors", value: kpis.blacklistedVendors, href: "/vendors" },
+              {
+                label: "Committee decision time",
+                value: cpc.avgApprovalHours ? days(cpc.avgApprovalHours / 24) : "—",
+                href: "/cpc/decisions",
+              },
+              { label: "Approved vendors", value: kpis.activeVendors, href: "/vendors?tab=approved" },
+              { label: "Blacklisted vendors", value: kpis.blacklistedVendors, href: "/vendors/blacklist" },
               {
                 label: "Open exceptions",
                 value: `${kpis.openExceptions}${kpis.criticalExceptions ? ` (${kpis.criticalExceptions} critical)` : ""}`,
@@ -519,6 +533,7 @@ async function Detail({ user, ctx, scoped }: Scope) {
                 label: c.label,
                 value: c.value,
                 sub: `${c.count} line(s)`,
+                href: tableLink("/analytics/spend", undefined, { dimension: "category", q: c.label }),
               }))}
               format="moneyCompact"
               maxRows={8}

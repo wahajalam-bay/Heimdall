@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/primitives";
 import { humanize } from "@/lib/domain";
 import { ageDays, fmtDate, qty, round2 } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Store Transfers" };
 export const dynamic = "force-dynamic";
@@ -84,6 +85,9 @@ export default async function TransfersPage() {
     { key: "dispatched", header: "Dispatched", sortable: true, width: "8.5rem", defaultHidden: true },
     { key: "received", header: "Received", sortable: true, width: "8.5rem", defaultHidden: true },
     { key: "transitDays", header: "Days in transit", numeric: true, sortable: true, width: "9rem" },
+    // Time in transit is a clock, not a status: the tile counting stale legs needs
+    // a control of its own, and it is worth having as a filter besides.
+    { key: "transit", header: "Transit", filterable: true, sortable: true, width: "10rem", defaultHidden: true },
     { key: "action", header: "", width: "7.5rem", noExport: true },
   ];
 
@@ -107,6 +111,7 @@ export default async function TransfersPage() {
               : null,
       search: `${t.number} ${t.fromStore.name} ${t.toStore.name} ${t.reason ?? ""} ${t.items.map((li) => li.item.name).join(" ")}`,
       values: {
+        transit: t.status !== "DISPATCHED" ? "Not in transit" : transitDays > 3 ? "Over 3 days" : "Within 3 days",
         number: t.number,
         from: t.fromStore.name,
         to: t.toStore.name,
@@ -126,6 +131,14 @@ export default async function TransfersPage() {
         action: "",
       },
       cells: {
+        transit:
+          t.status !== "DISPATCHED" ? (
+            <span className="text-[var(--c-text-tertiary)]">Not in transit</span>
+          ) : transitDays > 3 ? (
+            <Badge tone="danger">Over 3 days</Badge>
+          ) : (
+            <span className="text-[var(--c-text-tertiary)]">Within 3 days</span>
+          ),
         number: <RefLink href={`/transfers/${t.id}`}>{t.number}</RefLink>,
         from: (
           <span>
@@ -198,19 +211,32 @@ export default async function TransfersPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Open transfers" value={stats.open} hint="Not yet received" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Open transfers"
+          value={stats.open}
+          hint="Not yet received"
+          href={statusLink("/transfers", "status", ["DRAFT", "PENDING_APPROVAL", "APPROVED", "DISPATCHED"])}
+        />
         <StatTile
           label="Awaiting approval"
           value={stats.awaitingApproval}
           tone={stats.awaitingApproval ? "warning" : "default"}
+          href={statusLink("/transfers", "status", ["PENDING_APPROVAL"])}
         />
-        <StatTile label="In transit" value={stats.inTransit} tone="accent" hint="Dispatched, not yet received" />
+        <StatTile
+          label="In transit"
+          value={stats.inTransit}
+          tone="accent"
+          hint="Dispatched, not yet received"
+          href={statusLink("/transfers", "status", ["DISPATCHED"])}
+        />
         <StatTile
           label="In transit over 3 days"
           value={stats.stale}
           tone={stats.stale ? "danger" : "default"}
           hint="Stock unaccounted for in either store"
+          href={tableLink("/transfers", { transit: "Over 3 days" })}
         />
       </div>
 

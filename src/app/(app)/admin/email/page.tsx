@@ -18,6 +18,7 @@ import { fmtDateTime, relativeTime } from "@/lib/format";
 import { humanize } from "@/lib/domain";
 import { outboxSummary } from "@/lib/mail";
 import { flushMailAction, requeueMailAction } from "../actions";
+import { statusLink } from "@/lib/links";
 
 export const metadata = { title: "Email delivery" };
 export const dynamic = "force-dynamic";
@@ -151,12 +152,32 @@ export default async function AdminEmailPage() {
         </InlineAlert>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <StatTile label="Queued" value={summary.queued} tone={summary.queued ? "warning" : "default"} />
-        <StatTile label="Sending" value={summary.sending} />
-        <StatTile label="Sent" value={summary.sent} tone="success" />
-        <StatTile label="Failed" value={summary.failed} tone={summary.failed ? "danger" : "success"} />
-        <StatTile label="Suppressed" value={summary.suppressed} hint="Blocked by configuration" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+        <StatTile
+          label="Queued"
+          value={summary.queued}
+          tone={summary.queued ? "warning" : "default"}
+          href={statusLink("/admin/email", "status", ["QUEUED"])}
+        />
+        <StatTile label="Sending" value={summary.sending} href={statusLink("/admin/email", "status", ["SENDING"])} />
+        <StatTile
+          label="Sent"
+          value={summary.sent}
+          tone="success"
+          href={statusLink("/admin/email", "status", ["SENT"])}
+        />
+        <StatTile
+          label="Failed"
+          value={summary.failed}
+          tone={summary.failed ? "danger" : "success"}
+          href={statusLink("/admin/email", "status", ["FAILED"])}
+        />
+        <StatTile
+          label="Suppressed"
+          value={summary.suppressed}
+          hint="Blocked by configuration"
+          href={statusLink("/admin/email", "status", ["SUPPRESSED"])}
+        />
       </div>
 
       <DataTable

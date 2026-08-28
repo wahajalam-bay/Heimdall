@@ -6,6 +6,7 @@ import { DataTable, type TableColumn, type TableRow } from "@/components/ui/Data
 import { Badge, EmptyState, PageHeader, RefLink, StatTile, StatusBadge } from "@/components/ui/primitives";
 import { humanize } from "@/lib/domain";
 import { fmtDate, money, percent, round2 } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Comparatives" };
 export const dynamic = "force-dynamic";
@@ -79,6 +80,9 @@ export default async function ComparativesPage() {
     { key: "savingsPct", header: "Savings %", numeric: true, sortable: true, width: "8rem" },
     { key: "prepared", header: "Prepared", sortable: true, width: "8rem" },
     { key: "flags", header: "Flags", sortable: false, minWidth: "13rem" },
+    // Awarding above the lowest quotation is the exception the tile counts, and
+    // it is a written justification rather than a status.
+    { key: "award", header: "Award basis", filterable: true, sortable: true, width: "12rem", defaultHidden: true },
   ];
 
   const rows: TableRow[] = comparatives.map((c) => {
@@ -110,8 +114,14 @@ export default async function ComparativesPage() {
         flags: [c.nonLowestJustification ? "Non-lowest" : "", cpc ? "CPC" : "", po ? "PO raised" : ""]
           .filter(Boolean)
           .join(" "),
+        award: c.nonLowestJustification ? "Above lowest" : "Lowest quotation",
       },
       cells: {
+        award: c.nonLowestJustification ? (
+          <Badge tone="warning">Above lowest</Badge>
+        ) : (
+          <span className="text-[var(--c-text-tertiary)]">Lowest quotation</span>
+        ),
         number: <RefLink href={`/comparatives/${c.id}`}>{c.number}</RefLink>,
         pr: <RefLink href={`/pr/${c.pr.id}`}>{c.pr.number}</RefLink>,
         title: (
@@ -154,17 +164,34 @@ export default async function ComparativesPage() {
         subtitle="Side-by-side vendor comparison against previous and market prices, with the lowest compliant quotation always identified."
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <StatTile label="Comparatives" value={stats.total} />
-        <StatTile label="Recommended" value={stats.recommended} tone="accent" hint="Awaiting committee or PO" />
-        <StatTile label="Approved" value={stats.approved} tone="success" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+        <StatTile label="Comparatives" value={stats.total} href="/comparatives" />
+        <StatTile
+          label="Recommended"
+          value={stats.recommended}
+          tone="accent"
+          hint="Awaiting committee or PO"
+          href={statusLink("/comparatives", "status", ["RECOMMENDED"])}
+        />
+        <StatTile
+          label="Approved"
+          value={stats.approved}
+          tone="success"
+          href={statusLink("/comparatives", "status", ["APPROVED"])}
+        />
         <StatTile
           label="Awarded above lowest"
           value={stats.nonLowest}
           hint="Each carries a written justification"
           tone={stats.nonLowest ? "warning" : "default"}
+          href={tableLink("/comparatives", { award: "Above lowest" })}
         />
-        <StatTile label="Savings identified" value={money(stats.savings, "PKR", { compact: true })} tone="success" />
+        <StatTile
+          label="Savings identified"
+          value={money(stats.savings, "PKR", { compact: true })}
+          tone="success"
+          href={tableLink("/comparatives", undefined, { sort: "savings:desc" })}
+        />
       </div>
 
       <DataTable

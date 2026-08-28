@@ -170,8 +170,8 @@ const BAND_COLS: Record<number, string> = {
   // tile's own width instead of stretching.
   1: "sm:max-w-xs",
   2: "sm:grid-cols-2",
-  3: "sm:grid-cols-2 xl:grid-cols-3",
-  4: "sm:grid-cols-2 xl:grid-cols-4",
+  3: "sm:grid-cols-2 md:grid-cols-3",
+  4: "sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4",
 };
 
 /**

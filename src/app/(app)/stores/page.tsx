@@ -17,6 +17,7 @@ import {
 import { ChartFrame, ChartTable, RankedBars } from "@/components/ui/charts";
 import { humanize } from "@/lib/domain";
 import { amount, money, round2 } from "@/lib/format";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Stores" };
 export const dynamic = "force-dynamic";
@@ -65,21 +66,32 @@ export default async function StoresPage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <StatTile label="Stores" value={totals.stores} tone="accent" />
-        <StatTile label="Inventory value" value={money(totals.value, "PKR", { compact: true })} />
-        <StatTile label="Stock lines" value={totals.skus} hint="Item / batch / serial buckets" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+        <StatTile label="Stores" value={totals.stores} tone="accent" href="/stores" />
+        <StatTile
+          label="Inventory value"
+          value={money(totals.value, "PKR", { compact: true })}
+          href={tableLink("/inventory", undefined, { sort: "value:desc" })}
+        />
+        <StatTile
+          label="Stock lines"
+          value={totals.skus}
+          hint="Item / batch / serial buckets"
+          href="/inventory"
+        />
         <StatTile
           label="Open issues"
           value={totals.openIssues}
           hint="Awaiting approval or release"
           tone={totals.openIssues ? "warning" : "default"}
+          href="/issuance"
         />
         <StatTile
           label="Inbound transfers"
           value={totals.inbound}
           hint="Dispatched, awaiting receipt"
           tone={totals.inbound ? "warning" : "default"}
+          href={statusLink("/transfers", "status", ["DISPATCHED"])}
         />
       </div>
 
@@ -112,7 +124,12 @@ export default async function StoresPage() {
             <RankedBars
               data={stores
                 .filter((s) => s.totalValue > 0)
-                .map((s) => ({ label: s.name, value: s.totalValue, sub: `${s.skuCount} lines` }))}
+                .map((s) => ({
+                  label: s.name,
+                  value: s.totalValue,
+                  sub: `${s.skuCount} lines`,
+                  href: `/stores/${s.id}`,
+                }))}
               format="moneyCompact"
               maxRows={10}
               colorIndex={1}

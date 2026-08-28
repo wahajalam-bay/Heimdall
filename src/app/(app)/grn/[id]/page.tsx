@@ -179,7 +179,7 @@ export default async function GrnDetailPage({ params }: { params: Promise<{ id: 
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
         <StatTile label="Accepted into inventory" value={qty(accepted)} hint={`${g.items.length} line(s)`} tone="success" />
         <StatTile label="Rejected" value={rejected > 0 ? qty(rejected) : "—"} tone={rejected > 0 ? "danger" : "default"} />
         <StatTile label="Value" value={money(g.totalValue)} />

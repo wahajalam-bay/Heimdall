@@ -376,7 +376,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
 
       <LifecycleRail steps={rail} title="Invoice lifecycle" />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
         <StatTile label="Invoice total" value={money(invoice.total)} />
         <StatTile
           label="Order value"

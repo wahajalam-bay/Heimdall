@@ -11,6 +11,7 @@ import { humanize } from "@/lib/domain";
 import { fmtDate, money, percent, round2 } from "@/lib/format";
 import { AnalyticsFilters } from "../AnalyticsFilters";
 import { buildFilter, filterOptions, periodLabel } from "../filters";
+import { tableLink } from "@/lib/links";
 
 export const metadata = { title: "Savings" };
 export const dynamic = "force-dynamic";
@@ -147,11 +148,31 @@ export default async function SavingsPage({ searchParams }: { searchParams: Prom
         show={["entity", "category", "vendor", "from", "to"]}
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Total savings" value={money(total)} tone="success" hint={`${rows.length} records`} />
-        <StatTile label="From negotiation" value={money(negotiated)} hint="Vendor conceded on price" />
-        <StatTile label="Against baseline" value={money(baseline)} hint="Market or last-paid comparison" />
-        <StatTile label="Average saving" value={percent(avgPercent, 1)} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Total savings"
+          value={money(total)}
+          tone="success"
+          hint={`${rows.length} records`}
+          href={tableLink("/analytics/savings", undefined, { sort: "totalSavings:desc" })}
+        />
+        <StatTile
+          label="From negotiation"
+          value={money(negotiated)}
+          hint="Vendor conceded on price"
+          href={tableLink("/analytics/savings", undefined, { sort: "negotiatedPrice:desc" })}
+        />
+        <StatTile
+          label="Against baseline"
+          value={money(baseline)}
+          hint="Market or last-paid comparison"
+          href={tableLink("/analytics/savings", undefined, { sort: "marketPrice:desc" })}
+        />
+        <StatTile
+          label="Average saving"
+          value={percent(avgPercent, 1)}
+          href={tableLink("/analytics/savings", undefined, { sort: "savingsPercent:desc" })}
+        />
       </div>
 
       <SectionCard title="Savings by month" description="Recorded savings against the month the order was placed.">
@@ -167,14 +188,26 @@ export default async function SavingsPage({ searchParams }: { searchParams: Prom
       <div className="grid gap-4 lg:grid-cols-3">
         <SectionCard title="By vendor" description="Where negotiation is actually landing.">
           <RankedBars
-            data={[...byVendor.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value)}
+            data={[...byVendor.entries()]
+              .map(([label, value]) => ({
+                label,
+                value,
+                href: tableLink("/analytics/savings", { vendor: label }, { sort: "totalSavings:desc" }),
+              }))
+              .sort((a, b) => b.value - a.value)}
             format="moneyCompact"
             maxRows={8}
           />
         </SectionCard>
         <SectionCard title="By category">
           <RankedBars
-            data={[...byCategory.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value)}
+            data={[...byCategory.entries()]
+              .map(([label, value]) => ({
+                label,
+                value,
+                href: tableLink("/analytics/savings", { category: label }, { sort: "totalSavings:desc" }),
+              }))
+              .sort((a, b) => b.value - a.value)}
             format="moneyCompact"
             colorIndex={1}
             maxRows={8}
@@ -182,7 +215,13 @@ export default async function SavingsPage({ searchParams }: { searchParams: Prom
         </SectionCard>
         <SectionCard title="By basis" description="How the saving was established.">
           <RankedBars
-            data={[...byType.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value)}
+            data={[...byType.entries()]
+              .map(([label, value]) => ({
+                label,
+                value,
+                href: tableLink("/analytics/savings", { type: label }, { sort: "totalSavings:desc" }),
+              }))
+              .sort((a, b) => b.value - a.value)}
             format="moneyCompact"
             colorIndex={5}
             maxRows={6}

@@ -15,6 +15,7 @@ import { ColumnChart, DonutChart, RankedBars, TrendChart } from "@/components/ui
 import { money, percent, round2 } from "@/lib/format";
 import { AnalyticsFilters } from "./AnalyticsFilters";
 import { buildFilter, filterOptions, periodLabel } from "./filters";
+import { statusLink, tableLink } from "@/lib/links";
 
 export const metadata = { title: "Analytics" };
 export const dynamic = "force-dynamic";
@@ -78,71 +79,91 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
         vendors={options.vendors}
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Procurement value" value={money(kpis.totalProcurementValue)} hint="Issued purchase orders" />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Procurement value"
+          value={money(kpis.totalProcurementValue)}
+          hint="Issued purchase orders"
+          href="/analytics/spend"
+        />
         <StatTile
           label="Savings realised"
           value={money(kpis.savingsAmount)}
           hint={kpis.savingsPercent > 0 ? `${percent(kpis.savingsPercent, 2)} of addressable spend` : undefined}
           tone="success"
+          href="/analytics/savings"
         />
         <StatTile
           label="Average cycle time"
           value={`${kpis.avgCycleTimeDays} days`}
           hint="Requisition raised to purchase order issued"
+          href="/analytics/performance"
         />
         <StatTile
           label="Open exceptions"
           value={kpis.openExceptions}
           tone={kpis.criticalExceptions > 0 ? "danger" : kpis.openExceptions > 0 ? "warning" : "success"}
           hint={`${kpis.criticalExceptions} critical`}
+          href="/analytics/exceptions"
         />
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Requisitions" value={kpis.prCount} hint={`${kpis.prPendingApproval} awaiting approval`} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Requisitions"
+          value={kpis.prCount}
+          hint={`${kpis.prPendingApproval} awaiting approval`}
+          href="/pr"
+        />
         <StatTile
           label="Average approval time"
           value={kpis.avgPrApprovalHours > 48 ? `${round2(kpis.avgPrApprovalHours / 24)} days` : `${kpis.avgPrApprovalHours} h`}
           hint="Requisition submission to decision"
+          href="/analytics/bottlenecks"
         />
         <StatTile
           label="Quotations per RFQ"
           value={kpis.avgQuotationsPerRfq}
           hint={`${kpis.rfqCount} RFQs issued`}
           tone={kpis.avgQuotationsPerRfq < 3 ? "warning" : "default"}
+          href={tableLink("/rfq", { quorum: "Below minimum" })}
         />
         <StatTile
           label="Open purchase orders"
           value={kpis.openPoCount}
           hint={`${money(kpis.openPoValue)} outstanding · ${kpis.overduePoCount} overdue`}
           tone={kpis.overduePoCount > 0 ? "warning" : "default"}
+          href="/open-pos"
         />
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
         <StatTile
           label="Invoices pending"
           value={kpis.invoicesPendingCount}
           hint={`${kpis.invoiceMismatchCount} failing the match`}
           tone={kpis.invoiceMismatchCount > 0 ? "danger" : "default"}
+          href="/finance/pending"
         />
         <StatTile
           label="Payments pending"
           value={money(kpis.paymentPendingValue)}
           hint={`${kpis.paymentPendingCount} handoff(s) with finance`}
+          href="/finance/handoffs"
         />
         <StatTile
           label="Petty cash store gap"
           value={kpis.pettyCashStoreGap}
           tone={kpis.pettyCashStoreGap > 0 ? "danger" : "success"}
           hint={`${money(kpis.pettyCashSpend)} cash spend`}
+          href={tableLink("/petty-cash", { storeGapState: "Outstanding" })}
         />
         <StatTile
           label="CPC cases"
           value={kpis.cpcPendingCount}
           hint={`${kpis.cpcApprovedCount} approved to date`}
           tone={kpis.cpcPendingCount > 0 ? "warning" : "default"}
+          href={statusLink("/cpc/cases", "status", ["PENDING", "SCHEDULED", "UNDER_REVIEW"])}
         />
       </div>
 
@@ -189,7 +210,12 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
         </SectionCard>
         <SectionCard title="Spend by procurement type" description="Where the money goes by the nature of the buy.">
           <DonutChart
-            data={byType.slice(0, 6).map((t, i) => ({ label: t.label, value: t.value, colorIndex: i }))}
+            data={byType.slice(0, 6).map((t, i) => ({
+              label: t.label,
+              value: t.value,
+              colorIndex: i,
+              href: tableLink("/pr", { type: t.label }),
+            }))}
             centerLabel="Total"
             centerValue={money(kpis.poValue, "PKR", { compact: true })}
             format="moneyCompact"
@@ -200,7 +226,12 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
       <div className="grid gap-4 lg:grid-cols-3">
         <SectionCard title="Top categories" description="By purchase order value.">
           <RankedBars
-            data={byCategory.map((c) => ({ label: c.label, value: c.value, sub: `${c.count} orders` }))}
+            data={byCategory.map((c) => ({
+              label: c.label,
+              value: c.value,
+              sub: `${c.count} orders`,
+              href: tableLink("/analytics/spend", undefined, { dimension: "category", q: c.label }),
+            }))}
             format="moneyCompact"
             maxRows={8}
           />
@@ -250,14 +281,19 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
         </div>
       </SectionCard>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Inventory value" value={money(kpis.inventoryValue)} />
-        <StatTile label="Assets on register" value={kpis.assetCount} />
-        <StatTile label="Active vendors" value={kpis.activeVendors} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile
+          label="Inventory value"
+          value={money(kpis.inventoryValue)}
+          href={tableLink("/inventory", undefined, { sort: "value:desc" })}
+        />
+        <StatTile label="Assets on register" value={kpis.assetCount} href="/assets" />
+        <StatTile label="Active vendors" value={kpis.activeVendors} href="/vendors?tab=approved" />
         <StatTile
           label="Blacklisted vendors"
           value={kpis.blacklistedVendors}
           tone={kpis.blacklistedVendors > 0 ? "danger" : "default"}
+          href="/vendors/blacklist"
         />
       </div>
 

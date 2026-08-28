@@ -9,6 +9,7 @@ import { RankedBars } from "@/components/ui/charts";
 import { fmtDate, money, round2, toInputDate } from "@/lib/format";
 import { adminOptions } from "../actions";
 import { ProjectForm } from "../AdminMasterForms";
+import { tableLink } from "@/lib/links";
 
 export const metadata = { title: "Projects" };
 export const dynamic = "force-dynamic";
@@ -159,11 +160,24 @@ export default async function AdminProjectsPage() {
         actions={<ProjectForm entities={options.entities} users={options.users} />}
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile label="Projects" value={projects.length} />
-        <StatTile label="Active" value={activeProjects.length} tone="success" />
-        <StatTile label="Total budget" value={money(budgeted)} />
-        <StatTile label="Requisitions raised" value={projects.reduce((a, p) => a + p._count.requisitions, 0)} />
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        <StatTile label="Projects" value={projects.length} href="/admin/projects" />
+        <StatTile
+          label="Active"
+          value={activeProjects.length}
+          tone="success"
+          href={tableLink("/admin/projects", { status: "Active" })}
+        />
+        <StatTile
+          label="Total budget"
+          value={money(budgeted)}
+          href={tableLink("/admin/projects", undefined, { sort: "budget:desc" })}
+        />
+        <StatTile
+          label="Requisitions raised"
+          value={projects.reduce((a, p) => a + p._count.requisitions, 0)}
+          href={tableLink("/admin/projects", undefined, { sort: "requisitions:desc" })}
+        />
       </div>
 
       <SectionCard
@@ -183,6 +197,7 @@ export default async function AdminProjectsPage() {
                 label: `${p.code} — ${p.name}`,
                 value: round2((committed / (p.budget ?? 1)) * 100),
                 sub: `${money(committed, "PKR", { compact: true })} of ${money(p.budget ?? 0, "PKR", { compact: true })}`,
+                href: tableLink("/pr", { project: `${p.code} — ${p.name}` }),
               };
             })
             .sort((a, b) => b.value - a.value)}

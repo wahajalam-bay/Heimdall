@@ -77,7 +77,7 @@ export function Breadcrumbs({
         <span key={`${it.label}-${i}`} className="flex items-center gap-1">
           {i > 0 && <span aria-hidden>/</span>}
           {it.href ? (
-            <Link href={it.href} className="hover:text-[var(--c-text)]">
+            <Link href={it.href} className="-my-1 inline-flex min-h-6 items-center py-1 hover:text-[var(--c-text)]">
               {it.label}
             </Link>
           ) : (

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { classNames, compactNumber } from "@/lib/format";
 import { useIsomorphicLayoutEffect } from "@/lib/hooks";
@@ -777,7 +778,8 @@ export function DonutChart({
   format = "compact",
   currency = "PKR",
 }: {
-  data: Array<{ label: string; value: number; colorIndex?: number }>;
+  /** `href` makes the segment and its legend row a link into the filtered rows. */
+  data: Array<{ label: string; value: number; colorIndex?: number; href?: string }>;
   size?: number;
   thickness?: number;
   centerLabel?: string;
@@ -814,9 +816,8 @@ export function DonutChart({
           {data.map((d, i) => {
             const frac = d.value / total;
             const len = Math.max(0, frac * circ - gap);
-            const el = (
+            const arc = (
               <circle
-                key={d.label}
                 cx={c}
                 cy={c}
                 r={r}
@@ -826,12 +827,19 @@ export function DonutChart({
                 strokeDasharray={`${len} ${circ - len}`}
                 strokeDashoffset={-offset}
                 transform={`rotate(-90 ${c} ${c})`}
-                style={{ transition: "stroke-width 120ms ease" }}
+                style={{ transition: "stroke-width 120ms ease", cursor: d.href ? "var(--cursor-interactive)" : undefined }}
                 onMouseEnter={() => setHover(i)}
                 onMouseLeave={() => setHover(null)}
               >
                 <title>{`${d.label}: ${fmt(d.value)} (${((frac * 100) | 0)}%)`}</title>
               </circle>
+            );
+            const el = d.href ? (
+              <a key={d.label} href={d.href} aria-label={`${d.label}: ${fmt(d.value)}`}>
+                {arc}
+              </a>
+            ) : (
+              <g key={d.label}>{arc}</g>
             );
             offset += frac * circ;
             return el;
@@ -847,31 +855,47 @@ export function DonutChart({
         </div>
       </div>
       <ul className="min-w-[9rem] flex-1 space-y-1.5">
-        {data.map((d, i) => (
-          <li
-            key={d.label}
-            className="flex items-baseline justify-between gap-3 text-xs"
-            onMouseEnter={() => setHover(i)}
-            onMouseLeave={() => setHover(null)}
-          >
-            <span className="flex min-w-0 items-center gap-1.5 text-muted">
-              <span
-                className="size-2 shrink-0 rounded-[2px]"
-                style={{ background: vizColor(d.colorIndex ?? i) }}
-                aria-hidden
-              />
-              <span className="truncate" title={d.label}>
-                {d.label}
+        {data.map((d, i) => {
+          const row = (
+            <>
+              <span className="flex min-w-0 items-center gap-1.5 text-muted">
+                <span
+                  className="size-2 shrink-0 rounded-[2px]"
+                  style={{ background: vizColor(d.colorIndex ?? i) }}
+                  aria-hidden
+                />
+                <span className="truncate" title={d.label}>
+                  {d.label}
+                </span>
               </span>
-            </span>
-            <span className="tnum shrink-0 font-500">
-              {fmt(d.value)}
-              <span className="ml-1.5 text-[var(--c-text-tertiary)]">
-                {((d.value / total) * 100).toFixed(0)}%
+              <span className="tnum shrink-0 font-500">
+                {fmt(d.value)}
+                <span className="ml-1.5 text-[var(--c-text-tertiary)]">
+                  {((d.value / total) * 100).toFixed(0)}%
+                </span>
               </span>
-            </span>
-          </li>
-        ))}
+            </>
+          );
+          return (
+            <li
+              key={d.label}
+              className="text-xs"
+              onMouseEnter={() => setHover(i)}
+              onMouseLeave={() => setHover(null)}
+            >
+              {d.href ? (
+                <Link
+                  href={d.href}
+                  className="-mx-1.5 flex items-baseline justify-between gap-3 rounded-md px-1.5 py-1 transition-colors hover:bg-[var(--c-surface-hover)]"
+                >
+                  {row}
+                </Link>
+              ) : (
+                <span className="flex items-baseline justify-between gap-3">{row}</span>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
