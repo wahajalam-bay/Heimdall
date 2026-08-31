@@ -28,6 +28,27 @@ its own Roles & Responsibilities section and its own Checklist of Roles &
 Responsibilities, and those need reading against this series before any of it is
 treated as a Zameen Media duty. That verification is **done** — see the [R-ZAM series](#roles--responsibilities----zameen-media----r-zam-series). Zameen Media states four procurement responsibilities, not thirty-four, so the ZD series stays out of scope and `BD-001` is closed.
 
+## Progress since Phase 0
+
+| Requirement | Was | Now | Where |
+|---|---|---|---|
+| **GR-001** GRN posting must not leave partial state | PARTIAL — no atomicity at all | **IMPLEMENTED + TESTED** — 61 chains transactional; rollback, nesting and after-commit deferral all proved | `lib/db.ts`, `tests/transactions.test.ts` |
+| **GR-002** Duplicate GRN posting prevented | PARTIAL — no idempotency key | **IMPLEMENTED + TESTED** — conditional claim; two concurrent posts leave one receipt | `server/grn.ts`, `tests/transactions.test.ts` |
+| **RC-012** Cumulative receipt never exceeds the order | PARTIAL — checked at draft only, so two drafts both passed | **IMPLEMENTED** — re-checked inside the posting transaction | `server/grn.ts` |
+| **CP-012** CEO approval above PKR 1,500,000 | MISSING | **IMPLEMENTED** — configurable threshold, returned by `cpcRequirement`, asserted in the acceptance run | `server/cpc.ts` |
+| **CP-006/007** Committee member types, observers non-voting | MISSING | PARTIAL — three types and quorum inputs modelled; vote counting still to come | `lib/policy.ts` |
+| **FI-007** Taxes per the Income Tax Ordinance | PARTIAL — system computed tax it had no authority for, inconsistently at 16% and 18% | **IMPLEMENTED** — effective-dated line-level master, snapshotted per line, ships empty | `server/tax.ts`, `/admin/tax` |
+| **PR-003** Annexure 1 form fields | PARTIAL — 7 elements absent, 3 of them compulsory | **IMPLEMENTED** — Req Location, Document Comments, Approved By, Item Code, In Stock snapshot, and the compulsory Sign/Stamp/Date/Time block | `server/attestation.ts` |
+| **SO-006/007** Comparison recorded via Annexure 3 | PARTIAL | PARTIAL — manual entries added, labelled MANUAL and unable to win an award; layout version still awaiting PCZ-11 | `server/manual-comparison.ts` |
+| **R-ZAM-004** Annexure A document set before finance | PARTIAL — all 30 document types optional | Unchanged — Payment Pack is the next phase | — |
+| **E-007** Source-to-pay spread across stakeholders | PARTIAL | **IMPLEMENTED** — three source-cited separations, audited when blocked and when waived | `lib/sod.ts` |
+| Goods vs services as distinct concepts | Not in the original matrix | **IMPLEMENTED** — `procurementKind` on requisition, order and both line tables; mixed documents refused; service acceptance replaces receiving | `lib/kind.ts`, `server/service-acceptance.ts` |
+| Contextual asset vs consumable | Not in the original matrix | **IMPLEMENTED** — treatment decided per receipt with a reason, capitalisation policy with three modes, Expense Book | `lib/treatment.ts`, `server/expense-book.ts` |
+
+**Authorization, across the whole domain layer:** 113 mutating functions, **0
+without an independent check**, guarded by a test that re-reads the source on
+every run.
+
 ## Zameen Media coverage
 
 | Status | Count |
