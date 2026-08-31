@@ -10,6 +10,7 @@ import { userHasPermission, type SessionUser } from "@/lib/rbac";
 import { STORE_ENTRY_DISPOSITIONS, type Disposition } from "@/lib/domain";
 import { round2 } from "@/lib/format";
 import { assertTreatments, capitalisationPolicy, decideTreatment } from "@/lib/treatment";
+import { checkSerials, parseSerials, registerSerials } from "./serials";
 import { reconcileGrnToPo } from "./receiving-exceptions";
 import { postMovement } from "./inventory";
 import { recomputePoFulfilment } from "./po";
@@ -219,6 +220,29 @@ export async function createGrn(user: SessionUser, input: GrnInput, db: DbClient
     };
   });
   assertTreatments(treatmentDecisions);
+
+  // Serials, checked before anything is written.
+  //
+  // Ten laptops received is ten machines, each with its own serial. A serialised
+  // item therefore needs one serial per accepted unit — and none of them may
+  // already be recorded, because a duplicate serial means two records claiming
+  // to be one physical thing with no way to tell which is real.
+  const serialProblems: string[] = [];
+  for (const p of prepared) {
+    if (!p.deliveryItem.item?.trackSerial || !p.deliveryItem.itemId) continue;
+    const serials = parseSerials(p.input.serialNumbers ?? p.deliveryItem.serialNumbers);
+    const expected = Math.round(p.acceptedQty);
+    const result = await checkSerials(p.deliveryItem.itemId, serials, expected, db);
+    if (!result.ok) {
+      serialProblems.push(
+        `Line ${p.deliveryItem.poItem.lineNo} (${p.deliveryItem.description}): ${result.problems.join(" ")}`,
+      );
+    }
+  }
+  if (serialProblems.length) {
+    throw new RuleViolationError(serialProblems.join("  "));
+  }
+
   const decisionByDeliveryItem = new Map(
     treatmentDecisions.map((d) => [d.deliveryItemId, d.decision]),
   );
@@ -464,7 +488,34 @@ export async function postGrn(user: SessionUser, grnId: string, db: DbClient = p
         );
       }
 
-      // Actual purchase price becomes the baseline for future comparatives.
+      // One row per physical unit, inside the posting transaction — a
+    // half-registered delivery is worse than an unregistered one, because it
+    // looks complete.
+    if (li.itemId && li.item?.trackSerial) {
+      const serials = parseSerials(li.serialNumbers);
+      if (serials.length) {
+        await registerSerials(
+          user,
+          {
+            itemId: li.itemId,
+            serials,
+            grnId: grn.id,
+            grnItemId: li.id,
+            poId: grn.poId,
+            vendorId: grn.vendorId,
+            storeId: grn.storeId,
+            storeLocationId: li.storeLocationId,
+            unitCost: li.unitPrice,
+            warrantyMonths: li.warrantyMonths,
+            expiryDate: li.expiryDate,
+            batchNumber: li.batchNumber,
+          },
+          tx,
+        );
+      }
+    }
+
+    // Actual purchase price becomes the baseline for future comparatives.
       if (li.itemId) {
         await tx.priceHistory.create({
           data: {

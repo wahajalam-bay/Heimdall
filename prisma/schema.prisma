@@ -107,6 +107,8 @@ model User {
   comparativePocs   Comparative[]       @relation("ComparativePoc")
   comparativesVerified Comparative[]    @relation("ComparativeVerifiedBy")
 
+  serialUnitsHeld   SerialUnit[]     @relation("SerialCustodian")
+  serialMovements   SerialMovement[] @relation("SerialMovementBy")
   @@index([email])
   @@map("users")
 }
@@ -331,6 +333,7 @@ model Store {
   sourcedIssues    StoreIssue[]           @relation("IssueSourceStore")
   requirementLines RequirementItem[]
 
+  serialUnits SerialUnit[]
   @@map("stores")
 }
 
@@ -351,6 +354,7 @@ model StoreLocation {
   inventory InventoryItem[]
   stacking  GoodsStacking[]
 
+  serialUnits SerialUnit[]
   @@unique([storeId, label])
   @@map("store_locations")
 }
@@ -431,6 +435,7 @@ model Item {
   rejections  RejectionRecord[]
   returnLines VendorReturnItem[]
 
+  serialUnits SerialUnit[]
   @@index([categoryId])
   @@map("items")
 }
@@ -1195,6 +1200,7 @@ model PurchaseOrder {
   expenditureType String          @default("OPEX")
   costCenterId    String?
 
+  serialUnits SerialUnit[]
   @@index([status])
   @@index([vendorId])
   @@map("purchase_orders")
@@ -1498,6 +1504,7 @@ model Grn {
   /// CAPEX | OPEX, carried from the order.
   expenditureType String            @default("OPEX")
 
+  serialUnits SerialUnit[]
   @@index([poId])
   @@map("grns")
 }
@@ -2132,6 +2139,7 @@ model Vendor {
   returns VendorReturn[]
 
   manualComparativeEntries ComparativeManualEntry[]
+  serialUnits SerialUnit[]
   @@index([status])
   @@map("vendors")
 }
@@ -2393,6 +2401,7 @@ model Asset {
 
   insurance AssetInsurance[]
 
+  serialUnits SerialUnit[]
   @@index([status])
   @@map("assets")
 }
@@ -3709,4 +3718,99 @@ model Attestation {
 
   @@index([documentType, documentId])
   @@index([signedById])
+}
+
+/// One physical serialised unit.
+///
+/// Ten laptops received is ten machines, each with its own serial, its own
+/// custodian and its own history. Holding that as a comma-joined string on a
+/// receipt line meant the tenth laptop had no identity: it could not be issued
+/// individually, its custodian could not be recorded, and nothing stopped the
+/// same serial being received twice.
+///
+/// So a serialised item gets one row per unit, and the row is the unit's life —
+/// received, stored, issued, returned, repaired, capitalised, disposed of.
+model SerialUnit {
+  id     String @id @default(cuid())
+  serial String
+
+  itemId String
+  item   Item   @relation(fields: [itemId], references: [id])
+
+  /// Where it came from.
+  grnId     String?
+  grn       Grn?     @relation(fields: [grnId], references: [id])
+  grnItemId String?
+  poId      String?
+  po        PurchaseOrder? @relation(fields: [poId], references: [id])
+  vendorId  String?
+  vendor    Vendor?  @relation(fields: [vendorId], references: [id])
+  receivedAt DateTime @default(now())
+  unitCost   Float    @default(0)
+
+  /// Where it is now.
+  storeId         String?
+  store           Store?         @relation(fields: [storeId], references: [id])
+  storeLocationId String?
+  storeLocation   StoreLocation? @relation(fields: [storeLocationId], references: [id])
+
+  /// IN_STOCK | ISSUED | WITH_EMPLOYEE | IN_REPAIR | RETURNED_TO_VENDOR | CAPITALISED | DISPOSED | LOST
+  status String @default("IN_STOCK")
+
+  /// Who holds it, when it is out of the store.
+  custodianId String?
+  custodian   User?   @relation("SerialCustodian", fields: [custodianId], references: [id])
+
+  /// The asset record, once it is capitalised.
+  assetId String?
+  asset   Asset?  @relation(fields: [assetId], references: [id])
+
+  warrantyMonths Int?
+  warrantyEnd    DateTime?
+  expiryDate     DateTime?
+  batchNumber    String?
+
+  remarks   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  movements SerialMovement[]
+
+  /// A serial identifies a unit of a given item, so it cannot repeat for that
+  /// item. It deliberately *can* repeat across different items: two
+  /// manufacturers reusing the same string is their business, not an error here.
+  @@unique([itemId, serial])
+  @@index([status, storeId])
+  @@index([custodianId])
+  @@index([serial])
+}
+
+/// A serialised unit's history, one row per thing that happened to it.
+model SerialMovement {
+  id           String     @id @default(cuid())
+  serialUnitId String
+  serialUnit   SerialUnit @relation(fields: [serialUnitId], references: [id], onDelete: Cascade)
+
+  /// RECEIVED | STORED | ISSUED | RETURNED | SENT_FOR_REPAIR | REPAIRED | CAPITALISED | DISPOSED | LOST | TRANSFERRED
+  event String
+
+  fromStatus String?
+  toStatus   String
+
+  fromStoreId String?
+  toStoreId   String?
+  fromCustodianId String?
+  toCustodianId   String?
+
+  /// The document that caused it.
+  reference     String?
+  documentType  String?
+  documentId    String?
+
+  performedById String
+  performedBy   User     @relation("SerialMovementBy", fields: [performedById], references: [id])
+  performedAt   DateTime @default(now())
+  remarks       String?
+
+  @@index([serialUnitId, performedAt])
 }
