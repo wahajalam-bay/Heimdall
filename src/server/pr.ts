@@ -1,4 +1,4 @@
-import { prisma, type DbClient } from "@/lib/db";
+import { prisma, withTransaction, type DbClient } from "@/lib/db";
 import { nextNumber, prefixForProcurementType } from "@/lib/numbering";
 import { CONFIG_KEYS, getConfig, getConfigBool, getConfigNumber } from "@/lib/config";
 import { RuleViolationError, NotFoundError, ForbiddenError, ValidationError } from "@/lib/errors";
@@ -268,101 +268,103 @@ export async function createPr(user: SessionUser, input: PrInput, db: DbClient =
 }
 
 export async function updatePr(user: SessionUser, prId: string, input: PrInput, db: DbClient = prisma) {
-  const pr = await db.purchaseRequisition.findUnique({ where: { id: prId }, include: { items: true } });
-  if (!pr) throw new NotFoundError("Requisition");
+  return withTransaction(db, async (tx) => {
+    const pr = await tx.purchaseRequisition.findUnique({ where: { id: prId }, include: { items: true } });
+    if (!pr) throw new NotFoundError("Requisition");
 
-  const editable = ["DRAFT", "RETURNED"];
-  if (!editable.includes(pr.status)) {
-    throw new RuleViolationError(
-      `A requisition can only be edited while it is a draft or has been returned (current status: ${pr.status}).`,
-    );
-  }
-  const isOwner = pr.requesterId === user.id;
-  if (!isOwner && !userHasPermission(user, P.PR_EDIT)) {
-    throw new ForbiddenError("Only the requester or a procurement officer may edit this requisition.");
-  }
+    const editable = ["DRAFT", "RETURNED"];
+    if (!editable.includes(pr.status)) {
+      throw new RuleViolationError(
+        `A requisition can only be edited while it is a draft or has been returned (current status: ${pr.status}).`,
+      );
+    }
+    const isOwner = pr.requesterId === user.id;
+    if (!isOwner && !userHasPermission(user, P.PR_EDIT)) {
+      throw new ForbiddenError("Only the requester or a procurement officer may edit this requisition.");
+    }
 
-  const items = computeItemTotals(input.items);
-  const estimatedValue = round2(items.reduce((a, i) => a + i.estimatedTotal, 0));
+    const items = computeItemTotals(input.items);
+    const estimatedValue = round2(items.reduce((a, i) => a + i.estimatedTotal, 0));
 
-  const before = {
-    title: pr.title,
-    justification: pr.justification,
-    requiredDate: pr.requiredDate,
-    priority: pr.priority,
-    estimatedValue: pr.estimatedValue,
-    boqReference: pr.boqReference,
-    drawingReference: pr.drawingReference,
-    deliveryStoreId: pr.deliveryStoreId,
-  };
+    const before = {
+      title: pr.title,
+      justification: pr.justification,
+      requiredDate: pr.requiredDate,
+      priority: pr.priority,
+      estimatedValue: pr.estimatedValue,
+      boqReference: pr.boqReference,
+      drawingReference: pr.drawingReference,
+      deliveryStoreId: pr.deliveryStoreId,
+    };
 
-  await db.purchaseRequisitionItem.deleteMany({ where: { prId } });
-  const updated = await db.purchaseRequisition.update({
-    where: { id: prId },
-    data: {
-      departmentId: input.departmentId,
-      procurementType: input.procurementType,
-      title: input.title.trim(),
-      justification: input.justification ?? null,
-      projectId: input.projectId ?? null,
-      siteId: input.siteId ?? null,
-      costCenter: input.costCenter ?? null,
-      deliveryStoreId: input.deliveryStoreId ?? null,
-      deliveryLocationNote: input.deliveryLocationNote ?? null,
-      requiredDate: input.requiredDate,
-      priority: input.priority ?? "NORMAL",
-      budgetAmount: input.budgetAmount ?? null,
-      budgetCode: input.budgetCode ?? null,
-      estimatedValue,
-      pmOwnerId: input.pmOwnerId ?? null,
-      boqReference: input.boqReference ?? null,
-      drawingReference: input.drawingReference ?? null,
-      technicalNotes: input.technicalNotes ?? null,
-      items: {
-        create: items.map((it) => ({
-          lineNo: it.lineNo,
-          itemId: it.itemId ?? null,
-          categoryId: it.categoryId,
-          description: it.description.trim(),
-          brand: it.brand ?? null,
-          model: it.model ?? null,
-          make: it.make ?? null,
-          specification: it.specification ?? null,
-          quantity: it.quantity,
-          unit: it.unit,
-          estimatedUnitPrice: it.estimatedUnitPrice ?? null,
-          estimatedTotal: it.estimatedTotal,
-          requiredDate: it.requiredDate ?? null,
-          disposition: it.disposition ?? "INVENTORY",
-          notes: it.notes ?? null,
-        })),
+    await tx.purchaseRequisitionItem.deleteMany({ where: { prId } });
+    const updated = await tx.purchaseRequisition.update({
+      where: { id: prId },
+      data: {
+        departmentId: input.departmentId,
+        procurementType: input.procurementType,
+        title: input.title.trim(),
+        justification: input.justification ?? null,
+        projectId: input.projectId ?? null,
+        siteId: input.siteId ?? null,
+        costCenter: input.costCenter ?? null,
+        deliveryStoreId: input.deliveryStoreId ?? null,
+        deliveryLocationNote: input.deliveryLocationNote ?? null,
+        requiredDate: input.requiredDate,
+        priority: input.priority ?? "NORMAL",
+        budgetAmount: input.budgetAmount ?? null,
+        budgetCode: input.budgetCode ?? null,
+        estimatedValue,
+        pmOwnerId: input.pmOwnerId ?? null,
+        boqReference: input.boqReference ?? null,
+        drawingReference: input.drawingReference ?? null,
+        technicalNotes: input.technicalNotes ?? null,
+        items: {
+          create: items.map((it) => ({
+            lineNo: it.lineNo,
+            itemId: it.itemId ?? null,
+            categoryId: it.categoryId,
+            description: it.description.trim(),
+            brand: it.brand ?? null,
+            model: it.model ?? null,
+            make: it.make ?? null,
+            specification: it.specification ?? null,
+            quantity: it.quantity,
+            unit: it.unit,
+            estimatedUnitPrice: it.estimatedUnitPrice ?? null,
+            estimatedTotal: it.estimatedTotal,
+            requiredDate: it.requiredDate ?? null,
+            disposition: it.disposition ?? "INVENTORY",
+            notes: it.notes ?? null,
+          })),
+        },
       },
-    },
+    });
+
+    await writeAudit(
+      {
+        entityType: "PurchaseRequisition",
+        entityId: prId,
+        entityRef: pr.number,
+        action: "PR_UPDATED",
+        changes: diffFields(before, {
+          title: updated.title,
+          justification: updated.justification,
+          requiredDate: updated.requiredDate,
+          priority: updated.priority,
+          estimatedValue: updated.estimatedValue,
+          boqReference: updated.boqReference,
+          drawingReference: updated.drawingReference,
+          deliveryStoreId: updated.deliveryStoreId,
+        }),
+        caseKey: pr.number,
+        actor: user,
+      },
+      tx,
+    );
+
+    return updated;
   });
-
-  await writeAudit(
-    {
-      entityType: "PurchaseRequisition",
-      entityId: prId,
-      entityRef: pr.number,
-      action: "PR_UPDATED",
-      changes: diffFields(before, {
-        title: updated.title,
-        justification: updated.justification,
-        requiredDate: updated.requiredDate,
-        priority: updated.priority,
-        estimatedValue: updated.estimatedValue,
-        boqReference: updated.boqReference,
-        drawingReference: updated.drawingReference,
-        deliveryStoreId: updated.deliveryStoreId,
-      }),
-      caseKey: pr.number,
-      actor: user,
-    },
-    db,
-  );
-
-  return updated;
 }
 
 /**

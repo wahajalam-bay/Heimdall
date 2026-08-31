@@ -1,4 +1,4 @@
-import { prisma, type DbClient } from "@/lib/db";
+import { prisma, withTransaction, type DbClient } from "@/lib/db";
 import { nextNumber, SEQ } from "@/lib/numbering";
 import { round2 } from "@/lib/format";
 import { CONFIG_KEYS, getConfigBool, getConfigNumber } from "@/lib/config";
@@ -129,124 +129,126 @@ export async function generateVoucher(
   input: { invoiceId: string; narration?: string | null; glAccount?: string | null; deductions?: number | null },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.VOUCHER_GENERATE)) {
-    throw new ForbiddenError("You do not have permission to generate payment vouchers.");
-  }
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.VOUCHER_GENERATE)) {
+      throw new ForbiddenError("You do not have permission to generate payment vouchers.");
+    }
 
-  const readiness = await voucherReadiness(input.invoiceId, db);
-  if (!readiness.ready) {
-    throw new RuleViolationError("A voucher cannot be raised for this invoice.", readiness.blockers);
-  }
+    const readiness = await voucherReadiness(input.invoiceId, tx);
+    if (!readiness.ready) {
+      throw new RuleViolationError("A voucher cannot be raised for this invoice.", readiness.blockers);
+    }
 
-  const invoice = await db.invoice.findUniqueOrThrow({
-    where: { id: input.invoiceId },
-    include: {
-      po: { select: { entityId: true, number: true, costCenterId: true } },
-      vendor: { select: { name: true } },
-      taxLines: true,
-    },
-  });
-  const entityId = invoice.po!.entityId;
-
-  const deductions = round2(Math.max(0, input.deductions ?? 0));
-  const withholding = round2(invoice.withholdingTax);
-  const net = round2(invoice.total - withholding - deductions);
-  if (net <= 0) throw new ValidationError("Deductions cannot reduce the payable to zero or below.");
-
-  const number = await nextNumber(SEQ.PAYMENT_VOUCHER, db);
-  const ladder = await signatoryLadder(entityId, net, db);
-  if (!ladder.length) {
-    throw new RuleViolationError("No signatory is configured for an amount of this size.");
-  }
-
-  const voucher = await db.voucher.create({
-    data: {
-      number,
-      entityId,
-      invoiceId: invoice.id,
-      type: "PAYMENT",
-      currency: invoice.currency,
-      grossAmount: round2(invoice.total),
-      taxAmount: round2(invoice.taxAmount),
-      withholdingTax: withholding,
-      deductions,
-      netAmount: net,
-      status: "PENDING_SIGNATORIES",
-      narration:
-        input.narration?.trim() ||
-        `Payment to ${invoice.vendor.name} against invoice ${invoice.vendorInvoiceNumber} on order ${invoice.po!.number}.`,
-      glAccount: input.glAccount ?? null,
-      costCenterId: invoice.po!.costCenterId ?? null,
-      preparedById: user.id,
-      items: {
-        create: [
-          {
-            lineNo: 1,
-            description: `Invoice ${invoice.vendorInvoiceNumber} — goods and services`,
-            amount: round2(invoice.subtotal),
-            side: "DEBIT",
-          },
-          ...(round2(invoice.taxAmount) > 0
-            ? [{ lineNo: 2, description: "Input tax", amount: round2(invoice.taxAmount), side: "DEBIT" }]
-            : []),
-          ...(withholding > 0
-            ? [
-                {
-                  lineNo: round2(invoice.taxAmount) > 0 ? 3 : 2,
-                  description: "Withholding tax deducted at source",
-                  amount: withholding,
-                  side: "CREDIT",
-                },
-              ]
-            : []),
-          ...(deductions > 0
-            ? [
-                {
-                  lineNo: 9,
-                  description: "Other deductions",
-                  amount: deductions,
-                  side: "CREDIT",
-                },
-              ]
-            : []),
-        ],
+    const invoice = await tx.invoice.findUniqueOrThrow({
+      where: { id: input.invoiceId },
+      include: {
+        po: { select: { entityId: true, number: true, costCenterId: true } },
+        vendor: { select: { name: true } },
+        taxLines: true,
       },
-      signatures: { create: ladder.map((r) => ({ ...r, status: "PENDING" })) },
-    },
-    include: { signatures: { orderBy: { sequence: "asc" } } },
+    });
+    const entityId = invoice.po!.entityId;
+
+    const deductions = round2(Math.max(0, input.deductions ?? 0));
+    const withholding = round2(invoice.withholdingTax);
+    const net = round2(invoice.total - withholding - deductions);
+    if (net <= 0) throw new ValidationError("Deductions cannot reduce the payable to zero or below.");
+
+    const number = await nextNumber(SEQ.PAYMENT_VOUCHER, tx);
+    const ladder = await signatoryLadder(entityId, net, tx);
+    if (!ladder.length) {
+      throw new RuleViolationError("No signatory is configured for an amount of this size.");
+    }
+
+    const voucher = await tx.voucher.create({
+      data: {
+        number,
+        entityId,
+        invoiceId: invoice.id,
+        type: "PAYMENT",
+        currency: invoice.currency,
+        grossAmount: round2(invoice.total),
+        taxAmount: round2(invoice.taxAmount),
+        withholdingTax: withholding,
+        deductions,
+        netAmount: net,
+        status: "PENDING_SIGNATORIES",
+        narration:
+          input.narration?.trim() ||
+          `Payment to ${invoice.vendor.name} against invoice ${invoice.vendorInvoiceNumber} on order ${invoice.po!.number}.`,
+        glAccount: input.glAccount ?? null,
+        costCenterId: invoice.po!.costCenterId ?? null,
+        preparedById: user.id,
+        items: {
+          create: [
+            {
+              lineNo: 1,
+              description: `Invoice ${invoice.vendorInvoiceNumber} — goods and services`,
+              amount: round2(invoice.subtotal),
+              side: "DEBIT",
+            },
+            ...(round2(invoice.taxAmount) > 0
+              ? [{ lineNo: 2, description: "Input tax", amount: round2(invoice.taxAmount), side: "DEBIT" }]
+              : []),
+            ...(withholding > 0
+              ? [
+                  {
+                    lineNo: round2(invoice.taxAmount) > 0 ? 3 : 2,
+                    description: "Withholding tax deducted at source",
+                    amount: withholding,
+                    side: "CREDIT",
+                  },
+                ]
+              : []),
+            ...(deductions > 0
+              ? [
+                  {
+                    lineNo: 9,
+                    description: "Other deductions",
+                    amount: deductions,
+                    side: "CREDIT",
+                  },
+                ]
+              : []),
+          ],
+        },
+        signatures: { create: ladder.map((r) => ({ ...r, status: "PENDING" })) },
+      },
+      include: { signatures: { orderBy: { sequence: "asc" } } },
+    });
+
+    await tx.invoice.update({ where: { id: invoice.id }, data: { status: "SENT_TO_FINANCE" } });
+
+    const first = voucher.signatures[0];
+    await createTask(
+      {
+        title: `Sign voucher ${voucher.number}`,
+        taskType: "APPROVAL",
+        assignedRoleCode: first.roleCode,
+        entityId,
+        documentType: "VOUCHER",
+        documentId: voucher.id,
+        documentRef: voucher.number,
+        slaHours: await getConfigNumber(CONFIG_KEYS.SLA_SIGNATORY_HOURS, entityId, tx),
+        linkUrl: `/finance/vouchers/${voucher.id}`,
+      },
+      tx,
+    );
+
+    await writeAudit(
+      {
+        entityType: "Voucher",
+        entityId: voucher.id,
+        entityRef: voucher.number,
+        action: "VOUCHER_GENERATED",
+        newValue: { net, signatures: ladder.length, invoice: invoice.vendorInvoiceNumber },
+        actor: user,
+      },
+      tx,
+    );
+
+    return voucher;
   });
-
-  await db.invoice.update({ where: { id: invoice.id }, data: { status: "SENT_TO_FINANCE" } });
-
-  const first = voucher.signatures[0];
-  await createTask(
-    {
-      title: `Sign voucher ${voucher.number}`,
-      taskType: "APPROVAL",
-      assignedRoleCode: first.roleCode,
-      entityId,
-      documentType: "VOUCHER",
-      documentId: voucher.id,
-      documentRef: voucher.number,
-      slaHours: await getConfigNumber(CONFIG_KEYS.SLA_SIGNATORY_HOURS, entityId, db),
-      linkUrl: `/finance/vouchers/${voucher.id}`,
-    },
-    db,
-  );
-
-  await writeAudit(
-    {
-      entityType: "Voucher",
-      entityId: voucher.id,
-      entityRef: voucher.number,
-      action: "VOUCHER_GENERATED",
-      newValue: { net, signatures: ladder.length, invoice: invoice.vendorInvoiceNumber },
-      actor: user,
-    },
-    db,
-  );
-
-  return voucher;
 }
 
 /**
@@ -261,128 +263,130 @@ export async function signVoucher(
   input: { voucherId: string; approve: boolean; comment?: string | null },
   db: DbClient = prisma,
 ) {
-  const voucher = await db.voucher.findUnique({
-    where: { id: input.voucherId },
-    include: { signatures: { orderBy: { sequence: "asc" } }, invoice: { select: { id: true, number: true } } },
-  });
-  if (!voucher) throw new NotFoundError("Voucher");
-  if (voucher.status !== "PENDING_SIGNATORIES") {
-    throw new RuleViolationError(`Voucher ${voucher.number} is ${voucher.status} — it is not awaiting signature.`);
-  }
+  return withTransaction(db, async (tx) => {
+    const voucher = await tx.voucher.findUnique({
+      where: { id: input.voucherId },
+      include: { signatures: { orderBy: { sequence: "asc" } }, invoice: { select: { id: true, number: true } } },
+    });
+    if (!voucher) throw new NotFoundError("Voucher");
+    if (voucher.status !== "PENDING_SIGNATORIES") {
+      throw new RuleViolationError(`Voucher ${voucher.number} is ${voucher.status} — it is not awaiting signature.`);
+    }
 
-  const step = voucher.signatures.find((s) => s.status === "PENDING");
-  if (!step) throw new RuleViolationError("Every signature on this voucher is already recorded.");
+    const step = voucher.signatures.find((s) => s.status === "PENDING");
+    if (!step) throw new RuleViolationError("Every signature on this voucher is already recorded.");
 
-  const holdsRung = user.roleCodes.includes(step.roleCode);
-  const canOverride = userHasPermission(user, P.VOUCHER_SIGN_ANY);
-  if (!holdsRung && !canOverride) {
-    throw new ForbiddenError(
-      `Signature ${step.sequence} of ${voucher.signatures.length} is for ${step.roleCode}. You do not hold that role.`,
-    );
-  }
-  if (!userHasPermission(user, P.VOUCHER_SIGN, P.VOUCHER_SIGN_ANY)) {
-    throw new ForbiddenError("You do not have permission to sign vouchers.");
-  }
+    const holdsRung = user.roleCodes.includes(step.roleCode);
+    const canOverride = userHasPermission(user, P.VOUCHER_SIGN_ANY);
+    if (!holdsRung && !canOverride) {
+      throw new ForbiddenError(
+        `Signature ${step.sequence} of ${voucher.signatures.length} is for ${step.roleCode}. You do not hold that role.`,
+      );
+    }
+    if (!userHasPermission(user, P.VOUCHER_SIGN, P.VOUCHER_SIGN_ANY)) {
+      throw new ForbiddenError("You do not have permission to sign vouchers.");
+    }
 
-  if (!input.approve) {
-    if (!input.comment?.trim()) throw new ValidationError("Record why the voucher is being refused.");
-    await db.signatoryApproval.update({
+    if (!input.approve) {
+      if (!input.comment?.trim()) throw new ValidationError("Record why the voucher is being refused.");
+      await tx.signatoryApproval.update({
+        where: { id: step.id },
+        data: { status: "REJECTED", signedById: user.id, signedAt: new Date(), comment: input.comment.trim() },
+      });
+      const rejected = await tx.voucher.update({
+        where: { id: voucher.id },
+        data: { status: "REJECTED", rejectedAt: new Date(), rejectReason: input.comment.trim() },
+      });
+      await completeTasks("VOUCHER", voucher.id, user.id, tx);
+      // The invoice goes back to approved: the payment was refused, not the invoice.
+      await tx.invoice.update({ where: { id: voucher.invoiceId }, data: { status: "APPROVED" } });
+      await writeAudit(
+        {
+          entityType: "Voucher",
+          entityId: voucher.id,
+          entityRef: voucher.number,
+          action: "VOUCHER_REJECTED",
+          reason: input.comment.trim(),
+          actor: user,
+        },
+        tx,
+      );
+      return rejected;
+    }
+
+    await tx.signatoryApproval.update({
       where: { id: step.id },
-      data: { status: "REJECTED", signedById: user.id, signedAt: new Date(), comment: input.comment.trim() },
-    });
-    const rejected = await db.voucher.update({
-      where: { id: voucher.id },
-      data: { status: "REJECTED", rejectedAt: new Date(), rejectReason: input.comment.trim() },
-    });
-    await completeTasks("VOUCHER", voucher.id, user.id, db);
-    // The invoice goes back to approved: the payment was refused, not the invoice.
-    await db.invoice.update({ where: { id: voucher.invoiceId }, data: { status: "APPROVED" } });
-    await writeAudit(
-      {
-        entityType: "Voucher",
-        entityId: voucher.id,
-        entityRef: voucher.number,
-        action: "VOUCHER_REJECTED",
-        reason: input.comment.trim(),
-        actor: user,
+      data: {
+        status: "APPROVED",
+        signedById: user.id,
+        signedAt: new Date(),
+        comment: input.comment?.trim() || null,
       },
-      db,
-    );
-    return rejected;
-  }
+    });
+    await completeTasks("VOUCHER", voucher.id, user.id, tx);
 
-  await db.signatoryApproval.update({
-    where: { id: step.id },
-    data: {
-      status: "APPROVED",
-      signedById: user.id,
-      signedAt: new Date(),
-      comment: input.comment?.trim() || null,
-    },
-  });
-  await completeTasks("VOUCHER", voucher.id, user.id, db);
+    const remaining = voucher.signatures.filter((s) => s.id !== step.id && s.status === "PENDING");
+    if (remaining.length) {
+      const next = remaining[0];
+      await createTask(
+        {
+          title: `Sign voucher ${voucher.number}`,
+          taskType: "APPROVAL",
+          assignedRoleCode: next.roleCode,
+          entityId: voucher.entityId,
+          documentType: "VOUCHER",
+          documentId: voucher.id,
+          documentRef: voucher.number,
+          slaHours: await getConfigNumber(CONFIG_KEYS.SLA_SIGNATORY_HOURS, voucher.entityId, tx),
+          linkUrl: `/finance/vouchers/${voucher.id}`,
+        },
+        tx,
+      );
+      await writeAudit(
+        {
+          entityType: "Voucher",
+          entityId: voucher.id,
+          entityRef: voucher.number,
+          action: "VOUCHER_SIGNED",
+          newValue: { sequence: step.sequence, of: voucher.signatures.length, next: next.roleCode },
+          actor: user,
+        },
+        tx,
+      );
+      return tx.voucher.findUniqueOrThrow({ where: { id: voucher.id } });
+    }
 
-  const remaining = voucher.signatures.filter((s) => s.id !== step.id && s.status === "PENDING");
-  if (remaining.length) {
-    const next = remaining[0];
+    const approved = await tx.voucher.update({
+      where: { id: voucher.id },
+      data: { status: "APPROVED", approvedAt: new Date() },
+    });
     await createTask(
       {
-        title: `Sign voucher ${voucher.number}`,
-        taskType: "APPROVAL",
-        assignedRoleCode: next.roleCode,
+        title: `Release payment — ${voucher.number}`,
+        taskType: "ACTION",
+        assignedRoleCode: "FINANCE_USER",
         entityId: voucher.entityId,
         documentType: "VOUCHER",
         documentId: voucher.id,
         documentRef: voucher.number,
-        slaHours: await getConfigNumber(CONFIG_KEYS.SLA_SIGNATORY_HOURS, voucher.entityId, db),
+        slaHours: await getConfigNumber(CONFIG_KEYS.SLA_PAYMENT_HOURS, voucher.entityId, tx),
         linkUrl: `/finance/vouchers/${voucher.id}`,
       },
-      db,
+      tx,
     );
     await writeAudit(
       {
         entityType: "Voucher",
         entityId: voucher.id,
         entityRef: voucher.number,
-        action: "VOUCHER_SIGNED",
-        newValue: { sequence: step.sequence, of: voucher.signatures.length, next: next.roleCode },
+        action: "VOUCHER_APPROVED",
+        newValue: { signatures: voucher.signatures.length },
         actor: user,
       },
-      db,
+      tx,
     );
-    return db.voucher.findUniqueOrThrow({ where: { id: voucher.id } });
-  }
-
-  const approved = await db.voucher.update({
-    where: { id: voucher.id },
-    data: { status: "APPROVED", approvedAt: new Date() },
+    return approved;
   });
-  await createTask(
-    {
-      title: `Release payment — ${voucher.number}`,
-      taskType: "ACTION",
-      assignedRoleCode: "FINANCE_USER",
-      entityId: voucher.entityId,
-      documentType: "VOUCHER",
-      documentId: voucher.id,
-      documentRef: voucher.number,
-      slaHours: await getConfigNumber(CONFIG_KEYS.SLA_PAYMENT_HOURS, voucher.entityId, db),
-      linkUrl: `/finance/vouchers/${voucher.id}`,
-    },
-    db,
-  );
-  await writeAudit(
-    {
-      entityType: "Voucher",
-      entityId: voucher.id,
-      entityRef: voucher.number,
-      action: "VOUCHER_APPROVED",
-      newValue: { signatures: voucher.signatures.length },
-      actor: user,
-    },
-    db,
-  );
-  return approved;
 }
 
 export async function cancelVoucher(
@@ -391,34 +395,36 @@ export async function cancelVoucher(
   reason: string,
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.VOUCHER_GENERATE)) {
-    throw new ForbiddenError("You do not have permission to cancel vouchers.");
-  }
-  if (!reason?.trim()) throw new ValidationError("A cancellation reason is required.");
-  const voucher = await db.voucher.findUnique({ where: { id: voucherId } });
-  if (!voucher) throw new NotFoundError("Voucher");
-  if (voucher.status === "PAID") {
-    throw new RuleViolationError("A paid voucher cannot be cancelled. Raise an adjustment instead.");
-  }
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.VOUCHER_GENERATE)) {
+      throw new ForbiddenError("You do not have permission to cancel vouchers.");
+    }
+    if (!reason?.trim()) throw new ValidationError("A cancellation reason is required.");
+    const voucher = await tx.voucher.findUnique({ where: { id: voucherId } });
+    if (!voucher) throw new NotFoundError("Voucher");
+    if (voucher.status === "PAID") {
+      throw new RuleViolationError("A paid voucher cannot be cancelled. Raise an adjustment instead.");
+    }
 
-  const cancelled = await db.voucher.update({
-    where: { id: voucherId },
-    data: { status: "CANCELLED", cancelledAt: new Date(), rejectReason: reason.trim() },
+    const cancelled = await tx.voucher.update({
+      where: { id: voucherId },
+      data: { status: "CANCELLED", cancelledAt: new Date(), rejectReason: reason.trim() },
+    });
+    await completeTasks("VOUCHER", voucherId, user.id, tx);
+    await tx.invoice.update({ where: { id: voucher.invoiceId }, data: { status: "APPROVED" } });
+    await writeAudit(
+      {
+        entityType: "Voucher",
+        entityId: voucherId,
+        entityRef: voucher.number,
+        action: "VOUCHER_CANCELLED",
+        reason: reason.trim(),
+        actor: user,
+      },
+      tx,
+    );
+    return cancelled;
   });
-  await completeTasks("VOUCHER", voucherId, user.id, db);
-  await db.invoice.update({ where: { id: voucher.invoiceId }, data: { status: "APPROVED" } });
-  await writeAudit(
-    {
-      entityType: "Voucher",
-      entityId: voucherId,
-      entityRef: voucher.number,
-      action: "VOUCHER_CANCELLED",
-      reason: reason.trim(),
-      actor: user,
-    },
-    db,
-  );
-  return cancelled;
 }
 
 /** Marks a match record as deliberately overridden, with the reason on the record. */

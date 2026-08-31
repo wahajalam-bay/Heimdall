@@ -1,4 +1,4 @@
-import { prisma, type DbClient } from "@/lib/db";
+import { prisma, withTransaction, type DbClient } from "@/lib/db";
 import { round2 } from "@/lib/format";
 import { CONFIG_KEYS, getConfigBool } from "@/lib/config";
 import { ForbiddenError, NotFoundError, RuleViolationError, ValidationError } from "@/lib/errors";
@@ -156,37 +156,39 @@ export async function upsertItemCodeRule(
   },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.MASTER_MANAGE)) {
-    throw new ForbiddenError("You do not have permission to maintain master data.");
-  }
-  if (!input.pattern?.trim()) throw new ValidationError("A pattern is required.");
-  if (!input.pattern.includes("SEQUENCE")) {
-    throw new ValidationError("The pattern must include SEQUENCE, or every item would share one code.");
-  }
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.MASTER_MANAGE)) {
+      throw new ForbiddenError("You do not have permission to maintain master data.");
+    }
+    if (!input.pattern?.trim()) throw new ValidationError("A pattern is required.");
+    if (!input.pattern.includes("SEQUENCE")) {
+      throw new ValidationError("The pattern must include SEQUENCE, or every item would share one code.");
+    }
 
-  const data = {
-    entityId: input.entityId ?? null,
-    categoryId: input.categoryId ?? null,
-    pattern: input.pattern.trim(),
-    separator: input.separator?.trim() || "-",
-    sequenceWidth: Math.min(8, Math.max(1, input.sequenceWidth ?? 4)),
-    notes: input.notes ?? null,
-  };
-  const rule = input.id
-    ? await db.itemCodeRule.update({ where: { id: input.id }, data })
-    : await db.itemCodeRule.create({ data });
+    const data = {
+      entityId: input.entityId ?? null,
+      categoryId: input.categoryId ?? null,
+      pattern: input.pattern.trim(),
+      separator: input.separator?.trim() || "-",
+      sequenceWidth: Math.min(8, Math.max(1, input.sequenceWidth ?? 4)),
+      notes: input.notes ?? null,
+    };
+    const rule = input.id
+      ? await tx.itemCodeRule.update({ where: { id: input.id }, data })
+      : await tx.itemCodeRule.create({ data });
 
-  await writeAudit(
-    {
-      entityType: "ItemCodeRule",
-      entityId: rule.id,
-      action: input.id ? "RULE_UPDATED" : "RULE_CREATED",
-      newValue: data,
-      actor: user,
-    },
-    db,
-  );
-  return rule;
+    await writeAudit(
+      {
+        entityType: "ItemCodeRule",
+        entityId: rule.id,
+        action: input.id ? "RULE_UPDATED" : "RULE_CREATED",
+        newValue: data,
+        actor: user,
+      },
+      tx,
+    );
+    return rule;
+  });
 }
 
 /* ── Units of measure ─────────────────────────────────────── */
@@ -204,34 +206,36 @@ export async function upsertUom(
   },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.MASTER_MANAGE)) {
-    throw new ForbiddenError("You do not have permission to maintain master data.");
-  }
-  if (!input.code?.trim()) throw new ValidationError("A unit code is required.");
-  if (input.baseCode && !input.factor) {
-    throw new ValidationError("A unit that converts to another needs a conversion factor.");
-  }
-  if (input.baseCode && input.baseCode.trim().toUpperCase() === input.code.trim().toUpperCase()) {
-    throw new ValidationError("A unit cannot convert to itself.");
-  }
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.MASTER_MANAGE)) {
+      throw new ForbiddenError("You do not have permission to maintain master data.");
+    }
+    if (!input.code?.trim()) throw new ValidationError("A unit code is required.");
+    if (input.baseCode && !input.factor) {
+      throw new ValidationError("A unit that converts to another needs a conversion factor.");
+    }
+    if (input.baseCode && input.baseCode.trim().toUpperCase() === input.code.trim().toUpperCase()) {
+      throw new ValidationError("A unit cannot convert to itself.");
+    }
 
-  const data = {
-    code: input.code.trim().toUpperCase(),
-    name: input.name.trim(),
-    dimension: input.dimension ?? "COUNT",
-    baseCode: input.baseCode?.trim().toUpperCase() || null,
-    factor: input.factor ?? null,
-    entityId: input.entityId ?? null,
-  };
-  const uom = input.id
-    ? await db.uom.update({ where: { id: input.id }, data })
-    : await db.uom.create({ data });
+    const data = {
+      code: input.code.trim().toUpperCase(),
+      name: input.name.trim(),
+      dimension: input.dimension ?? "COUNT",
+      baseCode: input.baseCode?.trim().toUpperCase() || null,
+      factor: input.factor ?? null,
+      entityId: input.entityId ?? null,
+    };
+    const uom = input.id
+      ? await tx.uom.update({ where: { id: input.id }, data })
+      : await tx.uom.create({ data });
 
-  await writeAudit(
-    { entityType: "Uom", entityId: uom.id, entityRef: uom.code, action: input.id ? "UOM_UPDATED" : "UOM_CREATED", actor: user },
-    db,
-  );
-  return uom;
+    await writeAudit(
+      { entityType: "Uom", entityId: uom.id, entityRef: uom.code, action: input.id ? "UOM_UPDATED" : "UOM_CREATED", actor: user },
+      tx,
+    );
+    return uom;
+  });
 }
 
 /**
@@ -272,47 +276,49 @@ export async function setDepartmentPoc(
   input: { departmentId: string; userId: string; responsibility?: string; primary?: boolean },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.MASTER_MANAGE, P.USER_MANAGE)) {
-    throw new ForbiddenError("You do not have permission to assign department contacts.");
-  }
-  const responsibility = input.responsibility ?? "GENERAL";
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.MASTER_MANAGE, P.USER_MANAGE)) {
+      throw new ForbiddenError("You do not have permission to assign department contacts.");
+    }
+    const responsibility = input.responsibility ?? "GENERAL";
 
-  // One primary per responsibility, or "the primary contact" means nothing.
-  if (input.primary) {
-    await db.departmentPoc.updateMany({
-      where: { departmentId: input.departmentId, responsibility, primary: true },
-      data: { primary: false },
-    });
-  }
-
-  const existing = await db.departmentPoc.findFirst({
-    where: { departmentId: input.departmentId, userId: input.userId, responsibility },
-  });
-  const poc = existing
-    ? await db.departmentPoc.update({
-        where: { id: existing.id },
-        data: { primary: Boolean(input.primary), active: true },
-      })
-    : await db.departmentPoc.create({
-        data: {
-          departmentId: input.departmentId,
-          userId: input.userId,
-          responsibility,
-          primary: Boolean(input.primary),
-        },
+    // One primary per responsibility, or "the primary contact" means nothing.
+    if (input.primary) {
+      await tx.departmentPoc.updateMany({
+        where: { departmentId: input.departmentId, responsibility, primary: true },
+        data: { primary: false },
       });
+    }
 
-  await writeAudit(
-    {
-      entityType: "DepartmentPoc",
-      entityId: poc.id,
-      action: "POC_ASSIGNED",
-      newValue: { responsibility, primary: poc.primary },
-      actor: user,
-    },
-    db,
-  );
-  return poc;
+    const existing = await tx.departmentPoc.findFirst({
+      where: { departmentId: input.departmentId, userId: input.userId, responsibility },
+    });
+    const poc = existing
+      ? await tx.departmentPoc.update({
+          where: { id: existing.id },
+          data: { primary: Boolean(input.primary), active: true },
+        })
+      : await tx.departmentPoc.create({
+          data: {
+            departmentId: input.departmentId,
+            userId: input.userId,
+            responsibility,
+            primary: Boolean(input.primary),
+          },
+        });
+
+    await writeAudit(
+      {
+        entityType: "DepartmentPoc",
+        entityId: poc.id,
+        action: "POC_ASSIGNED",
+        newValue: { responsibility, primary: poc.primary },
+        actor: user,
+      },
+      tx,
+    );
+    return poc;
+  });
 }
 
 export async function removeDepartmentPoc(user: SessionUser, pocId: string, db: DbClient = prisma) {
@@ -359,43 +365,45 @@ export async function upsertAssetInsurance(
   },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.ASSET_INSURANCE_MANAGE, P.ASSET_MANAGE)) {
-    throw new ForbiddenError("You do not have permission to maintain asset insurance.");
-  }
-  if (!input.policyNumber?.trim()) throw new ValidationError("A policy number is required.");
-  if (input.endDate <= input.startDate) throw new ValidationError("The policy must end after it starts.");
-  if (input.sumInsured <= 0) throw new ValidationError("A sum insured is required.");
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.ASSET_INSURANCE_MANAGE, P.ASSET_MANAGE)) {
+      throw new ForbiddenError("You do not have permission to maintain asset insurance.");
+    }
+    if (!input.policyNumber?.trim()) throw new ValidationError("A policy number is required.");
+    if (input.endDate <= input.startDate) throw new ValidationError("The policy must end after it starts.");
+    if (input.sumInsured <= 0) throw new ValidationError("A sum insured is required.");
 
-  const asset = await db.asset.findUnique({ where: { id: input.assetId }, select: { id: true, cost: true, tag: true } });
-  if (!asset) throw new NotFoundError("Asset");
+    const asset = await tx.asset.findUnique({ where: { id: input.assetId }, select: { id: true, cost: true, tag: true } });
+    if (!asset) throw new NotFoundError("Asset");
 
-  const data = {
-    assetId: input.assetId,
-    policyNumber: input.policyNumber.trim(),
-    insurer: input.insurer.trim(),
-    coverType: input.coverType ?? "COMPREHENSIVE",
-    sumInsured: round2(input.sumInsured),
-    premium: round2(input.premium ?? 0),
-    startDate: input.startDate,
-    endDate: input.endDate,
-    notes: input.notes ?? null,
-  };
-  const policy = input.id
-    ? await db.assetInsurance.update({ where: { id: input.id }, data })
-    : await db.assetInsurance.create({ data });
+    const data = {
+      assetId: input.assetId,
+      policyNumber: input.policyNumber.trim(),
+      insurer: input.insurer.trim(),
+      coverType: input.coverType ?? "COMPREHENSIVE",
+      sumInsured: round2(input.sumInsured),
+      premium: round2(input.premium ?? 0),
+      startDate: input.startDate,
+      endDate: input.endDate,
+      notes: input.notes ?? null,
+    };
+    const policy = input.id
+      ? await tx.assetInsurance.update({ where: { id: input.id }, data })
+      : await tx.assetInsurance.create({ data });
 
-  await writeAudit(
-    {
-      entityType: "AssetInsurance",
-      entityId: policy.id,
-      entityRef: asset.tag,
-      action: input.id ? "INSURANCE_UPDATED" : "INSURANCE_ADDED",
-      newValue: { policyNumber: data.policyNumber, sumInsured: data.sumInsured, endDate: data.endDate },
-      actor: user,
-    },
-    db,
-  );
-  return policy;
+    await writeAudit(
+      {
+        entityType: "AssetInsurance",
+        entityId: policy.id,
+        entityRef: asset.tag,
+        action: input.id ? "INSURANCE_UPDATED" : "INSURANCE_ADDED",
+        newValue: { policyNumber: data.policyNumber, sumInsured: data.sumInsured, endDate: data.endDate },
+        actor: user,
+      },
+      tx,
+    );
+    return policy;
+  });
 }
 
 /**

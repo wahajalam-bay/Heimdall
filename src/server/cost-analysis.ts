@@ -1,4 +1,4 @@
-import { prisma, type DbClient } from "@/lib/db";
+import { prisma, withTransaction, type DbClient } from "@/lib/db";
 import { CONFIG_KEYS, getConfig } from "@/lib/config";
 import { round2 } from "@/lib/format";
 import {
@@ -304,66 +304,68 @@ export async function saveCostAnalysis(
   },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.COMPARATIVE_CREATE, P.COMPARATIVE_VERIFY)) {
-    throw new ForbiddenError("You do not have permission to maintain the cost analysis form.");
-  }
-  const c = await db.comparative.findUnique({
-    where: { id: input.comparativeId },
-    select: { id: true, number: true, status: true },
-  });
-  if (!c) throw new NotFoundError("Comparative");
-  if (["APPROVED", "AWARDED"].includes(c.status)) {
-    throw new RuleViolationError(
-      `${c.number} has already been ${c.status.toLowerCase()}; the form it was decided on cannot be edited.`,
-    );
-  }
-  if (input.taxPercent != null && (input.taxPercent < 0 || input.taxPercent > 100)) {
-    throw new ValidationError("A tax rate must be between 0 and 100 per cent.");
-  }
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.COMPARATIVE_CREATE, P.COMPARATIVE_VERIFY)) {
+      throw new ForbiddenError("You do not have permission to maintain the cost analysis form.");
+    }
+    const c = await tx.comparative.findUnique({
+      where: { id: input.comparativeId },
+      select: { id: true, number: true, status: true },
+    });
+    if (!c) throw new NotFoundError("Comparative");
+    if (["APPROVED", "AWARDED"].includes(c.status)) {
+      throw new RuleViolationError(
+        `${c.number} has already been ${c.status.toLowerCase()}; the form it was decided on cannot be edited.`,
+      );
+    }
+    if (input.taxPercent != null && (input.taxPercent < 0 || input.taxPercent > 100)) {
+      throw new ValidationError("A tax rate must be between 0 and 100 per cent.");
+    }
 
-  const updated = await db.comparative.update({
-    where: { id: input.comparativeId },
-    data: {
-      pocUserId: input.pocUserId ?? undefined,
-      taxPercent: input.taxPercent ?? undefined,
-      invoiceChargedTo: input.invoiceChargedTo ?? undefined,
-      remarks: input.remarks ?? undefined,
-      specialNotes: input.specialNotes ?? undefined,
-      singleSourced: input.singleSourced ?? undefined,
-      ratesLocked: input.ratesLocked ?? undefined,
-      vendorSelectionForm: input.vendorSelectionForm ?? undefined,
-      higherRateReason: input.higherRateReason ?? undefined,
-    },
-  });
-
-  for (const [lineId, terms] of Object.entries(input.terms ?? {})) {
-    await db.comparativeLine.update({
-      where: { id: lineId },
+    const updated = await tx.comparative.update({
+      where: { id: input.comparativeId },
       data: {
-        paymentTerms: terms.paymentTerms ?? undefined,
-        specifications: terms.specifications ?? undefined,
-        deliveryCommitment: terms.deliveryCommitment ?? undefined,
-        taxInformation: terms.taxInformation ?? undefined,
+        pocUserId: input.pocUserId ?? undefined,
+        taxPercent: input.taxPercent ?? undefined,
+        invoiceChargedTo: input.invoiceChargedTo ?? undefined,
+        remarks: input.remarks ?? undefined,
+        specialNotes: input.specialNotes ?? undefined,
+        singleSourced: input.singleSourced ?? undefined,
+        ratesLocked: input.ratesLocked ?? undefined,
+        vendorSelectionForm: input.vendorSelectionForm ?? undefined,
+        higherRateReason: input.higherRateReason ?? undefined,
       },
     });
-  }
 
-  await writeAudit(
-    {
-      entityType: "Comparative",
-      entityId: updated.id,
-      entityRef: updated.number,
-      action: "COST_ANALYSIS_UPDATED",
-      newValue: {
-        singleSourced: updated.singleSourced,
-        ratesLocked: updated.ratesLocked,
-        vendorSelectionForm: updated.vendorSelectionForm,
+    for (const [lineId, terms] of Object.entries(input.terms ?? {})) {
+      await tx.comparativeLine.update({
+        where: { id: lineId },
+        data: {
+          paymentTerms: terms.paymentTerms ?? undefined,
+          specifications: terms.specifications ?? undefined,
+          deliveryCommitment: terms.deliveryCommitment ?? undefined,
+          taxInformation: terms.taxInformation ?? undefined,
+        },
+      });
+    }
+
+    await writeAudit(
+      {
+        entityType: "Comparative",
+        entityId: updated.id,
+        entityRef: updated.number,
+        action: "COST_ANALYSIS_UPDATED",
+        newValue: {
+          singleSourced: updated.singleSourced,
+          ratesLocked: updated.ratesLocked,
+          vendorSelectionForm: updated.vendorSelectionForm,
+        },
+        actor: user,
       },
-      actor: user,
-    },
-    db,
-  );
-  return updated;
+      tx,
+    );
+    return updated;
+  });
 }
 
 /**

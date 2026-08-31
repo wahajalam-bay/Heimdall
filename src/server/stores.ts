@@ -1,4 +1,4 @@
-import { prisma, type DbClient } from "@/lib/db";
+import { prisma, withTransaction, type DbClient } from "@/lib/db";
 import { nextNumber, SEQ } from "@/lib/numbering";
 import { ForbiddenError, NotFoundError, RuleViolationError, ValidationError } from "@/lib/errors";
 import { writeAudit } from "@/lib/audit";
@@ -164,166 +164,168 @@ export async function decideStoreIssue(
   },
   db: DbClient = prisma,
 ) {
-  const issue = await db.storeIssue.findUnique({
-    where: { id: input.issueId },
-    include: { items: { include: { item: true } }, store: true },
-  });
-  if (!issue) throw new NotFoundError("Store issue");
-
-  // A requisition passes three gates before the counter acts on it: the
-  // department that wants the goods, the head who owns the budget, and — only
-  // when the stock sits in somebody else's store — that store's authority. Each
-  // gate is a distinct permission, so one person holding two of them still has
-  // to make two decisions.
-  const stage = APPROVAL_STAGES.find((st) => st.from === issue.status);
-  if (!stage) {
-    throw new RuleViolationError(`Issue ${issue.number} is ${issue.status} — it is not awaiting approval.`);
-  }
-  if (!userHasPermission(user, stage.permission)) {
-    throw new ForbiddenError(stage.denied);
-  }
-
-  if (!input.approve) {
-    if (!input.reason?.trim()) throw new ValidationError("Record the reason for rejection.");
-    const rejected = await db.storeIssue.update({
-      where: { id: issue.id },
-      data: { status: "REJECTED", rejectReason: input.reason, remarks: input.reason },
+  return withTransaction(db, async (tx) => {
+    const issue = await tx.storeIssue.findUnique({
+      where: { id: input.issueId },
+      include: { items: { include: { item: true } }, store: true },
     });
-    // Stock held for a requisition nobody approved goes back on the shelf.
-    await releaseFor(user, { storeIssueId: issue.id }, `Requisition ${issue.number} rejected`, db, {
-      cascade: "store requisition rejected",
-      from: [P.SR_APPROVE, P.SR_APPROVE_HOD, P.STORE_ISSUE_APPROVE],
-    });
-    await completeTasks("STORE_ISSUE", issue.id, user.id, db);
-    await writeAudit(
-      {
-        entityType: "StoreIssue",
-        entityId: issue.id,
-        entityRef: issue.number,
-        action: "STORE_ISSUE_REJECTED",
-        reason: input.reason,
-        actor: user,
-      },
-      db,
-    );
-    return rejected;
-  }
+    if (!issue) throw new NotFoundError("Store issue");
 
-  const problems: string[] = [];
-  for (const li of issue.items) {
-    const qty = input.approvedQuantities?.[li.id] ?? li.requestedQty;
-    if (qty < 0) problems.push(`Line ${li.lineNo}: approved quantity cannot be negative.`);
-    if (qty > li.requestedQty + 1e-9) {
-      problems.push(`Line ${li.lineNo}: approved quantity exceeds the requested quantity.`);
+    // A requisition passes three gates before the counter acts on it: the
+    // department that wants the goods, the head who owns the budget, and — only
+    // when the stock sits in somebody else's store — that store's authority. Each
+    // gate is a distinct permission, so one person holding two of them still has
+    // to make two decisions.
+    const stage = APPROVAL_STAGES.find((st) => st.from === issue.status);
+    if (!stage) {
+      throw new RuleViolationError(`Issue ${issue.number} is ${issue.status} — it is not awaiting approval.`);
     }
-    const available = await availableQuantity(li.itemId, issue.storeId, db);
-    if (qty > available + 1e-9) {
-      problems.push(
-        `Line ${li.lineNo} (${li.item.name}): only ${available} ${li.unit} available at ${issue.store.name}.`,
+    if (!userHasPermission(user, stage.permission)) {
+      throw new ForbiddenError(stage.denied);
+    }
+
+    if (!input.approve) {
+      if (!input.reason?.trim()) throw new ValidationError("Record the reason for rejection.");
+      const rejected = await tx.storeIssue.update({
+        where: { id: issue.id },
+        data: { status: "REJECTED", rejectReason: input.reason, remarks: input.reason },
+      });
+      // Stock held for a requisition nobody approved goes back on the shelf.
+      await releaseFor(user, { storeIssueId: issue.id }, `Requisition ${issue.number} rejected`, tx, {
+        cascade: "store requisition rejected",
+        from: [P.SR_APPROVE, P.SR_APPROVE_HOD, P.STORE_ISSUE_APPROVE],
+      });
+      await completeTasks("STORE_ISSUE", issue.id, user.id, tx);
+      await writeAudit(
+        {
+          entityType: "StoreIssue",
+          entityId: issue.id,
+          entityRef: issue.number,
+          action: "STORE_ISSUE_REJECTED",
+          reason: input.reason,
+          actor: user,
+        },
+        tx,
       );
+      return rejected;
     }
-  }
-  if (problems.length) throw new RuleViolationError("This issue cannot be approved.", problems);
 
-  for (const li of issue.items) {
-    const qty = input.approvedQuantities?.[li.id] ?? li.requestedQty;
-    await db.storeIssueItem.update({ where: { id: li.id }, data: { approvedQty: qty } });
-  }
+    const problems: string[] = [];
+    for (const li of issue.items) {
+      const qty = input.approvedQuantities?.[li.id] ?? li.requestedQty;
+      if (qty < 0) problems.push(`Line ${li.lineNo}: approved quantity cannot be negative.`);
+      if (qty > li.requestedQty + 1e-9) {
+        problems.push(`Line ${li.lineNo}: approved quantity exceeds the requested quantity.`);
+      }
+      const available = await availableQuantity(li.itemId, issue.storeId, tx);
+      if (qty > available + 1e-9) {
+        problems.push(
+          `Line ${li.lineNo} (${li.item.name}): only ${available} ${li.unit} available at ${issue.store.name}.`,
+        );
+      }
+    }
+    if (problems.length) throw new RuleViolationError("This issue cannot be approved.", problems);
 
-  // Where the next gate lies depends on the requisition: a head's approval can be
-  // switched off, and cross-store authority only applies when the stock is not
-  // ours to give.
-  const requireHod = await getConfigBool(CONFIG_KEYS.SR_REQUIRE_HOD, issue.store.entityId, db);
-  const needsCrossStore = Boolean(issue.sourceStoreId) && !issue.crossStoreApprovedAt;
-  let nextStatus = "APPROVED";
-  if (stage.from !== "PENDING_HOD_APPROVAL" && requireHod && !issue.hodApprovedAt) {
-    nextStatus = "PENDING_HOD_APPROVAL";
-  } else if (needsCrossStore && stage.from !== "PENDING_CROSS_STORE_APPROVAL") {
-    nextStatus = "PENDING_CROSS_STORE_APPROVAL";
-  }
+    for (const li of issue.items) {
+      const qty = input.approvedQuantities?.[li.id] ?? li.requestedQty;
+      await tx.storeIssueItem.update({ where: { id: li.id }, data: { approvedQty: qty } });
+    }
 
-  const stamp: Record<string, unknown> = {};
-  if (stage.from === "PENDING_HOD_APPROVAL") {
-    stamp.hodApprovedById = user.id;
-    stamp.hodApprovedAt = new Date();
-  } else if (stage.from === "PENDING_CROSS_STORE_APPROVAL") {
-    stamp.crossStoreApprovedById = user.id;
-    stamp.crossStoreApprovedAt = new Date();
-  } else {
-    stamp.departmentApprovedById = user.id;
-    stamp.departmentApprovedAt = new Date();
-  }
+    // Where the next gate lies depends on the requisition: a head's approval can be
+    // switched off, and cross-store authority only applies when the stock is not
+    // ours to give.
+    const requireHod = await getConfigBool(CONFIG_KEYS.SR_REQUIRE_HOD, issue.store.entityId, tx);
+    const needsCrossStore = Boolean(issue.sourceStoreId) && !issue.crossStoreApprovedAt;
+    let nextStatus = "APPROVED";
+    if (stage.from !== "PENDING_HOD_APPROVAL" && requireHod && !issue.hodApprovedAt) {
+      nextStatus = "PENDING_HOD_APPROVAL";
+    } else if (needsCrossStore && stage.from !== "PENDING_CROSS_STORE_APPROVAL") {
+      nextStatus = "PENDING_CROSS_STORE_APPROVAL";
+    }
 
-  const approved = await db.storeIssue.update({
-    where: { id: issue.id },
-    data: {
-      status: nextStatus,
-      ...stamp,
-      approvedAt: nextStatus === "APPROVED" ? new Date() : null,
-      remarks: input.reason ?? issue.remarks,
-    },
-  });
-  await completeTasks("STORE_ISSUE", issue.id, user.id, db);
+    const stamp: Record<string, unknown> = {};
+    if (stage.from === "PENDING_HOD_APPROVAL") {
+      stamp.hodApprovedById = user.id;
+      stamp.hodApprovedAt = new Date();
+    } else if (stage.from === "PENDING_CROSS_STORE_APPROVAL") {
+      stamp.crossStoreApprovedById = user.id;
+      stamp.crossStoreApprovedAt = new Date();
+    } else {
+      stamp.departmentApprovedById = user.id;
+      stamp.departmentApprovedAt = new Date();
+    }
 
-  if (nextStatus !== "APPROVED") {
+    const approved = await tx.storeIssue.update({
+      where: { id: issue.id },
+      data: {
+        status: nextStatus,
+        ...stamp,
+        approvedAt: nextStatus === "APPROVED" ? new Date() : null,
+        remarks: input.reason ?? issue.remarks,
+      },
+    });
+    await completeTasks("STORE_ISSUE", issue.id, user.id, tx);
+
+    if (nextStatus !== "APPROVED") {
+      await createTask(
+        {
+          title:
+            nextStatus === "PENDING_HOD_APPROVAL"
+              ? `Approve store requisition — ${issue.number}`
+              : `Authorise cross-store issue — ${issue.number}`,
+          taskType: "APPROVAL",
+          assignedRoleCode: nextStatus === "PENDING_HOD_APPROVAL" ? "HOD" : "STORE_MANAGER",
+          entityId: issue.store.entityId,
+          documentType: "STORE_ISSUE",
+          documentId: issue.id,
+          documentRef: issue.number,
+          slaHours: await getConfigNumber(CONFIG_KEYS.SLA_SR_APPROVAL_HOURS, issue.store.entityId, tx),
+          linkUrl: `/issuance/${issue.id}`,
+        },
+        tx,
+      );
+      await writeAudit(
+        {
+          entityType: "StoreIssue",
+          entityId: issue.id,
+          entityRef: issue.number,
+          action: "STORE_ISSUE_STAGE_APPROVED",
+          reason: input.reason ?? null,
+          newValue: { stage: stage.from, next: nextStatus },
+          actor: user,
+        },
+        tx,
+      );
+      return approved;
+    }
+
     await createTask(
       {
-        title:
-          nextStatus === "PENDING_HOD_APPROVAL"
-            ? `Approve store requisition — ${issue.number}`
-            : `Authorise cross-store issue — ${issue.number}`,
-        taskType: "APPROVAL",
-        assignedRoleCode: nextStatus === "PENDING_HOD_APPROVAL" ? "HOD" : "STORE_MANAGER",
+        title: `Issue stock — ${issue.number}`,
+        taskType: "ACTION",
+        assigneeId: issue.store.managerId ?? user.id,
         entityId: issue.store.entityId,
         documentType: "STORE_ISSUE",
         documentId: issue.id,
         documentRef: issue.number,
-        slaHours: await getConfigNumber(CONFIG_KEYS.SLA_SR_APPROVAL_HOURS, issue.store.entityId, db),
+        slaHours: 24,
         linkUrl: `/issuance/${issue.id}`,
       },
-      db,
+      tx,
     );
     await writeAudit(
       {
         entityType: "StoreIssue",
         entityId: issue.id,
         entityRef: issue.number,
-        action: "STORE_ISSUE_STAGE_APPROVED",
+        action: "STORE_ISSUE_APPROVED",
         reason: input.reason ?? null,
-        newValue: { stage: stage.from, next: nextStatus },
         actor: user,
       },
-      db,
+      tx,
     );
     return approved;
-  }
-
-  await createTask(
-    {
-      title: `Issue stock — ${issue.number}`,
-      taskType: "ACTION",
-      assigneeId: issue.store.managerId ?? user.id,
-      entityId: issue.store.entityId,
-      documentType: "STORE_ISSUE",
-      documentId: issue.id,
-      documentRef: issue.number,
-      slaHours: 24,
-      linkUrl: `/issuance/${issue.id}`,
-    },
-    db,
-  );
-  await writeAudit(
-    {
-      entityType: "StoreIssue",
-      entityId: issue.id,
-      entityRef: issue.number,
-      action: "STORE_ISSUE_APPROVED",
-      reason: input.reason ?? null,
-      actor: user,
-    },
-    db,
-  );
-  return approved;
+  });
 }
 
 /** Physically issues the approved stock, deducting inventory and moving custody. */
@@ -332,124 +334,126 @@ export async function issueStock(
   input: { issueId: string; issuedQuantities?: Record<string, number> },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.STORE_ISSUE)) throw new ForbiddenError("Not permitted.");
-  const issue = await db.storeIssue.findUnique({
-    where: { id: input.issueId },
-    include: { items: { include: { item: true } }, store: true },
-  });
-  if (!issue) throw new NotFoundError("Store issue");
-  if (!["APPROVED", "PARTIALLY_ISSUED"].includes(issue.status)) {
-    throw new RuleViolationError(`Issue ${issue.number} must be approved before stock is released.`);
-  }
-
-  // The reservation exists to stop anyone else taking this stock; at the counter
-  // it has done its job. Dropping the hold before the movement is what lets the
-  // issue consume the very quantity the hold was protecting.
-  const held = await db.inventoryReservation.findMany({
-    where: { storeIssueId: issue.id, status: "ACTIVE" },
-    select: { id: true },
-  });
-  for (const h of held) {
-    await consumeReservation(user, h.id, db, {
-      cascade: "stock issued against the requisition",
-      from: [P.STORE_ISSUE, P.SR_ISSUE],
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.STORE_ISSUE)) throw new ForbiddenError("Not permitted.");
+    const issue = await tx.storeIssue.findUnique({
+      where: { id: input.issueId },
+      include: { items: { include: { item: true } }, store: true },
     });
-  }
-
-  let anyIssued = false;
-  let allIssued = true;
-
-  for (const li of issue.items) {
-    const target = li.approvedQty ?? li.requestedQty;
-    const already = li.issuedQty;
-    const qty = round2(input.issuedQuantities?.[li.id] ?? target - already);
-    if (qty <= 0) {
-      if (already + 1e-9 < target) allIssued = false;
-      continue;
+    if (!issue) throw new NotFoundError("Store issue");
+    if (!["APPROVED", "PARTIALLY_ISSUED"].includes(issue.status)) {
+      throw new RuleViolationError(`Issue ${issue.number} must be approved before stock is released.`);
     }
-    if (already + qty > target + 1e-9) {
-      throw new RuleViolationError(
-        `Line ${li.lineNo} (${li.item.name}): issuing ${qty} would exceed the approved quantity of ${target}.`,
+
+    // The reservation exists to stop anyone else taking this stock; at the counter
+    // it has done its job. Dropping the hold before the movement is what lets the
+    // issue consume the very quantity the hold was protecting.
+    const held = await tx.inventoryReservation.findMany({
+      where: { storeIssueId: issue.id, status: "ACTIVE" },
+      select: { id: true },
+    });
+    for (const h of held) {
+      await consumeReservation(user, h.id, tx, {
+        cascade: "stock issued against the requisition",
+        from: [P.STORE_ISSUE, P.SR_ISSUE],
+      });
+    }
+
+    let anyIssued = false;
+    let allIssued = true;
+
+    for (const li of issue.items) {
+      const target = li.approvedQty ?? li.requestedQty;
+      const already = li.issuedQty;
+      const qty = round2(input.issuedQuantities?.[li.id] ?? target - already);
+      if (qty <= 0) {
+        if (already + 1e-9 < target) allIssued = false;
+        continue;
+      }
+      if (already + qty > target + 1e-9) {
+        throw new RuleViolationError(
+          `Line ${li.lineNo} (${li.item.name}): issuing ${qty} would exceed the approved quantity of ${target}.`,
+        );
+      }
+
+      await postMovement(
+        "ISSUE",
+        {
+          itemId: li.itemId,
+          storeId: issue.storeId,
+          quantity: qty,
+          unit: li.unit,
+          batchNumber: li.batchNumber,
+          serialNumber: li.serialNumber,
+          entityId: issue.store.entityId,
+          source: { kind: "ISSUE", id: issue.id, ref: issue.number },
+          reason: `Issued to ${issue.recipientName}`,
+          performedById: user.id,
+        },
+        tx,
+        user,
       );
-    }
 
-    await postMovement(
-      "ISSUE",
-      {
-        itemId: li.itemId,
-        storeId: issue.storeId,
-        quantity: qty,
-        unit: li.unit,
-        batchNumber: li.batchNumber,
-        serialNumber: li.serialNumber,
-        entityId: issue.store.entityId,
-        source: { kind: "ISSUE", id: issue.id, ref: issue.number },
-        reason: `Issued to ${issue.recipientName}`,
-        performedById: user.id,
-      },
-      db,
-      user,
-    );
+      await tx.storeIssueItem.update({ where: { id: li.id }, data: { issuedQty: round2(already + qty) } });
+      anyIssued = true;
+      if (already + qty + 1e-9 < target) allIssued = false;
 
-    await db.storeIssueItem.update({ where: { id: li.id }, data: { issuedQty: round2(already + qty) } });
-    anyIssued = true;
-    if (already + qty + 1e-9 < target) allIssued = false;
-
-    // Move asset custody where a tag was named.
-    if (li.assetTag) {
-      const asset = await db.asset.findFirst({ where: { tag: li.assetTag } });
-      if (asset) {
-        await db.asset.update({
-          where: { id: asset.id },
-          data: {
-            status: "ISSUED",
-            custodianId: li.custodianUserId ?? issue.recipientUserId ?? null,
-            location: issue.recipientName,
-          },
-        });
-        await db.assetTransaction.create({
-          data: {
-            assetId: asset.id,
-            type: "ISSUED",
-            fromStatus: asset.status,
-            toStatus: "ISSUED",
-            fromCustodianId: asset.custodianId,
-            toCustodianId: li.custodianUserId ?? issue.recipientUserId ?? null,
-            fromLocation: asset.location,
-            toLocation: issue.recipientName,
-            reference: issue.number,
-            performedById: user.id,
-          },
-        });
+      // Move asset custody where a tag was named.
+      if (li.assetTag) {
+        const asset = await tx.asset.findFirst({ where: { tag: li.assetTag } });
+        if (asset) {
+          await tx.asset.update({
+            where: { id: asset.id },
+            data: {
+              status: "ISSUED",
+              custodianId: li.custodianUserId ?? issue.recipientUserId ?? null,
+              location: issue.recipientName,
+            },
+          });
+          await tx.assetTransaction.create({
+            data: {
+              assetId: asset.id,
+              type: "ISSUED",
+              fromStatus: asset.status,
+              toStatus: "ISSUED",
+              fromCustodianId: asset.custodianId,
+              toCustodianId: li.custodianUserId ?? issue.recipientUserId ?? null,
+              fromLocation: asset.location,
+              toLocation: issue.recipientName,
+              reference: issue.number,
+              performedById: user.id,
+            },
+          });
+        }
       }
     }
-  }
 
-  if (!anyIssued) throw new RuleViolationError("Nothing was issued — every line is already fully issued.");
+    if (!anyIssued) throw new RuleViolationError("Nothing was issued — every line is already fully issued.");
 
-  const updated = await db.storeIssue.update({
-    where: { id: issue.id },
-    data: {
-      status: allIssued ? "ISSUED" : "PARTIALLY_ISSUED",
-      issuedAt: new Date(),
-      issuedById: user.id,
-    },
+    const updated = await tx.storeIssue.update({
+      where: { id: issue.id },
+      data: {
+        status: allIssued ? "ISSUED" : "PARTIALLY_ISSUED",
+        issuedAt: new Date(),
+        issuedById: user.id,
+      },
+    });
+    if (allIssued) await completeTasks("STORE_ISSUE", issue.id, user.id, tx);
+
+    await writeAudit(
+      {
+        entityType: "StoreIssue",
+        entityId: issue.id,
+        entityRef: issue.number,
+        action: allIssued ? "STORE_ISSUE_ISSUED" : "STORE_ISSUE_PARTIALLY_ISSUED",
+        newValue: { recipient: issue.recipientName, store: issue.store.name },
+        actor: user,
+      },
+      tx,
+    );
+
+    return updated;
   });
-  if (allIssued) await completeTasks("STORE_ISSUE", issue.id, user.id, db);
-
-  await writeAudit(
-    {
-      entityType: "StoreIssue",
-      entityId: issue.id,
-      entityRef: issue.number,
-      action: allIssued ? "STORE_ISSUE_ISSUED" : "STORE_ISSUE_PARTIALLY_ISSUED",
-      newValue: { recipient: issue.recipientName, store: issue.store.name },
-      actor: user,
-    },
-    db,
-  );
-
-  return updated;
 }
 
 /* ── Store requisition transitions ────────────────────────── */
@@ -776,106 +780,108 @@ export async function dispatchTransfer(
   },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.STORE_TRANSFER)) throw new ForbiddenError("Not permitted.");
-  const t = await db.storeTransfer.findUnique({
-    where: { id: input.transferId },
-    include: { items: { include: { item: true } }, fromStore: true, toStore: true },
-  });
-  if (!t) throw new NotFoundError("Transfer");
-  if (t.status !== "APPROVED") {
-    throw new RuleViolationError(`Transfer ${t.number} must be approved before dispatch.`);
-  }
-
-  for (const li of t.items) {
-    const qty = round2(input.quantities?.[li.id] ?? li.requestedQty);
-    if (qty <= 0) continue;
-    if (qty > li.requestedQty + 1e-9) {
-      throw new RuleViolationError(
-        `Line ${li.lineNo} (${li.item.name}): dispatching ${qty} exceeds the approved ${li.requestedQty}.`,
-      );
-    }
-    // Without a batch on the line the stock may span several buckets, so the
-    // cost carried to the receiving store is the weighted average of what moves.
-    const unitCost = await stockUnitCost(li.itemId, t.fromStoreId, li.batchNumber, db);
-    await postMovement(
-      "TRANSFER_OUT",
-      {
-        itemId: li.itemId,
-        storeId: t.fromStoreId,
-        quantity: qty,
-        unit: li.unit,
-        unitCost,
-        batchNumber: li.batchNumber,
-        serialNumber: li.serialNumber,
-        entityId: t.fromStore.entityId,
-        source: { kind: "TRANSFER", id: t.id, ref: t.number },
-        reason: `Dispatched to ${t.toStore.name}`,
-        performedById: user.id,
-      },
-      db,
-      user,
-    );
-    await db.storeTransferItem.update({
-      where: { id: li.id },
-      data: { dispatchedQty: qty, unitCost },
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.STORE_TRANSFER)) throw new ForbiddenError("Not permitted.");
+    const t = await tx.storeTransfer.findUnique({
+      where: { id: input.transferId },
+      include: { items: { include: { item: true } }, fromStore: true, toStore: true },
     });
-  }
+    if (!t) throw new NotFoundError("Transfer");
+    if (t.status !== "APPROVED") {
+      throw new RuleViolationError(`Transfer ${t.number} must be approved before dispatch.`);
+    }
 
-  const updated = await db.storeTransfer.update({
-    where: { id: t.id },
-    data: {
-      status: "DISPATCHED",
-      dispatchedAt: new Date(),
-      dispatchedById: user.id,
-      vehicleNumber: input.vehicleNumber ?? null,
-      gatePassRef: input.gatePassRef ?? null,
-    },
+    for (const li of t.items) {
+      const qty = round2(input.quantities?.[li.id] ?? li.requestedQty);
+      if (qty <= 0) continue;
+      if (qty > li.requestedQty + 1e-9) {
+        throw new RuleViolationError(
+          `Line ${li.lineNo} (${li.item.name}): dispatching ${qty} exceeds the approved ${li.requestedQty}.`,
+        );
+      }
+      // Without a batch on the line the stock may span several buckets, so the
+      // cost carried to the receiving store is the weighted average of what moves.
+      const unitCost = await stockUnitCost(li.itemId, t.fromStoreId, li.batchNumber, tx);
+      await postMovement(
+        "TRANSFER_OUT",
+        {
+          itemId: li.itemId,
+          storeId: t.fromStoreId,
+          quantity: qty,
+          unit: li.unit,
+          unitCost,
+          batchNumber: li.batchNumber,
+          serialNumber: li.serialNumber,
+          entityId: t.fromStore.entityId,
+          source: { kind: "TRANSFER", id: t.id, ref: t.number },
+          reason: `Dispatched to ${t.toStore.name}`,
+          performedById: user.id,
+        },
+        tx,
+        user,
+      );
+      await tx.storeTransferItem.update({
+        where: { id: li.id },
+        data: { dispatchedQty: qty, unitCost },
+      });
+    }
+
+    const updated = await tx.storeTransfer.update({
+      where: { id: t.id },
+      data: {
+        status: "DISPATCHED",
+        dispatchedAt: new Date(),
+        dispatchedById: user.id,
+        vehicleNumber: input.vehicleNumber ?? null,
+        gatePassRef: input.gatePassRef ?? null,
+      },
+    });
+
+    await createTask(
+      {
+        title: `Confirm receipt of transfer ${t.number}`,
+        description: `From ${t.fromStore.name}`,
+        taskType: "RECEIVING",
+        assigneeId: t.toStore.managerId ?? null,
+        assignedRoleCode: t.toStore.managerId ? null : "STORE_RECEIVER",
+        entityId: t.toStore.entityId,
+        documentType: "STORE_TRANSFER",
+        documentId: t.id,
+        documentRef: t.number,
+        priority: "HIGH",
+        slaHours: 48,
+        linkUrl: `/transfers/${t.id}`,
+      },
+      tx,
+    );
+    await notify(
+      {
+        userIds: t.toStore.managerId ? [t.toStore.managerId] : [],
+        roleCodes: t.toStore.managerId ? [] : ["STORE_RECEIVER", "SITE_STORE_USER"],
+        entityId: t.toStore.entityId,
+        type: "GENERAL",
+        title: `Transfer ${t.number} dispatched to ${t.toStore.name}`,
+        body: input.vehicleNumber ? `Vehicle ${input.vehicleNumber}` : undefined,
+        linkType: "STORE_TRANSFER",
+        linkId: t.id,
+        linkUrl: `/transfers/${t.id}`,
+      },
+      tx,
+    );
+
+    await writeAudit(
+      {
+        entityType: "StoreTransfer",
+        entityId: t.id,
+        entityRef: t.number,
+        action: "TRANSFER_DISPATCHED",
+        newValue: { vehicle: input.vehicleNumber, gatePass: input.gatePassRef },
+        actor: user,
+      },
+      tx,
+    );
+    return updated;
   });
-
-  await createTask(
-    {
-      title: `Confirm receipt of transfer ${t.number}`,
-      description: `From ${t.fromStore.name}`,
-      taskType: "RECEIVING",
-      assigneeId: t.toStore.managerId ?? null,
-      assignedRoleCode: t.toStore.managerId ? null : "STORE_RECEIVER",
-      entityId: t.toStore.entityId,
-      documentType: "STORE_TRANSFER",
-      documentId: t.id,
-      documentRef: t.number,
-      priority: "HIGH",
-      slaHours: 48,
-      linkUrl: `/transfers/${t.id}`,
-    },
-    db,
-  );
-  await notify(
-    {
-      userIds: t.toStore.managerId ? [t.toStore.managerId] : [],
-      roleCodes: t.toStore.managerId ? [] : ["STORE_RECEIVER", "SITE_STORE_USER"],
-      entityId: t.toStore.entityId,
-      type: "GENERAL",
-      title: `Transfer ${t.number} dispatched to ${t.toStore.name}`,
-      body: input.vehicleNumber ? `Vehicle ${input.vehicleNumber}` : undefined,
-      linkType: "STORE_TRANSFER",
-      linkId: t.id,
-      linkUrl: `/transfers/${t.id}`,
-    },
-    db,
-  );
-
-  await writeAudit(
-    {
-      entityType: "StoreTransfer",
-      entityId: t.id,
-      entityRef: t.number,
-      action: "TRANSFER_DISPATCHED",
-      newValue: { vehicle: input.vehicleNumber, gatePass: input.gatePassRef },
-      actor: user,
-    },
-    db,
-  );
-  return updated;
 }
 
 export async function receiveTransfer(
@@ -883,93 +889,95 @@ export async function receiveTransfer(
   input: { transferId: string; quantities?: Record<string, number>; remarks?: string | null },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.STORE_TRANSFER, P.RECEIVE_GOODS)) throw new ForbiddenError("Not permitted.");
-  const t = await db.storeTransfer.findUnique({
-    where: { id: input.transferId },
-    include: { items: { include: { item: true } }, fromStore: true, toStore: true },
-  });
-  if (!t) throw new NotFoundError("Transfer");
-  if (t.status !== "DISPATCHED") {
-    throw new RuleViolationError(`Transfer ${t.number} must be dispatched before it can be received.`);
-  }
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.STORE_TRANSFER, P.RECEIVE_GOODS)) throw new ForbiddenError("Not permitted.");
+    const t = await tx.storeTransfer.findUnique({
+      where: { id: input.transferId },
+      include: { items: { include: { item: true } }, fromStore: true, toStore: true },
+    });
+    if (!t) throw new NotFoundError("Transfer");
+    if (t.status !== "DISPATCHED") {
+      throw new RuleViolationError(`Transfer ${t.number} must be dispatched before it can be received.`);
+    }
 
-  const shortfalls: string[] = [];
-  for (const li of t.items) {
-    const qty = round2(input.quantities?.[li.id] ?? li.dispatchedQty);
-    if (qty <= 0) continue;
-    if (qty > li.dispatchedQty + 1e-9) {
-      throw new RuleViolationError(
-        `Line ${li.lineNo} (${li.item.name}): receiving ${qty} exceeds the dispatched ${li.dispatchedQty}.`,
+    const shortfalls: string[] = [];
+    for (const li of t.items) {
+      const qty = round2(input.quantities?.[li.id] ?? li.dispatchedQty);
+      if (qty <= 0) continue;
+      if (qty > li.dispatchedQty + 1e-9) {
+        throw new RuleViolationError(
+          `Line ${li.lineNo} (${li.item.name}): receiving ${qty} exceeds the dispatched ${li.dispatchedQty}.`,
+        );
+      }
+      await postMovement(
+        "TRANSFER_IN",
+        {
+          itemId: li.itemId,
+          storeId: t.toStoreId,
+          quantity: qty,
+          unit: li.unit,
+          unitCost: li.unitCost,
+          batchNumber: li.batchNumber,
+          serialNumber: li.serialNumber,
+          entityId: t.toStore.entityId,
+          source: { kind: "TRANSFER", id: t.id, ref: t.number },
+          reason: `Received from ${t.fromStore.name}`,
+          performedById: user.id,
+        },
+        tx,
+        user,
+      );
+      await tx.storeTransferItem.update({ where: { id: li.id }, data: { receivedQty: qty } });
+      if (qty + 1e-9 < li.dispatchedQty) {
+        shortfalls.push(`${li.item.name}: dispatched ${li.dispatchedQty} ${li.unit}, received ${qty} ${li.unit}`);
+      }
+    }
+
+    const updated = await tx.storeTransfer.update({
+      where: { id: t.id },
+      data: {
+        status: "RECEIVED",
+        receivedAt: new Date(),
+        receivedById: user.id,
+        remarks: [t.remarks, input.remarks].filter(Boolean).join("\n") || null,
+      },
+    });
+    await completeTasks("STORE_TRANSFER", t.id, user.id, tx);
+
+    if (shortfalls.length) {
+      const { raiseException } = await import("@/lib/exceptions-service");
+      await raiseException(
+        {
+          type: "QUANTITY_MISMATCH",
+          severity: "MEDIUM",
+          title: `Transfer ${t.number}: in-transit shortfall`,
+          description: shortfalls.join(" · "),
+          documentType: "STORE_TRANSFER",
+          documentId: t.id,
+          documentRef: t.number,
+          entityId: t.toStore.entityId,
+          raisedById: user.id,
+          notifyRoles: ["WAREHOUSE_MANAGER", "STORE_MANAGER", "AUDIT_USER"],
+        },
+        tx,
+        user,
       );
     }
-    await postMovement(
-      "TRANSFER_IN",
-      {
-        itemId: li.itemId,
-        storeId: t.toStoreId,
-        quantity: qty,
-        unit: li.unit,
-        unitCost: li.unitCost,
-        batchNumber: li.batchNumber,
-        serialNumber: li.serialNumber,
-        entityId: t.toStore.entityId,
-        source: { kind: "TRANSFER", id: t.id, ref: t.number },
-        reason: `Received from ${t.fromStore.name}`,
-        performedById: user.id,
-      },
-      db,
-      user,
-    );
-    await db.storeTransferItem.update({ where: { id: li.id }, data: { receivedQty: qty } });
-    if (qty + 1e-9 < li.dispatchedQty) {
-      shortfalls.push(`${li.item.name}: dispatched ${li.dispatchedQty} ${li.unit}, received ${qty} ${li.unit}`);
-    }
-  }
 
-  const updated = await db.storeTransfer.update({
-    where: { id: t.id },
-    data: {
-      status: "RECEIVED",
-      receivedAt: new Date(),
-      receivedById: user.id,
-      remarks: [t.remarks, input.remarks].filter(Boolean).join("\n") || null,
-    },
+    await writeAudit(
+      {
+        entityType: "StoreTransfer",
+        entityId: t.id,
+        entityRef: t.number,
+        action: "TRANSFER_RECEIVED",
+        newValue: { shortfalls },
+        reason: input.remarks ?? null,
+        actor: user,
+      },
+      tx,
+    );
+    return updated;
   });
-  await completeTasks("STORE_TRANSFER", t.id, user.id, db);
-
-  if (shortfalls.length) {
-    const { raiseException } = await import("@/lib/exceptions-service");
-    await raiseException(
-      {
-        type: "QUANTITY_MISMATCH",
-        severity: "MEDIUM",
-        title: `Transfer ${t.number}: in-transit shortfall`,
-        description: shortfalls.join(" · "),
-        documentType: "STORE_TRANSFER",
-        documentId: t.id,
-        documentRef: t.number,
-        entityId: t.toStore.entityId,
-        raisedById: user.id,
-        notifyRoles: ["WAREHOUSE_MANAGER", "STORE_MANAGER", "AUDIT_USER"],
-      },
-      db,
-      user,
-    );
-  }
-
-  await writeAudit(
-    {
-      entityType: "StoreTransfer",
-      entityId: t.id,
-      entityRef: t.number,
-      action: "TRANSFER_RECEIVED",
-      newValue: { shortfalls },
-      reason: input.remarks ?? null,
-      actor: user,
-    },
-    db,
-  );
-  return updated;
 }
 
 /* ── Adjustments ──────────────────────────────────────────── */
@@ -987,32 +995,34 @@ export async function adjustStock(
   },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.INVENTORY_ADJUST)) {
-    throw new ForbiddenError("You do not have permission to adjust inventory.");
-  }
-  if (!input.reason?.trim() || input.reason.trim().length < 8) {
-    throw new ValidationError("A substantive reason is required for every stock adjustment.");
-  }
-  if (input.quantityDelta === 0) throw new ValidationError("Adjustment quantity cannot be zero.");
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.INVENTORY_ADJUST)) {
+      throw new ForbiddenError("You do not have permission to adjust inventory.");
+    }
+    if (!input.reason?.trim() || input.reason.trim().length < 8) {
+      throw new ValidationError("A substantive reason is required for every stock adjustment.");
+    }
+    if (input.quantityDelta === 0) throw new ValidationError("Adjustment quantity cannot be zero.");
 
-  const store = await requireStore(input.storeId, db);
-  return postMovement(
-    "ADJUSTMENT",
-    {
-      itemId: input.itemId,
-      storeId: input.storeId,
-      quantity: input.quantityDelta,
-      unit: input.unit,
-      batchNumber: input.batchNumber,
-      serialNumber: input.serialNumber,
-      entityId: store.entityId,
-      source: { kind: "ADJUSTMENT", ref: `Manual adjustment by ${user.name}` },
-      reason: input.reason.trim(),
-      performedById: user.id,
-    },
-    db,
-    user,
-  );
+    const store = await requireStore(input.storeId, tx);
+    return postMovement(
+      "ADJUSTMENT",
+      {
+        itemId: input.itemId,
+        storeId: input.storeId,
+        quantity: input.quantityDelta,
+        unit: input.unit,
+        batchNumber: input.batchNumber,
+        serialNumber: input.serialNumber,
+        entityId: store.entityId,
+        source: { kind: "ADJUSTMENT", ref: `Manual adjustment by ${user.name}` },
+        reason: input.reason.trim(),
+        performedById: user.id,
+      },
+      tx,
+      user,
+    );
+  });
 }
 
 /** Aggregated per-store position for the Stores landing page. */

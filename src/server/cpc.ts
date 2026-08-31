@@ -1,4 +1,4 @@
-import { prisma, type DbClient } from "@/lib/db";
+import { prisma, withTransaction, type DbClient } from "@/lib/db";
 import { nextNumber, SEQ } from "@/lib/numbering";
 import { CONFIG_KEYS, getConfigArray, getConfigBool, getConfigNumber } from "@/lib/config";
 import { ForbiddenError, NotFoundError, RuleViolationError, ValidationError } from "@/lib/errors";
@@ -374,92 +374,94 @@ export async function castCpcDecision(
   input: { caseId: string; vote: CpcVote; comment?: string | null; final?: boolean },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.CPC_DECIDE)) {
-    throw new ForbiddenError("You are not a voting member of the Central Procurement Committee.");
-  }
-  const kase = await db.cpcCase.findUnique({
-    where: { id: input.caseId },
-    include: {
-      members: true,
-      decisions: true,
-      pr: true,
-      comparative: { include: { lines: { include: { vendor: true } } } },
-    },
-  });
-  if (!kase) throw new NotFoundError("CPC case");
-  if (["APPROVED", "REJECTED", "RETURNED"].includes(kase.status)) {
-    throw new RuleViolationError(`CPC case ${kase.number} is already ${kase.status.toLowerCase()}.`);
-  }
-
-  const isMember = kase.members.some((m) => m.userId === user.id);
-  const isChair = userHasPermission(user, P.CPC_MANAGE);
-  if (!isMember && !isChair) {
-    throw new ForbiddenError("You are not assigned to this CPC case.");
-  }
-  if (input.vote !== "APPROVE" && !input.comment?.trim()) {
-    throw new ValidationError("A comment is required for anything other than an approval.");
-  }
-
-  const existing = kase.decisions.find((d) => d.memberId === user.id);
-  if (existing) {
-    await db.cpcDecision.update({
-      where: { id: existing.id },
-      data: { vote: input.vote, comment: input.comment ?? null, decidedAt: new Date() },
-    });
-  } else {
-    await db.cpcDecision.create({
-      data: {
-        caseId: kase.id,
-        memberId: user.id,
-        vote: input.vote,
-        comment: input.comment ?? null,
-        isFinal: Boolean(input.final && isChair),
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.CPC_DECIDE)) {
+      throw new ForbiddenError("You are not a voting member of the Central Procurement Committee.");
+    }
+    const kase = await tx.cpcCase.findUnique({
+      where: { id: input.caseId },
+      include: {
+        members: true,
+        decisions: true,
+        pr: true,
+        comparative: { include: { lines: { include: { vendor: true } } } },
       },
     });
-  }
+    if (!kase) throw new NotFoundError("CPC case");
+    if (["APPROVED", "REJECTED", "RETURNED"].includes(kase.status)) {
+      throw new RuleViolationError(`CPC case ${kase.number} is already ${kase.status.toLowerCase()}.`);
+    }
 
-  await db.task.updateMany({
-    where: { documentType: "CPC_CASE", documentId: kase.id, assigneeId: user.id, status: { in: ["OPEN", "IN_PROGRESS"] } },
-    data: { status: "DONE", completedAt: new Date(), completedById: user.id },
+    const isMember = kase.members.some((m) => m.userId === user.id);
+    const isChair = userHasPermission(user, P.CPC_MANAGE);
+    if (!isMember && !isChair) {
+      throw new ForbiddenError("You are not assigned to this CPC case.");
+    }
+    if (input.vote !== "APPROVE" && !input.comment?.trim()) {
+      throw new ValidationError("A comment is required for anything other than an approval.");
+    }
+
+    const existing = kase.decisions.find((d) => d.memberId === user.id);
+    if (existing) {
+      await tx.cpcDecision.update({
+        where: { id: existing.id },
+        data: { vote: input.vote, comment: input.comment ?? null, decidedAt: new Date() },
+      });
+    } else {
+      await tx.cpcDecision.create({
+        data: {
+          caseId: kase.id,
+          memberId: user.id,
+          vote: input.vote,
+          comment: input.comment ?? null,
+          isFinal: Boolean(input.final && isChair),
+        },
+      });
+    }
+
+    await tx.task.updateMany({
+      where: { documentType: "CPC_CASE", documentId: kase.id, assigneeId: user.id, status: { in: ["OPEN", "IN_PROGRESS"] } },
+      data: { status: "DONE", completedAt: new Date(), completedById: user.id },
+    });
+
+    if (kase.status === "SCHEDULED" || kase.status === "PENDING") {
+      await tx.cpcCase.update({ where: { id: kase.id }, data: { status: "UNDER_REVIEW" } });
+    }
+
+    await writeAudit(
+      {
+        entityType: "CpcCase",
+        entityId: kase.id,
+        entityRef: kase.number,
+        action: `CPC_VOTE_${input.vote}`,
+        newValue: { member: user.name, vote: input.vote },
+        reason: input.comment ?? null,
+        caseKey: kase.pr.number,
+        actor: user,
+      },
+      tx,
+    );
+
+    // Re-read decisions and resolve if the committee has concluded.
+    const decisions = await tx.cpcDecision.findMany({ where: { caseId: kase.id } });
+    const required = kase.members.filter((m) => m.required);
+    const requiredVoted = required.every((m) => decisions.some((d) => d.memberId === m.userId));
+    const anyReject = decisions.some((d) => d.vote === "REJECT");
+    const anyReturn = decisions.some((d) => d.vote === "RETURN" || d.vote === "REQUEST_CLARIFICATION");
+    const forcedFinal = Boolean(input.final && isChair);
+
+    let outcome: "APPROVED" | "REJECTED" | "RETURNED" | "CLARIFICATION" | null = null;
+    if (anyReject) outcome = "REJECTED";
+    else if (anyReturn) outcome = decisions.some((d) => d.vote === "RETURN") ? "RETURNED" : "CLARIFICATION";
+    else if (requiredVoted || forcedFinal) {
+      const approvals = decisions.filter((d) => d.vote === "APPROVE").length;
+      outcome = approvals > 0 ? "APPROVED" : null;
+    }
+
+    if (!outcome) return { kase, resolved: false as const, outcome: null };
+
+    return resolveCpcCase(user, kase.id, outcome, input.comment ?? null, tx);
   });
-
-  if (kase.status === "SCHEDULED" || kase.status === "PENDING") {
-    await db.cpcCase.update({ where: { id: kase.id }, data: { status: "UNDER_REVIEW" } });
-  }
-
-  await writeAudit(
-    {
-      entityType: "CpcCase",
-      entityId: kase.id,
-      entityRef: kase.number,
-      action: `CPC_VOTE_${input.vote}`,
-      newValue: { member: user.name, vote: input.vote },
-      reason: input.comment ?? null,
-      caseKey: kase.pr.number,
-      actor: user,
-    },
-    db,
-  );
-
-  // Re-read decisions and resolve if the committee has concluded.
-  const decisions = await db.cpcDecision.findMany({ where: { caseId: kase.id } });
-  const required = kase.members.filter((m) => m.required);
-  const requiredVoted = required.every((m) => decisions.some((d) => d.memberId === m.userId));
-  const anyReject = decisions.some((d) => d.vote === "REJECT");
-  const anyReturn = decisions.some((d) => d.vote === "RETURN" || d.vote === "REQUEST_CLARIFICATION");
-  const forcedFinal = Boolean(input.final && isChair);
-
-  let outcome: "APPROVED" | "REJECTED" | "RETURNED" | "CLARIFICATION" | null = null;
-  if (anyReject) outcome = "REJECTED";
-  else if (anyReturn) outcome = decisions.some((d) => d.vote === "RETURN") ? "RETURNED" : "CLARIFICATION";
-  else if (requiredVoted || forcedFinal) {
-    const approvals = decisions.filter((d) => d.vote === "APPROVE").length;
-    outcome = approvals > 0 ? "APPROVED" : null;
-  }
-
-  if (!outcome) return { kase, resolved: false as const, outcome: null };
-
-  return resolveCpcCase(user, kase.id, outcome, input.comment ?? null, db);
 }
 
 /** Applies the committee's conclusion to the case and the requisition. */
@@ -477,9 +479,11 @@ export async function resolveCpcCase(
   // in the server action. Roster membership and quorum are enforced with the
   // committee module; this is the authorization floor beneath it.
   //
-  // The refusal is recorded. An attempt to decide a committee case without the
-  // authority to do so is worth knowing about whether or not it succeeded, and
-  // an exception that reaches only the browser console tells nobody.
+  // Authorization runs *before* the transaction opens, and deliberately so. The
+  // refusal is audited, and an audit row written inside a transaction that then
+  // rethrows is rolled back with it — so recording the refusal and aborting the
+  // work cannot both happen in the same transaction. Checking first gives us
+  // both: the refusal is committed on its own, and the work never starts.
   const kase = await db.cpcCase.findUnique({
     where: { id: caseId },
     include: { pr: true, comparative: { include: { lines: { include: { vendor: true } } } } },
@@ -506,124 +510,127 @@ export async function resolveCpcCase(
     throw e;
   }
 
-  const updated = await db.cpcCase.update({
-    where: { id: caseId },
-    data: { status: outcome, decidedAt: outcome === "DEFERRED" ? null : new Date() },
-  });
-  await completeTasks("CPC_CASE", caseId, user.id, db);
+  return withTransaction(db, async (tx) => {
 
-  if (outcome === "APPROVED") {
-    if (kase.comparativeId) {
-      await db.comparative.update({ where: { id: kase.comparativeId }, data: { status: "APPROVED" } });
+    const updated = await tx.cpcCase.update({
+      where: { id: caseId },
+      data: { status: outcome, decidedAt: outcome === "DEFERRED" ? null : new Date() },
+    });
+    await completeTasks("CPC_CASE", caseId, user.id, tx);
+
+    if (outcome === "APPROVED") {
+      if (kase.comparativeId) {
+        await tx.comparative.update({ where: { id: kase.comparativeId }, data: { status: "APPROVED" } });
+      }
+      await transitionPr(user, kase.prId, "PO_PREPARATION", { reason: comment }, tx);
+      await createTask(
+        {
+          title: `Raise PO for ${kase.pr.number}`,
+          taskType: "ACTION",
+          assignedRoleCode: "PROCUREMENT_OFFICER",
+          entityId: kase.pr.entityId,
+          documentType: "PR",
+          documentId: kase.prId,
+          documentRef: kase.pr.number,
+          priority: "HIGH",
+          slaHours: 24,
+          linkUrl: `/pr/${kase.prId}`,
+        },
+        tx,
+      );
+      await notify(
+        {
+          roleCodes: ["PROCUREMENT_OFFICER", "BUYER"],
+          userIds: [kase.pr.requesterId],
+          entityId: kase.pr.entityId,
+          type: "CPC_PENDING",
+          title: `${kase.number} approved by CPC`,
+          body: `${kase.pr.number} may now proceed to purchase order.`,
+          linkType: "PR",
+          linkId: kase.prId,
+          linkUrl: `/pr/${kase.prId}`,
+        },
+        tx,
+      );
+    } else if (outcome === "REJECTED") {
+      if (kase.comparativeId) {
+        await tx.comparative.update({ where: { id: kase.comparativeId }, data: { status: "REJECTED" } });
+      }
+      await transitionPr(user, kase.prId, "REJECTED", { reason: comment ?? "Rejected by CPC" }, tx);
+      await notify(
+        {
+          userIds: [kase.pr.requesterId],
+          type: "PR_REJECTED",
+          title: `${kase.pr.number} rejected by CPC`,
+          body: comment ?? undefined,
+          priority: "HIGH",
+          linkType: "PR",
+          linkId: kase.prId,
+          linkUrl: `/pr/${kase.prId}`,
+        },
+        tx,
+      );
+    } else if (outcome === "RETURNED" || outcome === "CLARIFICATION") {
+      // Back to sourcing so procurement can re-quote or clarify.
+      await transitionPr(
+        user,
+        kase.prId,
+        "SOURCING",
+        {
+          reason: comment,
+          force: true,
+          authority: { cascade: "committee returned the case for re-sourcing", from: [P.CPC_DECIDE] },
+        },
+        tx,
+      );
+      await createTask(
+        {
+          title: `CPC returned ${kase.number} — action required`,
+          description: comment ?? undefined,
+          taskType: "ACTION",
+          assignedRoleCode: "PROCUREMENT_OFFICER",
+          entityId: kase.pr.entityId,
+          documentType: "PR",
+          documentId: kase.prId,
+          documentRef: kase.pr.number,
+          priority: "HIGH",
+          slaHours: 24,
+          linkUrl: `/pr/${kase.prId}`,
+        },
+        tx,
+      );
+      await notify(
+        {
+          roleCodes: ["PROCUREMENT_OFFICER", "BUYER"],
+          entityId: kase.pr.entityId,
+          type: "CPC_PENDING",
+          title: `${kase.number} returned by CPC`,
+          body: comment ?? undefined,
+          priority: "HIGH",
+          linkType: "PR",
+          linkId: kase.prId,
+          linkUrl: `/pr/${kase.prId}`,
+        },
+        tx,
+      );
     }
-    await transitionPr(user, kase.prId, "PO_PREPARATION", { reason: comment }, db);
-    await createTask(
+
+    await writeAudit(
       {
-        title: `Raise PO for ${kase.pr.number}`,
-        taskType: "ACTION",
-        assignedRoleCode: "PROCUREMENT_OFFICER",
-        entityId: kase.pr.entityId,
-        documentType: "PR",
-        documentId: kase.prId,
-        documentRef: kase.pr.number,
-        priority: "HIGH",
-        slaHours: 24,
-        linkUrl: `/pr/${kase.prId}`,
-      },
-      db,
-    );
-    await notify(
-      {
-        roleCodes: ["PROCUREMENT_OFFICER", "BUYER"],
-        userIds: [kase.pr.requesterId],
-        entityId: kase.pr.entityId,
-        type: "CPC_PENDING",
-        title: `${kase.number} approved by CPC`,
-        body: `${kase.pr.number} may now proceed to purchase order.`,
-        linkType: "PR",
-        linkId: kase.prId,
-        linkUrl: `/pr/${kase.prId}`,
-      },
-      db,
-    );
-  } else if (outcome === "REJECTED") {
-    if (kase.comparativeId) {
-      await db.comparative.update({ where: { id: kase.comparativeId }, data: { status: "REJECTED" } });
-    }
-    await transitionPr(user, kase.prId, "REJECTED", { reason: comment ?? "Rejected by CPC" }, db);
-    await notify(
-      {
-        userIds: [kase.pr.requesterId],
-        type: "PR_REJECTED",
-        title: `${kase.pr.number} rejected by CPC`,
-        body: comment ?? undefined,
-        priority: "HIGH",
-        linkType: "PR",
-        linkId: kase.prId,
-        linkUrl: `/pr/${kase.prId}`,
-      },
-      db,
-    );
-  } else if (outcome === "RETURNED" || outcome === "CLARIFICATION") {
-    // Back to sourcing so procurement can re-quote or clarify.
-    await transitionPr(
-      user,
-      kase.prId,
-      "SOURCING",
-      {
+        entityType: "CpcCase",
+        entityId: caseId,
+        entityRef: kase.number,
+        action: `CPC_${outcome}`,
+        newValue: { amount: kase.amount, savings: kase.savingsAmount },
         reason: comment,
-        force: true,
-        authority: { cascade: "committee returned the case for re-sourcing", from: [P.CPC_DECIDE] },
+        caseKey: kase.pr.number,
+        actor: user,
       },
-      db,
+      tx,
     );
-    await createTask(
-      {
-        title: `CPC returned ${kase.number} — action required`,
-        description: comment ?? undefined,
-        taskType: "ACTION",
-        assignedRoleCode: "PROCUREMENT_OFFICER",
-        entityId: kase.pr.entityId,
-        documentType: "PR",
-        documentId: kase.prId,
-        documentRef: kase.pr.number,
-        priority: "HIGH",
-        slaHours: 24,
-        linkUrl: `/pr/${kase.prId}`,
-      },
-      db,
-    );
-    await notify(
-      {
-        roleCodes: ["PROCUREMENT_OFFICER", "BUYER"],
-        entityId: kase.pr.entityId,
-        type: "CPC_PENDING",
-        title: `${kase.number} returned by CPC`,
-        body: comment ?? undefined,
-        priority: "HIGH",
-        linkType: "PR",
-        linkId: kase.prId,
-        linkUrl: `/pr/${kase.prId}`,
-      },
-      db,
-    );
-  }
 
-  await writeAudit(
-    {
-      entityType: "CpcCase",
-      entityId: caseId,
-      entityRef: kase.number,
-      action: `CPC_${outcome}`,
-      newValue: { amount: kase.amount, savings: kase.savingsAmount },
-      reason: comment,
-      caseKey: kase.pr.number,
-      actor: user,
-    },
-    db,
-  );
-
-  return { kase: updated, resolved: true as const, outcome };
+    return { kase: updated, resolved: true as const, outcome };
+  });
 }
 
 export async function scheduleMeeting(
@@ -631,40 +638,42 @@ export async function scheduleMeeting(
   input: { entityId: string; title: string; scheduledAt: Date; meetingType?: string; location?: string | null; agenda?: string | null; caseIds?: string[] },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.CPC_MANAGE)) {
-    throw new ForbiddenError("You do not have permission to manage CPC meetings.");
-  }
-  const number = await nextNumber(SEQ.CPC_MEETING, db);
-  const meeting = await db.cpcMeeting.create({
-    data: {
-      number,
-      entityId: input.entityId,
-      title: input.title,
-      scheduledAt: input.scheduledAt,
-      meetingType: input.meetingType ?? "WEEKLY",
-      location: input.location ?? null,
-      agenda: input.agenda ?? null,
-      status: "SCHEDULED",
-    },
-  });
-  if (input.caseIds?.length) {
-    await db.cpcCase.updateMany({
-      where: { id: { in: input.caseIds } },
-      data: { meetingId: meeting.id, status: "SCHEDULED" },
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.CPC_MANAGE)) {
+      throw new ForbiddenError("You do not have permission to manage CPC meetings.");
+    }
+    const number = await nextNumber(SEQ.CPC_MEETING, tx);
+    const meeting = await tx.cpcMeeting.create({
+      data: {
+        number,
+        entityId: input.entityId,
+        title: input.title,
+        scheduledAt: input.scheduledAt,
+        meetingType: input.meetingType ?? "WEEKLY",
+        location: input.location ?? null,
+        agenda: input.agenda ?? null,
+        status: "SCHEDULED",
+      },
     });
-  }
-  await writeAudit(
-    {
-      entityType: "CpcMeeting",
-      entityId: meeting.id,
-      entityRef: meeting.number,
-      action: "CPC_MEETING_SCHEDULED",
-      newValue: { scheduledAt: input.scheduledAt, cases: input.caseIds?.length ?? 0 },
-      actor: user,
-    },
-    db,
-  );
-  return meeting;
+    if (input.caseIds?.length) {
+      await tx.cpcCase.updateMany({
+        where: { id: { in: input.caseIds } },
+        data: { meetingId: meeting.id, status: "SCHEDULED" },
+      });
+    }
+    await writeAudit(
+      {
+        entityType: "CpcMeeting",
+        entityId: meeting.id,
+        entityRef: meeting.number,
+        action: "CPC_MEETING_SCHEDULED",
+        newValue: { scheduledAt: input.scheduledAt, cases: input.caseIds?.length ?? 0 },
+        actor: user,
+      },
+      tx,
+    );
+    return meeting;
+  });
 }
 
 export async function recordMinutes(

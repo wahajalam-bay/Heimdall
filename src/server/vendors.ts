@@ -1,4 +1,4 @@
-import { prisma, type DbClient } from "@/lib/db";
+import { prisma, withTransaction, type DbClient } from "@/lib/db";
 import { nextNumber, SEQ } from "@/lib/numbering";
 import { CONFIG_KEYS, getConfigNumber } from "@/lib/config";
 import { ForbiddenError, NotFoundError, RuleViolationError, ValidationError } from "@/lib/errors";
@@ -155,37 +155,39 @@ export async function updateVendor(
   input: Partial<VendorInput>,
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.VENDOR_EDIT)) throw new ForbiddenError("Not permitted.");
-  const vendor = await db.vendor.findUnique({ where: { id: vendorId } });
-  if (!vendor) throw new NotFoundError("Vendor");
-  if (vendor.status === "BLACKLISTED" && !userHasPermission(user, P.VENDOR_BLACKLIST)) {
-    throw new ForbiddenError("A blacklisted vendor can only be edited by an authorised approver.");
-  }
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.VENDOR_EDIT)) throw new ForbiddenError("Not permitted.");
+    const vendor = await tx.vendor.findUnique({ where: { id: vendorId } });
+    if (!vendor) throw new NotFoundError("Vendor");
+    if (vendor.status === "BLACKLISTED" && !userHasPermission(user, P.VENDOR_BLACKLIST)) {
+      throw new ForbiddenError("A blacklisted vendor can only be edited by an authorised approver.");
+    }
 
-  const { entityIds, ...rest } = input;
-  const data: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(rest)) if (v !== undefined) data[k] = v;
+    const { entityIds, ...rest } = input;
+    const data: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(rest)) if (v !== undefined) data[k] = v;
 
-  const updated = await db.vendor.update({ where: { id: vendorId }, data });
-  if (entityIds) {
-    await db.vendorEntityLink.deleteMany({ where: { vendorId } });
-    await db.vendorEntityLink.createMany({
-      data: entityIds.map((entityId) => ({ vendorId, entityId, approved: vendor.status === "APPROVED" })),
-    });
-  }
+    const updated = await tx.vendor.update({ where: { id: vendorId }, data });
+    if (entityIds) {
+      await tx.vendorEntityLink.deleteMany({ where: { vendorId } });
+      await tx.vendorEntityLink.createMany({
+        data: entityIds.map((entityId) => ({ vendorId, entityId, approved: vendor.status === "APPROVED" })),
+      });
+    }
 
-  await writeAudit(
-    {
-      entityType: "Vendor",
-      entityId: vendorId,
-      entityRef: vendor.code,
-      action: "VENDOR_UPDATED",
-      changes: diffFields(vendor as unknown as Record<string, unknown>, data),
-      actor: user,
-    },
-    db,
-  );
-  return updated;
+    await writeAudit(
+      {
+        entityType: "Vendor",
+        entityId: vendorId,
+        entityRef: vendor.code,
+        action: "VENDOR_UPDATED",
+        changes: diffFields(vendor as unknown as Record<string, unknown>, data),
+        actor: user,
+      },
+      tx,
+    );
+    return updated;
+  });
 }
 
 /* ── Pre-qualification scoring ────────────────────────────── */
@@ -209,129 +211,131 @@ export async function evaluateVendor(
   },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.VENDOR_EVALUATE)) {
-    throw new ForbiddenError("You do not have permission to evaluate vendors.");
-  }
-  const vendor = await db.vendor.findUnique({ where: { id: input.vendorId } });
-  if (!vendor) throw new NotFoundError("Vendor");
-  if (!input.scores.length) throw new ValidationError("Score at least one criterion.");
-
-  const criteria = await db.evaluationCriterion.findMany({
-    where: { id: { in: input.scores.map((s) => s.criterionId) }, active: true },
-  });
-  if (criteria.length !== input.scores.length) {
-    throw new ValidationError("One or more scored criteria are unknown or inactive.");
-  }
-
-  let totalScore = 0;
-  let maxScore = 0;
-  const rows = input.scores.map((s) => {
-    const c = criteria.find((x) => x.id === s.criterionId)!;
-    if (s.score < 0 || s.score > c.maxScore) {
-      throw new ValidationError(`"${c.name}" must be scored between 0 and ${c.maxScore}.`);
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.VENDOR_EVALUATE)) {
+      throw new ForbiddenError("You do not have permission to evaluate vendors.");
     }
-    const weighted = round2(s.score * c.weight);
-    totalScore += weighted;
-    maxScore += round2(c.maxScore * c.weight);
-    return {
-      criterionId: c.id,
-      score: s.score,
-      maxScore: c.maxScore,
-      weight: c.weight,
-      weightedScore: weighted,
-      comment: s.comment ?? null,
-    };
-  });
+    const vendor = await tx.vendor.findUnique({ where: { id: input.vendorId } });
+    if (!vendor) throw new NotFoundError("Vendor");
+    if (!input.scores.length) throw new ValidationError("Score at least one criterion.");
 
-  totalScore = round2(totalScore);
-  maxScore = round2(maxScore);
+    const criteria = await tx.evaluationCriterion.findMany({
+      where: { id: { in: input.scores.map((s) => s.criterionId) }, active: true },
+    });
+    if (criteria.length !== input.scores.length) {
+      throw new ValidationError("One or more scored criteria are unknown or inactive.");
+    }
 
-  const passingScore = await getConfigNumber(CONFIG_KEYS.VENDOR_MIN_SCORE, input.entityId ?? null, db);
-  const configuredMax = await getConfigNumber(CONFIG_KEYS.VENDOR_MAX_SCORE, input.entityId ?? null, db);
-  // Express the achieved score on the configured scale so the 30/60 style rule reads correctly.
-  const scaledScore = maxScore > 0 ? round2((totalScore / maxScore) * configuredMax) : 0;
-  const percentage = maxScore > 0 ? round2((totalScore / maxScore) * 100) : 0;
-  const passed = scaledScore >= passingScore;
+    let totalScore = 0;
+    let maxScore = 0;
+    const rows = input.scores.map((s) => {
+      const c = criteria.find((x) => x.id === s.criterionId)!;
+      if (s.score < 0 || s.score > c.maxScore) {
+        throw new ValidationError(`"${c.name}" must be scored between 0 and ${c.maxScore}.`);
+      }
+      const weighted = round2(s.score * c.weight);
+      totalScore += weighted;
+      maxScore += round2(c.maxScore * c.weight);
+      return {
+        criterionId: c.id,
+        score: s.score,
+        maxScore: c.maxScore,
+        weight: c.weight,
+        weightedScore: weighted,
+        comment: s.comment ?? null,
+      };
+    });
 
-  const number = await nextNumber(SEQ.VENDOR_EVAL, db);
-  const evaluation = await db.vendorEvaluation.create({
-    data: {
-      number,
-      vendorId: vendor.id,
-      evaluationType: input.evaluationType ?? "PRE_QUALIFICATION",
-      evaluatorId: user.id,
-      totalScore: scaledScore,
-      maxScore: configuredMax,
-      percentage,
-      passingScore,
-      passed,
-      status: input.submit ? "SUBMITTED" : "DRAFT",
-      recommendation: input.recommendation ?? null,
-      notes: input.notes ?? null,
-      scores: { create: rows },
-    },
-  });
+    totalScore = round2(totalScore);
+    maxScore = round2(maxScore);
 
-  await db.vendor.update({
-    where: { id: vendor.id },
-    data: {
-      currentScore: scaledScore,
-      maxScore: configuredMax,
-      scorePercent: percentage,
-      status:
-        vendor.status === "PROSPECT" || vendor.status === "UNDER_EVALUATION"
-          ? input.submit
-            ? "PENDING_APPROVAL"
-            : "UNDER_EVALUATION"
-          : vendor.status,
-    },
-  });
+    const passingScore = await getConfigNumber(CONFIG_KEYS.VENDOR_MIN_SCORE, input.entityId ?? null, tx);
+    const configuredMax = await getConfigNumber(CONFIG_KEYS.VENDOR_MAX_SCORE, input.entityId ?? null, tx);
+    // Express the achieved score on the configured scale so the 30/60 style rule reads correctly.
+    const scaledScore = maxScore > 0 ? round2((totalScore / maxScore) * configuredMax) : 0;
+    const percentage = maxScore > 0 ? round2((totalScore / maxScore) * 100) : 0;
+    const passed = scaledScore >= passingScore;
 
-  if (input.submit) {
-    await createTask(
-      {
-        title: `Approve vendor ${vendor.name} (${scaledScore}/${configuredMax})`,
-        description: passed
-          ? `Scored ${scaledScore}/${configuredMax} — meets the minimum of ${passingScore}.`
-          : `Scored ${scaledScore}/${configuredMax} — below the minimum of ${passingScore}.`,
-        taskType: "APPROVAL",
-        assignedRoleCode: "PROCUREMENT_SENIOR_MANAGER",
-        documentType: "VENDOR",
-        documentId: vendor.id,
-        documentRef: vendor.code,
-        priority: "NORMAL",
-        slaHours: 72,
-        linkUrl: `/vendors/${vendor.id}`,
+    const number = await nextNumber(SEQ.VENDOR_EVAL, tx);
+    const evaluation = await tx.vendorEvaluation.create({
+      data: {
+        number,
+        vendorId: vendor.id,
+        evaluationType: input.evaluationType ?? "PRE_QUALIFICATION",
+        evaluatorId: user.id,
+        totalScore: scaledScore,
+        maxScore: configuredMax,
+        percentage,
+        passingScore,
+        passed,
+        status: input.submit ? "SUBMITTED" : "DRAFT",
+        recommendation: input.recommendation ?? null,
+        notes: input.notes ?? null,
+        scores: { create: rows },
       },
-      db,
-    );
-    await notify(
-      {
-        roleCodes: ["PROCUREMENT_SENIOR_MANAGER", "PROCUREMENT_DIRECTOR"],
-        type: "VENDOR_EVALUATION_DUE",
-        title: `${vendor.name} pre-qualification submitted`,
-        body: `${scaledScore}/${configuredMax} (${percentage}%) — ${passed ? "pass" : "below minimum"}`,
-        linkType: "VENDOR",
-        linkId: vendor.id,
-        linkUrl: `/vendors/${vendor.id}`,
+    });
+
+    await tx.vendor.update({
+      where: { id: vendor.id },
+      data: {
+        currentScore: scaledScore,
+        maxScore: configuredMax,
+        scorePercent: percentage,
+        status:
+          vendor.status === "PROSPECT" || vendor.status === "UNDER_EVALUATION"
+            ? input.submit
+              ? "PENDING_APPROVAL"
+              : "UNDER_EVALUATION"
+            : vendor.status,
       },
-      db,
+    });
+
+    if (input.submit) {
+      await createTask(
+        {
+          title: `Approve vendor ${vendor.name} (${scaledScore}/${configuredMax})`,
+          description: passed
+            ? `Scored ${scaledScore}/${configuredMax} — meets the minimum of ${passingScore}.`
+            : `Scored ${scaledScore}/${configuredMax} — below the minimum of ${passingScore}.`,
+          taskType: "APPROVAL",
+          assignedRoleCode: "PROCUREMENT_SENIOR_MANAGER",
+          documentType: "VENDOR",
+          documentId: vendor.id,
+          documentRef: vendor.code,
+          priority: "NORMAL",
+          slaHours: 72,
+          linkUrl: `/vendors/${vendor.id}`,
+        },
+        tx,
+      );
+      await notify(
+        {
+          roleCodes: ["PROCUREMENT_SENIOR_MANAGER", "PROCUREMENT_DIRECTOR"],
+          type: "VENDOR_EVALUATION_DUE",
+          title: `${vendor.name} pre-qualification submitted`,
+          body: `${scaledScore}/${configuredMax} (${percentage}%) — ${passed ? "pass" : "below minimum"}`,
+          linkType: "VENDOR",
+          linkId: vendor.id,
+          linkUrl: `/vendors/${vendor.id}`,
+        },
+        tx,
+      );
+    }
+
+    await writeAudit(
+      {
+        entityType: "VendorEvaluation",
+        entityId: evaluation.id,
+        entityRef: evaluation.number,
+        action: input.submit ? "VENDOR_EVALUATION_SUBMITTED" : "VENDOR_EVALUATION_DRAFTED",
+        newValue: { vendor: vendor.name, score: scaledScore, max: configuredMax, percentage, passed },
+        actor: user,
+      },
+      tx,
     );
-  }
 
-  await writeAudit(
-    {
-      entityType: "VendorEvaluation",
-      entityId: evaluation.id,
-      entityRef: evaluation.number,
-      action: input.submit ? "VENDOR_EVALUATION_SUBMITTED" : "VENDOR_EVALUATION_DRAFTED",
-      newValue: { vendor: vendor.name, score: scaledScore, max: configuredMax, percentage, passed },
-      actor: user,
-    },
-    db,
-  );
-
-  return { evaluation, passed, scaledScore, configuredMax, passingScore, percentage };
+    return { evaluation, passed, scaledScore, configuredMax, passingScore, percentage };
+  });
 }
 
 export async function decideVendorApproval(
@@ -344,76 +348,78 @@ export async function decideVendorApproval(
   },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.VENDOR_APPROVE)) {
-    throw new ForbiddenError("You do not have permission to approve vendors.");
-  }
-  if (!input.reason?.trim()) throw new ValidationError("Record the basis for this decision.");
-
-  const vendor = await db.vendor.findUnique({
-    where: { id: input.vendorId },
-    include: { evaluations: { orderBy: { evaluatedAt: "desc" }, take: 1 } },
-  });
-  if (!vendor) throw new NotFoundError("Vendor");
-
-  const latest = vendor.evaluations[0];
-  if (input.decision === "APPROVE") {
-    if (!latest) {
-      throw new RuleViolationError("A vendor cannot be approved before a pre-qualification evaluation is recorded.");
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.VENDOR_APPROVE)) {
+      throw new ForbiddenError("You do not have permission to approve vendors.");
     }
-    if (!latest.passed) {
-      throw new RuleViolationError(
-        `${vendor.name} scored ${latest.totalScore}/${latest.maxScore}, below the minimum of ${latest.passingScore}. Approve conditionally with a recorded reason, or re-evaluate.`,
-      );
+    if (!input.reason?.trim()) throw new ValidationError("Record the basis for this decision.");
+
+    const vendor = await tx.vendor.findUnique({
+      where: { id: input.vendorId },
+      include: { evaluations: { orderBy: { evaluatedAt: "desc" }, take: 1 } },
+    });
+    if (!vendor) throw new NotFoundError("Vendor");
+
+    const latest = vendor.evaluations[0];
+    if (input.decision === "APPROVE") {
+      if (!latest) {
+        throw new RuleViolationError("A vendor cannot be approved before a pre-qualification evaluation is recorded.");
+      }
+      if (!latest.passed) {
+        throw new RuleViolationError(
+          `${vendor.name} scored ${latest.totalScore}/${latest.maxScore}, below the minimum of ${latest.passingScore}. Approve conditionally with a recorded reason, or re-evaluate.`,
+        );
+      }
     }
-  }
 
-  const status: VendorStatus =
-    input.decision === "APPROVE" ? "APPROVED" : input.decision === "CONDITIONAL" ? "CONDITIONAL" : "INACTIVE";
+    const status: VendorStatus =
+      input.decision === "APPROVE" ? "APPROVED" : input.decision === "CONDITIONAL" ? "CONDITIONAL" : "INACTIVE";
 
-  const updated = await db.vendor.update({
-    where: { id: vendor.id },
-    data: {
-      status,
-      statusReason: input.reason.trim(),
-      approvedAt: input.decision === "REJECT" ? null : new Date(),
-    },
-  });
-  if (latest) {
-    await db.vendorEvaluation.update({
-      where: { id: latest.id },
+    const updated = await tx.vendor.update({
+      where: { id: vendor.id },
       data: {
-        status: input.decision === "REJECT" ? "REJECTED" : "APPROVED",
-        approvedById: user.id,
-        approvedAt: new Date(),
+        status,
+        statusReason: input.reason.trim(),
+        approvedAt: input.decision === "REJECT" ? null : new Date(),
       },
     });
-  }
-  if (input.entityIds?.length) {
-    await db.vendorEntityLink.deleteMany({ where: { vendorId: vendor.id } });
-    await db.vendorEntityLink.createMany({
-      data: input.entityIds.map((entityId) => ({ vendorId: vendor.id, entityId, approved: status !== "INACTIVE" })),
-    });
-  } else {
-    await db.vendorEntityLink.updateMany({
-      where: { vendorId: vendor.id },
-      data: { approved: status !== "INACTIVE" },
-    });
-  }
+    if (latest) {
+      await tx.vendorEvaluation.update({
+        where: { id: latest.id },
+        data: {
+          status: input.decision === "REJECT" ? "REJECTED" : "APPROVED",
+          approvedById: user.id,
+          approvedAt: new Date(),
+        },
+      });
+    }
+    if (input.entityIds?.length) {
+      await tx.vendorEntityLink.deleteMany({ where: { vendorId: vendor.id } });
+      await tx.vendorEntityLink.createMany({
+        data: input.entityIds.map((entityId) => ({ vendorId: vendor.id, entityId, approved: status !== "INACTIVE" })),
+      });
+    } else {
+      await tx.vendorEntityLink.updateMany({
+        where: { vendorId: vendor.id },
+        data: { approved: status !== "INACTIVE" },
+      });
+    }
 
-  await completeTasks("VENDOR", vendor.id, user.id, db);
-  await writeAudit(
-    {
-      entityType: "Vendor",
-      entityId: vendor.id,
-      entityRef: vendor.code,
-      action: `VENDOR_${input.decision}`,
-      changes: { status: { from: vendor.status, to: status } },
-      reason: input.reason.trim(),
-      actor: user,
-    },
-    db,
-  );
-  return updated;
+    await completeTasks("VENDOR", vendor.id, user.id, tx);
+    await writeAudit(
+      {
+        entityType: "Vendor",
+        entityId: vendor.id,
+        entityRef: vendor.code,
+        action: `VENDOR_${input.decision}`,
+        changes: { status: { from: vendor.status, to: status } },
+        reason: input.reason.trim(),
+        actor: user,
+      },
+      tx,
+    );
+    return updated;
+  });
 }
 
 /* ── Performance ──────────────────────────────────────────── */
@@ -430,148 +436,150 @@ export async function computeVendorPerformance(
   db: DbClient = prisma,
   authority: Authority = { permission: [P.VENDOR_EVALUATE, P.VENDOR_APPROVE] },
 ) {
-  assertAuthority(actor, DOMAIN_ACTIONS.VENDOR_PERFORMANCE_COMPUTE, authority);
-  const [pos, deliveries, grnItems, invoiceIssues, issues] = await Promise.all([
-    db.purchaseOrder.findMany({
-      where: {
-        vendorId,
-        issuedAt: { gte: periodStart, lte: periodEnd },
-        status: { notIn: ["DRAFT", "CANCELLED", "PENDING_APPROVAL"] },
-      },
-      include: { items: true, deliveries: true },
-    }),
-    db.delivery.findMany({
-      where: { vendorId, deliveryDate: { gte: periodStart, lte: periodEnd } },
-      include: { po: { select: { deliveryDate: true } }, items: true },
-    }),
-    db.grnItem.findMany({
-      where: { grn: { vendorId, status: "POSTED", receivedAt: { gte: periodStart, lte: periodEnd } } },
-    }),
-    db.invoice.count({
-      where: {
-        vendorId,
-        receivedDate: { gte: periodStart, lte: periodEnd },
-        OR: [{ matchStatus: "FAILED" }, { matchStatus: "OVERRIDDEN" }],
-      },
-    }),
-    db.vendorIssue.findMany({ where: { vendorId, raisedAt: { gte: periodStart, lte: periodEnd } } }),
-  ]);
+  return withTransaction(db, async (tx) => {
+    assertAuthority(actor, DOMAIN_ACTIONS.VENDOR_PERFORMANCE_COMPUTE, authority);
+    const [pos, deliveries, grnItems, invoiceIssues, issues] = await Promise.all([
+      tx.purchaseOrder.findMany({
+        where: {
+          vendorId,
+          issuedAt: { gte: periodStart, lte: periodEnd },
+          status: { notIn: ["DRAFT", "CANCELLED", "PENDING_APPROVAL"] },
+        },
+        include: { items: true, deliveries: true },
+      }),
+      tx.delivery.findMany({
+        where: { vendorId, deliveryDate: { gte: periodStart, lte: periodEnd } },
+        include: { po: { select: { deliveryDate: true } }, items: true },
+      }),
+      tx.grnItem.findMany({
+        where: { grn: { vendorId, status: "POSTED", receivedAt: { gte: periodStart, lte: periodEnd } } },
+      }),
+      tx.invoice.count({
+        where: {
+          vendorId,
+          receivedDate: { gte: periodStart, lte: periodEnd },
+          OR: [{ matchStatus: "FAILED" }, { matchStatus: "OVERRIDDEN" }],
+        },
+      }),
+      tx.vendorIssue.findMany({ where: { vendorId, raisedAt: { gte: periodStart, lte: periodEnd } } }),
+    ]);
 
-  const ordersCount = pos.length;
-  const totalSpend = round2(pos.reduce((a, p) => a + p.total, 0));
+    const ordersCount = pos.length;
+    const totalSpend = round2(pos.reduce((a, p) => a + p.total, 0));
 
-  let onTime = 0;
-  let late = 0;
-  let partial = 0;
-  for (const d of deliveries) {
-    if (d.po.deliveryDate && d.deliveryDate > d.po.deliveryDate) late += 1;
-    else onTime += 1;
-    if (d.status === "PARTIALLY_ACCEPTED" || d.status === "ACCEPTED_WITH_DISCREPANCY") partial += 1;
-  }
+    let onTime = 0;
+    let late = 0;
+    let partial = 0;
+    for (const d of deliveries) {
+      if (d.po.deliveryDate && d.deliveryDate > d.po.deliveryDate) late += 1;
+      else onTime += 1;
+      if (d.status === "PARTIALLY_ACCEPTED" || d.status === "ACCEPTED_WITH_DISCREPANCY") partial += 1;
+    }
 
-  const acceptedLines = grnItems.filter((g) => g.acceptedQty > 0).length;
-  const rejectedLines = grnItems.filter((g) => g.rejectedQty > 0).length;
-  const acceptedQty = round2(grnItems.reduce((a, g) => a + g.acceptedQty, 0));
-  const rejectedQty = round2(grnItems.reduce((a, g) => a + g.rejectedQty, 0));
+    const acceptedLines = grnItems.filter((g) => g.acceptedQty > 0).length;
+    const rejectedLines = grnItems.filter((g) => g.rejectedQty > 0).length;
+    const acceptedQty = round2(grnItems.reduce((a, g) => a + g.acceptedQty, 0));
+    const rejectedQty = round2(grnItems.reduce((a, g) => a + g.rejectedQty, 0));
 
-  const qualityIssues = issues.filter((i) => i.issueType === "QUALITY").length;
-  const warrantyClaims = issues.filter((i) => i.issueType === "WARRANTY_DENIED").length;
-  const complaints = issues.length;
+    const qualityIssues = issues.filter((i) => i.issueType === "QUALITY").length;
+    const warrantyClaims = issues.filter((i) => i.issueType === "WARRANTY_DENIED").length;
+    const complaints = issues.length;
 
-  const deliveryTotal = onTime + late;
-  const onTimePercent = deliveryTotal ? round2((onTime / deliveryTotal) * 100) : 0;
-  const receivedTotal = acceptedQty + rejectedQty;
-  const qualityPercent = receivedTotal ? round2((acceptedQty / receivedTotal) * 100) : 0;
-  const rejectionPercent = receivedTotal ? round2((rejectedQty / receivedTotal) * 100) : 0;
+    const deliveryTotal = onTime + late;
+    const onTimePercent = deliveryTotal ? round2((onTime / deliveryTotal) * 100) : 0;
+    const receivedTotal = acceptedQty + rejectedQty;
+    const qualityPercent = receivedTotal ? round2((acceptedQty / receivedTotal) * 100) : 0;
+    const rejectionPercent = receivedTotal ? round2((rejectedQty / receivedTotal) * 100) : 0;
 
-  // Average variance of PO price against the item's standard price.
-  let varianceSum = 0;
-  let varianceCount = 0;
-  for (const p of pos) {
-    for (const it of p.items) {
-      if (!it.itemId) continue;
-      const item = await db.item.findUnique({ where: { id: it.itemId }, select: { standardPrice: true } });
-      if (item?.standardPrice && item.standardPrice > 0) {
-        varianceSum += ((it.unitPrice - item.standardPrice) / item.standardPrice) * 100;
-        varianceCount += 1;
+    // Average variance of PO price against the item's standard price.
+    let varianceSum = 0;
+    let varianceCount = 0;
+    for (const p of pos) {
+      for (const it of p.items) {
+        if (!it.itemId) continue;
+        const item = await tx.item.findUnique({ where: { id: it.itemId }, select: { standardPrice: true } });
+        if (item?.standardPrice && item.standardPrice > 0) {
+          varianceSum += ((it.unitPrice - item.standardPrice) / item.standardPrice) * 100;
+          varianceCount += 1;
+        }
       }
     }
-  }
-  const avgPriceVariance = varianceCount ? round2(varianceSum / varianceCount) : 0;
+    const avgPriceVariance = varianceCount ? round2(varianceSum / varianceCount) : 0;
 
-  // Composite score: delivery 35, quality 35, issues 20, invoice accuracy 10.
-  const issuePenalty = Math.min(20, complaints * 4);
-  const invoicePenalty = Math.min(10, invoiceIssues * 3);
-  const score = round2(
-    Math.max(
-      0,
-      onTimePercent * 0.35 + qualityPercent * 0.35 + (20 - issuePenalty) + (10 - invoicePenalty),
-    ),
-  );
+    // Composite score: delivery 35, quality 35, issues 20, invoice accuracy 10.
+    const issuePenalty = Math.min(20, complaints * 4);
+    const invoicePenalty = Math.min(10, invoiceIssues * 3);
+    const score = round2(
+      Math.max(
+        0,
+        onTimePercent * 0.35 + qualityPercent * 0.35 + (20 - issuePenalty) + (10 - invoicePenalty),
+      ),
+    );
 
-  const record = await db.vendorPerformance.upsert({
-    where: { vendorId_periodStart_periodEnd: { vendorId, periodStart, periodEnd } },
-    create: {
-      vendorId,
-      periodStart,
-      periodEnd,
-      ordersCount,
-      totalSpend,
-      onTimeDeliveries: onTime,
-      lateDeliveries: late,
-      partialDeliveries: partial,
-      rejectedLines,
-      acceptedLines,
-      qualityIssues,
-      invoiceIssues,
-      warrantyClaims,
-      complaints,
-      avgPriceVariance,
-      onTimePercent,
-      qualityPercent,
-      rejectionPercent,
-      score,
-    },
-    update: {
-      ordersCount,
-      totalSpend,
-      onTimeDeliveries: onTime,
-      lateDeliveries: late,
-      partialDeliveries: partial,
-      rejectedLines,
-      acceptedLines,
-      qualityIssues,
-      invoiceIssues,
-      warrantyClaims,
-      complaints,
-      avgPriceVariance,
-      onTimePercent,
-      qualityPercent,
-      rejectionPercent,
-      score,
-      computedAt: new Date(),
-    },
+    const record = await tx.vendorPerformance.upsert({
+      where: { vendorId_periodStart_periodEnd: { vendorId, periodStart, periodEnd } },
+      create: {
+        vendorId,
+        periodStart,
+        periodEnd,
+        ordersCount,
+        totalSpend,
+        onTimeDeliveries: onTime,
+        lateDeliveries: late,
+        partialDeliveries: partial,
+        rejectedLines,
+        acceptedLines,
+        qualityIssues,
+        invoiceIssues,
+        warrantyClaims,
+        complaints,
+        avgPriceVariance,
+        onTimePercent,
+        qualityPercent,
+        rejectionPercent,
+        score,
+      },
+      update: {
+        ordersCount,
+        totalSpend,
+        onTimeDeliveries: onTime,
+        lateDeliveries: late,
+        partialDeliveries: partial,
+        rejectedLines,
+        acceptedLines,
+        qualityIssues,
+        invoiceIssues,
+        warrantyClaims,
+        complaints,
+        avgPriceVariance,
+        onTimePercent,
+        qualityPercent,
+        rejectionPercent,
+        score,
+        computedAt: new Date(),
+      },
+    });
+
+    // Roll the headline figures onto the vendor for sourcing screens.
+    const lifetime = await tx.purchaseOrder.aggregate({
+      where: { vendorId, status: { notIn: ["DRAFT", "CANCELLED", "PENDING_APPROVAL"] } },
+      _sum: { total: true },
+      _count: { _all: true },
+    });
+    await tx.vendor.update({
+      where: { id: vendorId },
+      data: {
+        performanceScore: score,
+        onTimePercent,
+        qualityPercent,
+        rejectionPercent,
+        totalOrders: lifetime._count._all,
+        totalSpend: round2(lifetime._sum.total ?? 0),
+      },
+    });
+
+    return record;
   });
-
-  // Roll the headline figures onto the vendor for sourcing screens.
-  const lifetime = await db.purchaseOrder.aggregate({
-    where: { vendorId, status: { notIn: ["DRAFT", "CANCELLED", "PENDING_APPROVAL"] } },
-    _sum: { total: true },
-    _count: { _all: true },
-  });
-  await db.vendor.update({
-    where: { id: vendorId },
-    data: {
-      performanceScore: score,
-      onTimePercent,
-      qualityPercent,
-      rejectionPercent,
-      totalOrders: lifetime._count._all,
-      totalSpend: round2(lifetime._sum.total ?? 0),
-    },
-  });
-
-  return record;
 }
 
 /** Recomputes performance for every vendor over a rolling window. */
@@ -886,87 +894,92 @@ export async function openBlacklistCase(
   },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.VENDOR_ISSUE_RAISE, P.VENDOR_BLACKLIST)) {
-    throw new ForbiddenError("You do not have permission to open a vendor investigation.");
-  }
-  if (!input.reason?.trim()) throw new ValidationError("State the reason for the investigation.");
-
-  const vendor = await db.vendor.findUnique({ where: { id: input.vendorId } });
-  if (!vendor) throw new NotFoundError("Vendor");
-  const open = await db.vendorBlacklistCase.findFirst({
-    where: { vendorId: input.vendorId, stage: { notIn: ["CLOSED"] } },
-  });
-  if (open) {
-    throw new RuleViolationError(`An investigation (${open.number}) is already open for ${vendor.name}.`);
-  }
-
-  const number = await nextNumber(SEQ.BLACKLIST, db);
-  const kase = await db.vendorBlacklistCase.create({
-    data: {
-      number,
-      vendorId: input.vendorId,
-      reason: input.reason.trim(),
-      reasonCode: input.reasonCode,
-      evidence: input.evidence ?? null,
-      auditRequired: input.auditRequired ?? true,
-      stage: "RAISED",
-      raisedById: user.id,
-    },
-  });
-
-  // Suspension pending investigation is a holding action, not a blacklist.
-  if (input.suspendImmediately) {
-    if (!userHasPermission(user, P.VENDOR_BLACKLIST)) {
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.VENDOR_ISSUE_RAISE, P.VENDOR_BLACKLIST)) {
+      throw new ForbiddenError("You do not have permission to open a vendor investigation.");
+    }
+    if (!input.reason?.trim()) throw new ValidationError("State the reason for the investigation.");
+    // Checked before anything is written. Asking to suspend without the authority
+    // to suspend used to create the investigation and *then* refuse, leaving a
+    // committed case behind a failed request.
+    if (input.suspendImmediately && !userHasPermission(user, P.VENDOR_BLACKLIST)) {
       throw new ForbiddenError("Only an authorised approver may suspend a vendor pending investigation.");
     }
-    await db.vendor.update({
-      where: { id: input.vendorId },
-      data: { status: "SUSPENDED", statusReason: `Suspended pending investigation ${kase.number}: ${input.reason.trim()}` },
+
+    const vendor = await tx.vendor.findUnique({ where: { id: input.vendorId } });
+    if (!vendor) throw new NotFoundError("Vendor");
+    const open = await tx.vendorBlacklistCase.findFirst({
+      where: { vendorId: input.vendorId, stage: { notIn: ["CLOSED"] } },
     });
-  }
+    if (open) {
+      throw new RuleViolationError(`An investigation (${open.number}) is already open for ${vendor.name}.`);
+    }
 
-  await createTask(
-    {
-      title: `Collect evidence — ${kase.number} (${vendor.name})`,
-      taskType: "REVIEW",
-      assignedRoleCode: "PROCUREMENT_SENIOR_MANAGER",
-      documentType: "VENDOR_BLACKLIST",
-      documentId: kase.id,
-      documentRef: kase.number,
-      priority: "HIGH",
-      slaHours: 120,
-      linkUrl: `/vendors/blacklist/${kase.id}`,
-    },
-    db,
-  );
-  await notify(
-    {
-      roleCodes: ["PROCUREMENT_DIRECTOR", "AUDIT_USER", "PROCUREMENT_SENIOR_MANAGER"],
-      type: "VENDOR_ISSUE",
-      title: `Vendor investigation opened — ${vendor.name}`,
-      body: `${kase.number}: ${input.reason.trim()}`,
-      priority: "HIGH",
-      linkType: "VENDOR_BLACKLIST",
-      linkId: kase.id,
-      linkUrl: `/vendors/blacklist/${kase.id}`,
-    },
-    db,
-  );
+    const number = await nextNumber(SEQ.BLACKLIST, tx);
+    const kase = await tx.vendorBlacklistCase.create({
+      data: {
+        number,
+        vendorId: input.vendorId,
+        reason: input.reason.trim(),
+        reasonCode: input.reasonCode,
+        evidence: input.evidence ?? null,
+        auditRequired: input.auditRequired ?? true,
+        stage: "RAISED",
+        raisedById: user.id,
+      },
+    });
 
-  await writeAudit(
-    {
-      entityType: "VendorBlacklistCase",
-      entityId: kase.id,
-      entityRef: kase.number,
-      action: "BLACKLIST_CASE_OPENED",
-      newValue: { vendor: vendor.name, reasonCode: input.reasonCode, suspended: Boolean(input.suspendImmediately) },
-      reason: input.reason.trim(),
-      actor: user,
-    },
-    db,
-  );
+    // Suspension pending investigation is a holding action, not a blacklist.
+    if (input.suspendImmediately) {
+      await tx.vendor.update({
+        where: { id: input.vendorId },
+        data: { status: "SUSPENDED", statusReason: `Suspended pending investigation ${kase.number}: ${input.reason.trim()}` },
+      });
+    }
 
-  return kase;
+    await createTask(
+      {
+        title: `Collect evidence — ${kase.number} (${vendor.name})`,
+        taskType: "REVIEW",
+        assignedRoleCode: "PROCUREMENT_SENIOR_MANAGER",
+        documentType: "VENDOR_BLACKLIST",
+        documentId: kase.id,
+        documentRef: kase.number,
+        priority: "HIGH",
+        slaHours: 120,
+        linkUrl: `/vendors/blacklist/${kase.id}`,
+      },
+      tx,
+    );
+    await notify(
+      {
+        roleCodes: ["PROCUREMENT_DIRECTOR", "AUDIT_USER", "PROCUREMENT_SENIOR_MANAGER"],
+        type: "VENDOR_ISSUE",
+        title: `Vendor investigation opened — ${vendor.name}`,
+        body: `${kase.number}: ${input.reason.trim()}`,
+        priority: "HIGH",
+        linkType: "VENDOR_BLACKLIST",
+        linkId: kase.id,
+        linkUrl: `/vendors/blacklist/${kase.id}`,
+      },
+      tx,
+    );
+
+    await writeAudit(
+      {
+        entityType: "VendorBlacklistCase",
+        entityId: kase.id,
+        entityRef: kase.number,
+        action: "BLACKLIST_CASE_OPENED",
+        newValue: { vendor: vendor.name, reasonCode: input.reasonCode, suspended: Boolean(input.suspendImmediately) },
+        reason: input.reason.trim(),
+        actor: user,
+      },
+      tx,
+    );
+
+    return kase;
+  });
 }
 
 /**
@@ -987,164 +1000,166 @@ export async function advanceBlacklistCase(
   } = {},
   db: DbClient = prisma,
 ) {
-  const kase = await db.vendorBlacklistCase.findUnique({
-    where: { id: caseId },
-    include: { vendor: true },
-  });
-  if (!kase) throw new NotFoundError("Investigation case");
+  return withTransaction(db, async (tx) => {
+    const kase = await tx.vendorBlacklistCase.findUnique({
+      where: { id: caseId },
+      include: { vendor: true },
+    });
+    if (!kase) throw new NotFoundError("Investigation case");
 
-  const from = kase.stage as BlacklistStage;
-  const allowed = BLACKLIST_FLOW[from] ?? [];
-  if (!allowed.includes(to)) {
-    throw new RuleViolationError(
-      `Cannot move investigation ${kase.number} from ${from} to ${to}. Permitted: ${allowed.join(", ") || "none"}.`,
-    );
-  }
-
-  if (to === "AUDIT_REVIEW" && !userHasPermission(user, P.VENDOR_AUDIT_REVIEW, P.VENDOR_BLACKLIST)) {
-    throw new ForbiddenError("Only audit may record the audit review.");
-  }
-  if (["BLACKLISTED", "WARNING_ISSUED", "RETAINED"].includes(to) && !userHasPermission(user, P.VENDOR_BLACKLIST)) {
-    throw new ForbiddenError("Only an authorised approver may decide the outcome of an investigation.");
-  }
-  if (!userHasPermission(user, P.VENDOR_ISSUE_RAISE, P.VENDOR_BLACKLIST, P.VENDOR_AUDIT_REVIEW)) {
-    throw new ForbiddenError("Not permitted.");
-  }
-
-  if (to === "DECISION_PENDING") {
-    if (kase.auditRequired && !kase.auditReview?.trim() && from !== "AUDIT_REVIEW") {
+    const from = kase.stage as BlacklistStage;
+    const allowed = BLACKLIST_FLOW[from] ?? [];
+    if (!allowed.includes(to)) {
       throw new RuleViolationError(
-        `Investigation ${kase.number} requires an audit review before a decision can be taken.`,
+        `Cannot move investigation ${kase.number} from ${from} to ${to}. Permitted: ${allowed.join(", ") || "none"}.`,
       );
     }
-    if (!kase.investigationNotes?.trim() && !input.notes?.trim()) {
-      throw new RuleViolationError("Record the investigation findings before moving to decision.");
-    }
-  }
-  if (["BLACKLISTED", "WARNING_ISSUED", "RETAINED"].includes(to) && !input.decisionNotes?.trim()) {
-    throw new ValidationError("Record the basis for the decision.");
-  }
 
-  const data: Record<string, unknown> = { stage: to };
-  if (to === "INVESTIGATION" || to === "EVIDENCE_COLLECTION") {
-    data.investigationNotes = [kase.investigationNotes, input.notes].filter(Boolean).join("\n");
-  }
-  if (to === "VENDOR_RESPONSE_AWAITED" && input.vendorResponse) {
-    data.vendorResponse = input.vendorResponse;
-    data.vendorRespondedAt = new Date();
-  }
-  if (to === "PROCUREMENT_REVIEW") {
-    data.procurementReview = input.procurementReview ?? input.notes ?? null;
-    if (input.vendorResponse) {
+    if (to === "AUDIT_REVIEW" && !userHasPermission(user, P.VENDOR_AUDIT_REVIEW, P.VENDOR_BLACKLIST)) {
+      throw new ForbiddenError("Only audit may record the audit review.");
+    }
+    if (["BLACKLISTED", "WARNING_ISSUED", "RETAINED"].includes(to) && !userHasPermission(user, P.VENDOR_BLACKLIST)) {
+      throw new ForbiddenError("Only an authorised approver may decide the outcome of an investigation.");
+    }
+    if (!userHasPermission(user, P.VENDOR_ISSUE_RAISE, P.VENDOR_BLACKLIST, P.VENDOR_AUDIT_REVIEW)) {
+      throw new ForbiddenError("Not permitted.");
+    }
+
+    if (to === "DECISION_PENDING") {
+      if (kase.auditRequired && !kase.auditReview?.trim() && from !== "AUDIT_REVIEW") {
+        throw new RuleViolationError(
+          `Investigation ${kase.number} requires an audit review before a decision can be taken.`,
+        );
+      }
+      if (!kase.investigationNotes?.trim() && !input.notes?.trim()) {
+        throw new RuleViolationError("Record the investigation findings before moving to decision.");
+      }
+    }
+    if (["BLACKLISTED", "WARNING_ISSUED", "RETAINED"].includes(to) && !input.decisionNotes?.trim()) {
+      throw new ValidationError("Record the basis for the decision.");
+    }
+
+    const data: Record<string, unknown> = { stage: to };
+    if (to === "INVESTIGATION" || to === "EVIDENCE_COLLECTION") {
+      data.investigationNotes = [kase.investigationNotes, input.notes].filter(Boolean).join("\n");
+    }
+    if (to === "VENDOR_RESPONSE_AWAITED" && input.vendorResponse) {
       data.vendorResponse = input.vendorResponse;
       data.vendorRespondedAt = new Date();
     }
-  }
-  if (to === "AUDIT_REVIEW") data.auditReview = input.auditReview ?? input.notes ?? null;
+    if (to === "PROCUREMENT_REVIEW") {
+      data.procurementReview = input.procurementReview ?? input.notes ?? null;
+      if (input.vendorResponse) {
+        data.vendorResponse = input.vendorResponse;
+        data.vendorRespondedAt = new Date();
+      }
+    }
+    if (to === "AUDIT_REVIEW") data.auditReview = input.auditReview ?? input.notes ?? null;
 
-  const decisionMap: Partial<Record<BlacklistStage, "BLACKLIST" | "RETAIN" | "WARNING">> = {
-    BLACKLISTED: "BLACKLIST",
-    RETAINED: "RETAIN",
-    WARNING_ISSUED: "WARNING",
-  };
-  const decision = decisionMap[to] ?? input.decision ?? null;
-  if (decision) {
-    data.decision = decision;
-    data.decisionBy = user.id;
-    data.decisionAt = new Date();
-    data.decisionNotes = input.decisionNotes ?? input.notes ?? null;
-  }
-  if (to === "CLOSED") data.closedAt = new Date();
+    const decisionMap: Partial<Record<BlacklistStage, "BLACKLIST" | "RETAIN" | "WARNING">> = {
+      BLACKLISTED: "BLACKLIST",
+      RETAINED: "RETAIN",
+      WARNING_ISSUED: "WARNING",
+    };
+    const decision = decisionMap[to] ?? input.decision ?? null;
+    if (decision) {
+      data.decision = decision;
+      data.decisionBy = user.id;
+      data.decisionAt = new Date();
+      data.decisionNotes = input.decisionNotes ?? input.notes ?? null;
+    }
+    if (to === "CLOSED") data.closedAt = new Date();
 
-  const updated = await db.vendorBlacklistCase.update({ where: { id: caseId }, data });
+    const updated = await tx.vendorBlacklistCase.update({ where: { id: caseId }, data });
 
-  // Apply the decision to the vendor record.
-  if (to === "BLACKLISTED") {
-    await db.vendor.update({
-      where: { id: kase.vendorId },
-      data: {
-        status: "BLACKLISTED",
-        statusReason: `${kase.number}: ${input.decisionNotes ?? kase.reason}`,
-        blacklistedAt: new Date(),
-      },
-    });
-    await db.vendorEntityLink.updateMany({ where: { vendorId: kase.vendorId }, data: { approved: false } });
-    // Withdraw the vendor from live sourcing.
-    await db.rfqVendor.updateMany({
-      where: { vendorId: kase.vendorId, status: "INVITED", rfq: { status: { in: ["DRAFT", "ISSUED", "RESPONSES_IN"] } } },
-      data: { status: "DECLINED", notes: `Withdrawn — vendor blacklisted via ${kase.number}` },
-    });
-    await notify(
+    // Apply the decision to the vendor record.
+    if (to === "BLACKLISTED") {
+      await tx.vendor.update({
+        where: { id: kase.vendorId },
+        data: {
+          status: "BLACKLISTED",
+          statusReason: `${kase.number}: ${input.decisionNotes ?? kase.reason}`,
+          blacklistedAt: new Date(),
+        },
+      });
+      await tx.vendorEntityLink.updateMany({ where: { vendorId: kase.vendorId }, data: { approved: false } });
+      // Withdraw the vendor from live sourcing.
+      await tx.rfqVendor.updateMany({
+        where: { vendorId: kase.vendorId, status: "INVITED", rfq: { status: { in: ["DRAFT", "ISSUED", "RESPONSES_IN"] } } },
+        data: { status: "DECLINED", notes: `Withdrawn — vendor blacklisted via ${kase.number}` },
+      });
+      await notify(
+        {
+          roleCodes: ["PROCUREMENT_OFFICER", "BUYER", "PROCUREMENT_SENIOR_MANAGER", "FINANCE_APPROVER", "AUDIT_USER"],
+          type: "VENDOR_ISSUE",
+          title: `${kase.vendor.name} has been blacklisted`,
+          body: input.decisionNotes ?? kase.reason,
+          priority: "CRITICAL",
+          linkType: "VENDOR",
+          linkId: kase.vendorId,
+          linkUrl: `/vendors/${kase.vendorId}`,
+        },
+        tx,
+      );
+    } else if (to === "RETAINED") {
+      await tx.vendor.update({
+        where: { id: kase.vendorId },
+        data: {
+          status: kase.vendor.approvedAt ? "APPROVED" : "PENDING_APPROVAL",
+          statusReason: `Retained after investigation ${kase.number}`,
+        },
+      });
+    } else if (to === "WARNING_ISSUED") {
+      await tx.vendor.update({
+        where: { id: kase.vendorId },
+        data: {
+          status: "CONDITIONAL",
+          statusReason: `Formal warning issued via ${kase.number}: ${input.decisionNotes ?? kase.reason}`,
+        },
+      });
+    }
+
+    if (["BLACKLISTED", "WARNING_ISSUED", "RETAINED", "CLOSED"].includes(to)) {
+      await completeTasks("VENDOR_BLACKLIST", caseId, user.id, tx);
+    } else {
+      const nextRole =
+        to === "AUDIT_REVIEW"
+          ? "AUDIT_USER"
+          : to === "DECISION_PENDING"
+            ? "PROCUREMENT_DIRECTOR"
+            : "PROCUREMENT_SENIOR_MANAGER";
+      await createTask(
+        {
+          title: `${kase.number} — ${to.replace(/_/g, " ").toLowerCase()} (${kase.vendor.name})`,
+          taskType: "REVIEW",
+          assignedRoleCode: nextRole,
+          documentType: "VENDOR_BLACKLIST",
+          documentId: caseId,
+          documentRef: kase.number,
+          priority: "HIGH",
+          slaHours: 96,
+          linkUrl: `/vendors/blacklist/${caseId}`,
+        },
+        tx,
+      );
+    }
+
+    await writeAudit(
       {
-        roleCodes: ["PROCUREMENT_OFFICER", "BUYER", "PROCUREMENT_SENIOR_MANAGER", "FINANCE_APPROVER", "AUDIT_USER"],
-        type: "VENDOR_ISSUE",
-        title: `${kase.vendor.name} has been blacklisted`,
-        body: input.decisionNotes ?? kase.reason,
-        priority: "CRITICAL",
-        linkType: "VENDOR",
-        linkId: kase.vendorId,
-        linkUrl: `/vendors/${kase.vendorId}`,
+        entityType: "VendorBlacklistCase",
+        entityId: caseId,
+        entityRef: kase.number,
+        action: `BLACKLIST_${to}`,
+        changes: { stage: { from, to } },
+        reason: input.decisionNotes ?? input.notes ?? null,
+        newValue: { decision },
+        actor: user,
       },
-      db,
+      tx,
     );
-  } else if (to === "RETAINED") {
-    await db.vendor.update({
-      where: { id: kase.vendorId },
-      data: {
-        status: kase.vendor.approvedAt ? "APPROVED" : "PENDING_APPROVAL",
-        statusReason: `Retained after investigation ${kase.number}`,
-      },
-    });
-  } else if (to === "WARNING_ISSUED") {
-    await db.vendor.update({
-      where: { id: kase.vendorId },
-      data: {
-        status: "CONDITIONAL",
-        statusReason: `Formal warning issued via ${kase.number}: ${input.decisionNotes ?? kase.reason}`,
-      },
-    });
-  }
 
-  if (["BLACKLISTED", "WARNING_ISSUED", "RETAINED", "CLOSED"].includes(to)) {
-    await completeTasks("VENDOR_BLACKLIST", caseId, user.id, db);
-  } else {
-    const nextRole =
-      to === "AUDIT_REVIEW"
-        ? "AUDIT_USER"
-        : to === "DECISION_PENDING"
-          ? "PROCUREMENT_DIRECTOR"
-          : "PROCUREMENT_SENIOR_MANAGER";
-    await createTask(
-      {
-        title: `${kase.number} — ${to.replace(/_/g, " ").toLowerCase()} (${kase.vendor.name})`,
-        taskType: "REVIEW",
-        assignedRoleCode: nextRole,
-        documentType: "VENDOR_BLACKLIST",
-        documentId: caseId,
-        documentRef: kase.number,
-        priority: "HIGH",
-        slaHours: 96,
-        linkUrl: `/vendors/blacklist/${caseId}`,
-      },
-      db,
-    );
-  }
-
-  await writeAudit(
-    {
-      entityType: "VendorBlacklistCase",
-      entityId: caseId,
-      entityRef: kase.number,
-      action: `BLACKLIST_${to}`,
-      changes: { stage: { from, to } },
-      reason: input.decisionNotes ?? input.notes ?? null,
-      newValue: { decision },
-      actor: user,
-    },
-    db,
-  );
-
-  return updated;
+    return updated;
+  });
 }
 
 /** Reinstates a blacklisted vendor. Requires the blacklist permission and a reason. */
@@ -1154,35 +1169,37 @@ export async function reinstateVendor(
   reason: string,
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.VENDOR_BLACKLIST)) {
-    throw new ForbiddenError("Only an authorised approver may reinstate a vendor.");
-  }
-  if (!reason?.trim() || reason.trim().length < 10) {
-    throw new ValidationError("A substantive reason is required to reinstate a vendor.");
-  }
-  const vendor = await db.vendor.findUnique({ where: { id: vendorId } });
-  if (!vendor) throw new NotFoundError("Vendor");
-  if (!["BLACKLISTED", "SUSPENDED", "INACTIVE"].includes(vendor.status)) {
-    throw new RuleViolationError(`${vendor.name} is not blacklisted, suspended or inactive.`);
-  }
-  const updated = await db.vendor.update({
-    where: { id: vendorId },
-    data: { status: "CONDITIONAL", statusReason: `Reinstated: ${reason.trim()}`, blacklistedAt: null },
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.VENDOR_BLACKLIST)) {
+      throw new ForbiddenError("Only an authorised approver may reinstate a vendor.");
+    }
+    if (!reason?.trim() || reason.trim().length < 10) {
+      throw new ValidationError("A substantive reason is required to reinstate a vendor.");
+    }
+    const vendor = await tx.vendor.findUnique({ where: { id: vendorId } });
+    if (!vendor) throw new NotFoundError("Vendor");
+    if (!["BLACKLISTED", "SUSPENDED", "INACTIVE"].includes(vendor.status)) {
+      throw new RuleViolationError(`${vendor.name} is not blacklisted, suspended or inactive.`);
+    }
+    const updated = await tx.vendor.update({
+      where: { id: vendorId },
+      data: { status: "CONDITIONAL", statusReason: `Reinstated: ${reason.trim()}`, blacklistedAt: null },
+    });
+    await tx.vendorEntityLink.updateMany({ where: { vendorId }, data: { approved: true } });
+    await writeAudit(
+      {
+        entityType: "Vendor",
+        entityId: vendorId,
+        entityRef: vendor.code,
+        action: "VENDOR_REINSTATED",
+        changes: { status: { from: vendor.status, to: "CONDITIONAL" } },
+        reason: reason.trim(),
+        actor: user,
+      },
+      tx,
+    );
+    return updated;
   });
-  await db.vendorEntityLink.updateMany({ where: { vendorId }, data: { approved: true } });
-  await writeAudit(
-    {
-      entityType: "Vendor",
-      entityId: vendorId,
-      entityRef: vendor.code,
-      action: "VENDOR_REINSTATED",
-      changes: { status: { from: vendor.status, to: "CONDITIONAL" } },
-      reason: reason.trim(),
-      actor: user,
-    },
-    db,
-  );
-  return updated;
 }
 
 /* ── Trader / MOQ tracking ────────────────────────────────── */

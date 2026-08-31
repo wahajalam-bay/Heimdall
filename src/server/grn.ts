@@ -1,4 +1,4 @@
-import { prisma, type DbClient } from "@/lib/db";
+import { prisma, withTransaction, type DbClient } from "@/lib/db";
 import { nextNumber, SEQ } from "@/lib/numbering";
 import { CONFIG_KEYS, getConfigNumber } from "@/lib/config";
 import { ForbiddenError, NotFoundError, RuleViolationError, ValidationError } from "@/lib/errors";
@@ -273,265 +273,302 @@ export async function createGrn(user: SessionUser, input: GrnInput, db: DbClient
  * Posts a GRN: writes inventory receipts, updates PO fulfilment, records price
  * history, tags assets and advances the requisition.
  */
+/**
+ * Commits a receipt to inventory.
+ *
+ * This is the longest write chain in the system — the receipt, a ledger movement
+ * and a price history row per line, the item's standard price, the order's
+ * fulfilment, possibly the requisition's state, the vendor rollup, tasks,
+ * notifications and the variance reconciliation. Every one of those used to be a
+ * separate committed write, so a failure part-way through left stock on the shelf
+ * against an order that did not know it had arrived.
+ *
+ * Now all of it either happens or none of it does. Asset tagging is the one
+ * exception and is deferred to after the commit, because tagging is explicitly
+ * allowed to fail without blocking the receipt — and a caught error inside a
+ * transaction would poison every write after it instead.
+ */
 export async function postGrn(user: SessionUser, grnId: string, db: DbClient = prisma) {
   if (!userHasPermission(user, P.GRN_POST)) {
     throw new ForbiddenError("You do not have permission to post GRNs to inventory.");
   }
-  const grn = await db.grn.findUnique({
-    where: { id: grnId },
-    include: {
-      items: { include: { poItem: true, item: true } },
-      po: { include: { pr: true, vendor: true } },
-      store: true,
-      inspection: true,
-      delivery: true,
-    },
-  });
-  if (!grn) throw new NotFoundError("GRN");
-  if (grn.status === "POSTED") return grn;
-  if (grn.status === "CANCELLED") throw new RuleViolationError("A cancelled GRN cannot be posted.");
 
-  // Re-verify inspection at posting time — the rule must hold even if the GRN sat as a draft.
-  if (grn.inspectionStatus === "PENDING" || grn.inspectionStatus === "REJECTED") {
-    throw new RuleViolationError(
-      `GRN ${grn.number} cannot be posted: mandatory technical inspection is ${grn.inspectionStatus.toLowerCase()}.`,
-    );
-  }
+  return withTransaction(db, async (tx, defer) => {
+    const grn = await tx.grn.findUnique({
+      where: { id: grnId },
+      include: {
+        items: { include: { poItem: true, item: true } },
+        po: { include: { pr: true, vendor: true } },
+        store: true,
+        inspection: true,
+        delivery: true,
+      },
+    });
+    if (!grn) throw new NotFoundError("GRN");
+    if (grn.status === "POSTED") return grn;
+    if (grn.status === "CANCELLED") throw new RuleViolationError("A cancelled GRN cannot be posted.");
 
-  const posted = await db.grn.update({
-    where: { id: grnId },
-    data: { status: "POSTED", postedAt: new Date(), postedById: user.id },
-  });
-
-  for (const li of grn.items) {
-    if (li.acceptedQty <= 0) continue;
-
-    // Only inventory-bearing dispositions create stock; expensed items are
-    // recorded on the GRN but do not inflate inventory.
-    const needsStock = STORE_ENTRY_DISPOSITIONS.includes(li.disposition as Disposition);
-    if (needsStock && li.itemId) {
-      await postMovement(
-        "RECEIPT",
-        {
-          itemId: li.itemId,
-          storeId: grn.storeId,
-          quantity: li.acceptedQty,
-          unit: li.unit,
-          unitCost: li.unitPrice,
-          batchNumber: li.batchNumber,
-          serialNumber: li.serialNumbers && !li.serialNumbers.includes(",") ? li.serialNumbers : null,
-          expiryDate: li.expiryDate,
-          warrantyMonths: li.warrantyMonths,
-          locationId: li.storeLocationId,
-          projectId: grn.po.pr?.projectId ?? null,
-          entityId: grn.po.entityId,
-          source: { kind: "GRN", id: grn.id, ref: grn.number },
-          reason: `Receipt against ${grn.po.number}`,
-          performedById: user.id,
-        },
-        db,
-        user,
+    // Re-verify inspection at posting time — the rule must hold even if the GRN sat as a draft.
+    if (grn.inspectionStatus === "PENDING" || grn.inspectionStatus === "REJECTED") {
+      throw new RuleViolationError(
+        `GRN ${grn.number} cannot be posted: mandatory technical inspection is ${grn.inspectionStatus.toLowerCase()}.`,
       );
     }
 
-    // Actual purchase price becomes the baseline for future comparatives.
-    if (li.itemId) {
-      await db.priceHistory.create({
-        data: {
-          itemId: li.itemId,
-          vendorId: grn.vendorId,
-          unitPrice: li.unitPrice,
-          quantity: li.acceptedQty,
-          source: "PO",
-          sourceRef: grn.po.number,
-        },
-      });
-      await db.item.update({ where: { id: li.itemId }, data: { standardPrice: li.unitPrice } });
+    // The status flip is the idempotency guard, and it has to be conditional on
+    // the row still being unposted rather than on the read above. Two requests
+    // that both read DRAFT — a double-clicked button, a retried action — would
+    // otherwise both proceed and post the stock twice. `updateMany` with the
+    // status in the filter makes the check and the write one statement, so the
+    // second request matches nothing and stops here.
+    const claim = await tx.grn.updateMany({
+      where: { id: grnId, status: { not: "POSTED" } },
+      data: { status: "POSTED", postedAt: new Date(), postedById: user.id },
+    });
+    if (claim.count === 0) {
+      // Somebody else posted it between the read and the claim. Their
+      // transaction owns the rest of the chain.
+      return (await tx.grn.findUniqueOrThrow({ where: { id: grnId } })) as typeof grn;
     }
-  }
+    const posted = await tx.grn.findUniqueOrThrow({ where: { id: grnId } });
 
-  // Posting a receipt is what creates the asset record; the store user who
-  // posts it need not also hold `asset.manage`, so the grounds are named.
-  const postGrounds = { cascade: "goods receipt posted", from: [P.GRN_POST] } as const;
-  await tagAssetsFromGrn(user, grn.id, db, postGrounds).catch(() => {
-    /* asset tagging must not block the inventory posting */
-  });
+    for (const li of grn.items) {
+      if (li.acceptedQty <= 0) continue;
 
-  const fulfilment = await recomputePoFulfilment(grn.poId, user, db, postGrounds);
-  await completeTasks("GRN", grnId, user.id, db);
-  if (grn.deliveryId) await completeTasks("DELIVERY", grn.deliveryId, user.id, db);
+      // Only inventory-bearing dispositions create stock; expensed items are
+      // recorded on the GRN but do not inflate inventory.
+      const needsStock = STORE_ENTRY_DISPOSITIONS.includes(li.disposition as Disposition);
+      if (needsStock && li.itemId) {
+        await postMovement(
+          "RECEIPT",
+          {
+            itemId: li.itemId,
+            storeId: grn.storeId,
+            quantity: li.acceptedQty,
+            unit: li.unit,
+            unitCost: li.unitPrice,
+            batchNumber: li.batchNumber,
+            serialNumber: li.serialNumbers && !li.serialNumbers.includes(",") ? li.serialNumbers : null,
+            expiryDate: li.expiryDate,
+            warrantyMonths: li.warrantyMonths,
+            locationId: li.storeLocationId,
+            projectId: grn.po.pr?.projectId ?? null,
+            entityId: grn.po.entityId,
+            source: { kind: "GRN", id: grn.id, ref: grn.number },
+            reason: `Receipt against ${grn.po.number}`,
+            performedById: user.id,
+          },
+          tx,
+          user,
+        );
+      }
 
-  // Vendor spend / recency rollup.
-  await db.vendor.update({
-    where: { id: grn.vendorId },
-    data: { lastOrderAt: new Date() },
-  });
+      // Actual purchase price becomes the baseline for future comparatives.
+      if (li.itemId) {
+        await tx.priceHistory.create({
+          data: {
+            itemId: li.itemId,
+            vendorId: grn.vendorId,
+            unitPrice: li.unitPrice,
+            quantity: li.acceptedQty,
+            source: "PO",
+            sourceRef: grn.po.number,
+          },
+        });
+        await tx.item.update({ where: { id: li.itemId }, data: { standardPrice: li.unitPrice } });
+      }
+    }
 
-  await autoResolveExceptions("PO", grn.poId, ["MISSING_GRN"], `GRN ${grn.number} posted`, db);
+      // Posting a receipt is what creates the asset record; the store user who
+      // posts it need not also hold `asset.manage`, so the grounds are named.
+      const postGrounds = { cascade: "goods receipt posted", from: [P.GRN_POST] } as const;
 
-  if (grn.po.prId && fulfilment.allComplete) {
-    await transitionPr(user, grn.po.prId, "GRN_COMPLETED", { force: true, authority: postGrounds }, db);
+      // Deferred, not swallowed. Tagging must not block the receipt, and the only
+      // way to keep that true is to run it after the receipt is committed — a
+      // caught failure inside the transaction would abort the posting silently.
+      defer({
+        label: `tag assets from ${grn.number}`,
+        run: () => tagAssetsFromGrn(user, grn.id, prisma, postGrounds),
+      });
+
+      const fulfilment = await recomputePoFulfilment(grn.poId, user, tx, postGrounds);
+    await completeTasks("GRN", grnId, user.id, tx);
+    if (grn.deliveryId) await completeTasks("DELIVERY", grn.deliveryId, user.id, tx);
+
+    // Vendor spend / recency rollup.
+    await tx.vendor.update({
+      where: { id: grn.vendorId },
+      data: { lastOrderAt: new Date() },
+    });
+
+    await autoResolveExceptions("PO", grn.poId, ["MISSING_GRN"], `GRN ${grn.number} posted`, tx);
+
+    if (grn.po.prId && fulfilment.allComplete) {
+      await transitionPr(user, grn.po.prId, "GRN_COMPLETED", { force: true, authority: postGrounds }, tx);
+      await createTask(
+        {
+          title: `Verify vendor invoice for ${grn.po.number}`,
+          taskType: "VERIFICATION",
+          assignedRoleCode: "PROCUREMENT_OFFICER",
+          entityId: grn.po.entityId,
+          documentType: "PO",
+          documentId: grn.poId,
+          documentRef: grn.po.number,
+          slaHours: await getConfigNumber(CONFIG_KEYS.SLA_INVOICE_VERIFICATION_HOURS, grn.po.entityId, tx),
+          linkUrl: `/po/${grn.poId}`,
+        },
+        tx,
+      );
+    }
+
+    await notify(
+      {
+        roleCodes: ["PROCUREMENT_OFFICER", "STORE_MANAGER", "FINANCE_USER"],
+        userIds: grn.po.pr ? [grn.po.pr.requesterId] : [],
+        entityId: grn.po.entityId,
+        type: "GRN_PENDING",
+        title: `${grn.number} posted — ${grn.store.name}`,
+        body: `${grn.po.number} · PKR ${grn.totalValue.toLocaleString("en-PK")} taken into inventory`,
+        linkType: "GRN",
+        linkId: grn.id,
+        linkUrl: `/grn/${grn.id}`,
+      },
+      tx,
+    );
+
     await createTask(
       {
-        title: `Verify vendor invoice for ${grn.po.number}`,
-        taskType: "VERIFICATION",
-        assignedRoleCode: "PROCUREMENT_OFFICER",
+        title: `Record goods stacking for ${grn.number}`,
+        taskType: "ACTION",
+        assigneeId: grn.store.managerId ?? null,
+        assignedRoleCode: grn.store.managerId ? null : "STORE_RECEIVER",
         entityId: grn.po.entityId,
-        documentType: "PO",
-        documentId: grn.poId,
-        documentRef: grn.po.number,
-        slaHours: await getConfigNumber(CONFIG_KEYS.SLA_INVOICE_VERIFICATION_HOURS, grn.po.entityId, db),
-        linkUrl: `/po/${grn.poId}`,
+        documentType: "GRN",
+        documentId: grn.id,
+        documentRef: grn.number,
+        slaHours: 24,
+        linkUrl: `/grn/${grn.id}`,
       },
-      db,
+      tx,
     );
-  }
 
-  await notify(
-    {
-      roleCodes: ["PROCUREMENT_OFFICER", "STORE_MANAGER", "FINANCE_USER"],
-      userIds: grn.po.pr ? [grn.po.pr.requesterId] : [],
-      entityId: grn.po.entityId,
-      type: "GRN_PENDING",
-      title: `${grn.number} posted — ${grn.store.name}`,
-      body: `${grn.po.number} · PKR ${grn.totalValue.toLocaleString("en-PK")} taken into inventory`,
-      linkType: "GRN",
-      linkId: grn.id,
-      linkUrl: `/grn/${grn.id}`,
-    },
-    db,
-  );
+    // Squaring the receipt off against the order does not make the difference
+    // vanish: it records it, typed and owned, so the order can close while the
+    // shortfall or overage remains answerable.
+    const variances = await reconcileGrnToPo(user, grn.id, tx, postGrounds);
 
-  await createTask(
-    {
-      title: `Record goods stacking for ${grn.number}`,
-      taskType: "ACTION",
-      assigneeId: grn.store.managerId ?? null,
-      assignedRoleCode: grn.store.managerId ? null : "STORE_RECEIVER",
-      entityId: grn.po.entityId,
-      documentType: "GRN",
-      documentId: grn.id,
-      documentRef: grn.number,
-      slaHours: 24,
-      linkUrl: `/grn/${grn.id}`,
-    },
-    db,
-  );
-
-  // Squaring the receipt off against the order does not make the difference
-  // vanish: it records it, typed and owned, so the order can close while the
-  // shortfall or overage remains answerable.
-  const variances = await reconcileGrnToPo(user, grn.id, db, postGrounds);
-
-  await writeAudit(
-    {
-      entityType: "Grn",
-      entityId: grn.id,
-      entityRef: grn.number,
-      action: "GRN_POSTED",
-      newValue: {
-        totalValue: grn.totalValue,
-        store: grn.store.name,
-        poFullyReceived: fulfilment.allComplete,
-        variancesRecorded: variances,
-        lines: grn.items.map((i) => ({ line: i.lineNo, accepted: i.acceptedQty, disposition: i.disposition })),
+    await writeAudit(
+      {
+        entityType: "Grn",
+        entityId: grn.id,
+        entityRef: grn.number,
+        action: "GRN_POSTED",
+        newValue: {
+          totalValue: grn.totalValue,
+          store: grn.store.name,
+          poFullyReceived: fulfilment.allComplete,
+          variancesRecorded: variances,
+          lines: grn.items.map((i) => ({ line: i.lineNo, accepted: i.acceptedQty, disposition: i.disposition })),
+        },
+        caseKey: grn.po.pr?.number ?? null,
+        actor: user,
       },
-      caseKey: grn.po.pr?.number ?? null,
-      actor: user,
-    },
-    db,
-  );
+      tx,
+    );
 
-  return posted;
+    return posted;
+  });
 }
 
 /** Reverses a posted GRN by writing compensating movements — never by deleting. */
 export async function cancelGrn(user: SessionUser, grnId: string, reason: string, db: DbClient = prisma) {
-  if (!userHasPermission(user, P.GRN_CANCEL)) {
-    throw new ForbiddenError("You do not have permission to cancel GRNs.");
-  }
-  if (!reason?.trim()) throw new ValidationError("A cancellation reason is required.");
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.GRN_CANCEL)) {
+      throw new ForbiddenError("You do not have permission to cancel GRNs.");
+    }
+    if (!reason?.trim()) throw new ValidationError("A cancellation reason is required.");
 
-  const grn = await db.grn.findUnique({
-    where: { id: grnId },
-    include: { items: true, po: { include: { pr: true } }, invoiceMatches: true },
-  });
-  if (!grn) throw new NotFoundError("GRN");
-  if (grn.status === "CANCELLED") return grn;
-  if (grn.invoiceMatches.length) {
-    throw new RuleViolationError(
-      `GRN ${grn.number} is matched to ${grn.invoiceMatches.length} invoice(s). Resolve those first.`,
-    );
-  }
-
-  if (grn.status === "POSTED") {
-    for (const li of grn.items) {
-      if (li.acceptedQty <= 0 || !li.itemId) continue;
-      if (!STORE_ENTRY_DISPOSITIONS.includes(li.disposition as Disposition)) continue;
-      await postMovement(
-        "ADJUSTMENT",
-        {
-          itemId: li.itemId,
-          storeId: grn.storeId,
-          quantity: -li.acceptedQty,
-          unit: li.unit,
-          unitCost: li.unitPrice,
-          batchNumber: li.batchNumber,
-          serialNumber: li.serialNumbers && !li.serialNumbers.includes(",") ? li.serialNumbers : null,
-          source: { kind: "ADJUSTMENT", id: grn.id, ref: `Reversal of ${grn.number}` },
-          reason: `GRN cancelled: ${reason}`,
-          performedById: user.id,
-        },
-        db,
-        user,
-        { cascade: "goods receipt cancelled", from: [P.GRN_CANCEL] },
+    const grn = await tx.grn.findUnique({
+      where: { id: grnId },
+      include: { items: true, po: { include: { pr: true } }, invoiceMatches: true },
+    });
+    if (!grn) throw new NotFoundError("GRN");
+    if (grn.status === "CANCELLED") return grn;
+    if (grn.invoiceMatches.length) {
+      throw new RuleViolationError(
+        `GRN ${grn.number} is matched to ${grn.invoiceMatches.length} invoice(s). Resolve those first.`,
       );
     }
-  }
 
-  const cancelled = await db.grn.update({
-    where: { id: grnId },
-    data: { status: "CANCELLED", remarks: `${grn.remarks ?? ""}\nCancelled: ${reason}`.trim() },
+    if (grn.status === "POSTED") {
+      for (const li of grn.items) {
+        if (li.acceptedQty <= 0 || !li.itemId) continue;
+        if (!STORE_ENTRY_DISPOSITIONS.includes(li.disposition as Disposition)) continue;
+        await postMovement(
+          "ADJUSTMENT",
+          {
+            itemId: li.itemId,
+            storeId: grn.storeId,
+            quantity: -li.acceptedQty,
+            unit: li.unit,
+            unitCost: li.unitPrice,
+            batchNumber: li.batchNumber,
+            serialNumber: li.serialNumbers && !li.serialNumbers.includes(",") ? li.serialNumbers : null,
+            source: { kind: "ADJUSTMENT", id: grn.id, ref: `Reversal of ${grn.number}` },
+            reason: `GRN cancelled: ${reason}`,
+            performedById: user.id,
+          },
+          tx,
+          user,
+          { cascade: "goods receipt cancelled", from: [P.GRN_CANCEL] },
+        );
+      }
+    }
+
+    const cancelled = await tx.grn.update({
+      where: { id: grnId },
+      data: { status: "CANCELLED", remarks: `${grn.remarks ?? ""}\nCancelled: ${reason}`.trim() },
+    });
+    await recomputePoFulfilment(grn.poId, user, tx, {
+      cascade: "goods receipt cancelled",
+      from: [P.GRN_CANCEL],
+    });
+
+    await raiseException(
+      {
+        type: "OTHER",
+        severity: "HIGH",
+        title: `GRN ${grn.number} cancelled after posting`,
+        description: reason,
+        documentType: "GRN",
+        documentId: grn.id,
+        documentRef: grn.number,
+        poId: grn.poId,
+        caseKey: grn.po.pr?.number ?? null,
+        entityId: grn.po.entityId,
+        raisedById: user.id,
+        notifyRoles: ["PROCUREMENT_SENIOR_MANAGER", "AUDIT_USER"],
+      },
+      tx,
+      user,
+    );
+
+    await writeAudit(
+      {
+        entityType: "Grn",
+        entityId: grnId,
+        entityRef: grn.number,
+        action: "GRN_CANCELLED",
+        reason,
+        changes: { status: { from: grn.status, to: "CANCELLED" } },
+        caseKey: grn.po.pr?.number ?? null,
+        actor: user,
+      },
+      tx,
+    );
+
+    return cancelled;
   });
-  await recomputePoFulfilment(grn.poId, user, db, {
-    cascade: "goods receipt cancelled",
-    from: [P.GRN_CANCEL],
-  });
-
-  await raiseException(
-    {
-      type: "OTHER",
-      severity: "HIGH",
-      title: `GRN ${grn.number} cancelled after posting`,
-      description: reason,
-      documentType: "GRN",
-      documentId: grn.id,
-      documentRef: grn.number,
-      poId: grn.poId,
-      caseKey: grn.po.pr?.number ?? null,
-      entityId: grn.po.entityId,
-      raisedById: user.id,
-      notifyRoles: ["PROCUREMENT_SENIOR_MANAGER", "AUDIT_USER"],
-    },
-    db,
-    user,
-  );
-
-  await writeAudit(
-    {
-      entityType: "Grn",
-      entityId: grnId,
-      entityRef: grn.number,
-      action: "GRN_CANCELLED",
-      reason,
-      changes: { status: { from: grn.status, to: "CANCELLED" } },
-      caseKey: grn.po.pr?.number ?? null,
-      actor: user,
-    },
-    db,
-  );
-
-  return cancelled;
 }
 
 /* ── Goods stacking ───────────────────────────────────────── */
@@ -555,56 +592,58 @@ export async function recordStacking(
   },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.STACKING_RECORD)) {
-    throw new ForbiddenError("You do not have permission to record goods stacking.");
-  }
-  if (!input.entries.length) throw new ValidationError("Record at least one stacking entry.");
-
-  const created = [];
-  for (const e of input.entries) {
-    if (e.quantity <= 0) throw new ValidationError(`Stacked quantity must be greater than zero for "${e.description}".`);
-    const row = await db.goodsStacking.create({
-      data: {
-        grnId: input.grnId ?? null,
-        storeId: input.storeId,
-        locationId: e.locationId ?? null,
-        itemId: e.itemId ?? null,
-        description: e.description,
-        quantity: e.quantity,
-        unit: e.unit,
-        stackingMethod: e.stackingMethod ?? "RACK",
-        goodsClass: e.goodsClass ?? "GENERAL",
-        handlingRequirements: e.handlingRequirements ?? null,
-        stackedById: user.id,
-        notes: e.notes ?? null,
-      },
-    });
-    created.push(row);
-
-    // Bind the stock to its physical bin.
-    if (e.itemId && e.locationId) {
-      await db.inventoryItem.updateMany({
-        where: { itemId: e.itemId, storeId: input.storeId, locationId: null },
-        data: { locationId: e.locationId },
-      });
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.STACKING_RECORD)) {
+      throw new ForbiddenError("You do not have permission to record goods stacking.");
     }
-  }
+    if (!input.entries.length) throw new ValidationError("Record at least one stacking entry.");
 
-  if (input.grnId) await completeTasks("GRN", input.grnId, user.id, db);
+    const created = [];
+    for (const e of input.entries) {
+      if (e.quantity <= 0) throw new ValidationError(`Stacked quantity must be greater than zero for "${e.description}".`);
+      const row = await tx.goodsStacking.create({
+        data: {
+          grnId: input.grnId ?? null,
+          storeId: input.storeId,
+          locationId: e.locationId ?? null,
+          itemId: e.itemId ?? null,
+          description: e.description,
+          quantity: e.quantity,
+          unit: e.unit,
+          stackingMethod: e.stackingMethod ?? "RACK",
+          goodsClass: e.goodsClass ?? "GENERAL",
+          handlingRequirements: e.handlingRequirements ?? null,
+          stackedById: user.id,
+          notes: e.notes ?? null,
+        },
+      });
+      created.push(row);
 
-  await writeAudit(
-    {
-      entityType: "GoodsStacking",
-      entityId: created[0]?.id ?? input.storeId,
-      entityRef: input.grnId ?? input.storeId,
-      action: "STACKING_RECORDED",
-      newValue: { entries: created.length, storeId: input.storeId },
-      actor: user,
-    },
-    db,
-  );
+      // Bind the stock to its physical bin.
+      if (e.itemId && e.locationId) {
+        await tx.inventoryItem.updateMany({
+          where: { itemId: e.itemId, storeId: input.storeId, locationId: null },
+          data: { locationId: e.locationId },
+        });
+      }
+    }
 
-  return created;
+    if (input.grnId) await completeTasks("GRN", input.grnId, user.id, tx);
+
+    await writeAudit(
+      {
+        entityType: "GoodsStacking",
+        entityId: created[0]?.id ?? input.storeId,
+        entityRef: input.grnId ?? input.storeId,
+        action: "STACKING_RECORDED",
+        newValue: { entries: created.length, storeId: input.storeId },
+        actor: user,
+      },
+      tx,
+    );
+
+    return created;
+  });
 }
 
 /* ── Open PO / missing GRN monitoring ─────────────────────── */

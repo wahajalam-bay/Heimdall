@@ -1,4 +1,4 @@
-import { prisma, type DbClient } from "@/lib/db";
+import { prisma, withTransaction, type DbClient } from "@/lib/db";
 import { nextNumber, SEQ } from "@/lib/numbering";
 import { round2 } from "@/lib/format";
 import { CONFIG_KEYS, getConfigBool, getConfigNumber, getConfig } from "@/lib/config";
@@ -216,43 +216,45 @@ export async function checkAvailability(
 
 /** Runs the check and records the snapshot against each line. */
 export async function runStockCheck(user: SessionUser, requirementId: string, db: DbClient = prisma) {
-  if (!userHasPermission(user, P.REQUIREMENT_CHECK_STOCK, P.REQUIREMENT_DECIDE)) {
-    throw new ForbiddenError("You do not have permission to run the availability check.");
-  }
-  const result = await checkAvailability(requirementId, db);
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.REQUIREMENT_CHECK_STOCK, P.REQUIREMENT_DECIDE)) {
+      throw new ForbiddenError("You do not have permission to run the availability check.");
+    }
+    const result = await checkAvailability(requirementId, tx);
 
-  // Independent row writes, so they go together rather than one after another.
-  // A partial write is not a hazard here: re-running the check rewrites it.
-  await Promise.all([
-    ...result.lines.map((line) => {
-      const primary = line.stores.find((s) => s.isPrimary);
-      return db.requirementItem.update({
-        where: { id: line.requirementItemId },
-        data: {
-          physicalQty: round2(line.stores.reduce((a, s) => a + s.physical, 0)),
-          reservedQty: round2(line.stores.reduce((a, s) => a + s.reserved, 0)),
-          availableQty: round2(primary ? primary.available + line.elsewhereAvailable : line.elsewhereAvailable),
-          fromStockQty: line.fromStockQty,
-          procureQty: line.procureQty,
-          sourceStoreId: line.sourceStoreId,
-        },
-      });
-    }),
-    db.requirement.update({
-      where: { id: requirementId },
-      data: { status: "CHECKING_STOCK", checkedAt: new Date() },
-    }),
-  ]);
+    // Independent row writes, so they go together rather than one after another.
+    // A partial write is not a hazard here: re-running the check rewrites it.
+    await Promise.all([
+      ...result.lines.map((line) => {
+        const primary = line.stores.find((s) => s.isPrimary);
+        return tx.requirementItem.update({
+          where: { id: line.requirementItemId },
+          data: {
+            physicalQty: round2(line.stores.reduce((a, s) => a + s.physical, 0)),
+            reservedQty: round2(line.stores.reduce((a, s) => a + s.reserved, 0)),
+            availableQty: round2(primary ? primary.available + line.elsewhereAvailable : line.elsewhereAvailable),
+            fromStockQty: line.fromStockQty,
+            procureQty: line.procureQty,
+            sourceStoreId: line.sourceStoreId,
+          },
+        });
+      }),
+      tx.requirement.update({
+        where: { id: requirementId },
+        data: { status: "CHECKING_STOCK", checkedAt: new Date() },
+      }),
+    ]);
 
-  await writeAudit({
-      entityType: "Requirement",
-      entityId: requirementId,
-      action: "STOCK_CHECKED",
-      actor: user,
-      reason: `${result.lines.filter((l) => l.fromStockQty > 0).length} of ${result.lines.length} line(s) can be met from stock.`,
-    }, db);
+    await writeAudit({
+        entityType: "Requirement",
+        entityId: requirementId,
+        action: "STOCK_CHECKED",
+        actor: user,
+        reason: `${result.lines.filter((l) => l.fromStockQty > 0).length} of ${result.lines.length} line(s) can be met from stock.`,
+      }, tx);
 
-  return result;
+    return result;
+  });
 }
 
 /* ── Creating a requirement ───────────────────────────────── */
@@ -395,278 +397,280 @@ export async function decideFulfilment(
   decision: FulfilmentDecision,
   db: DbClient = prisma,
 ): Promise<FulfilmentOutcome> {
-  if (!userHasPermission(user, P.REQUIREMENT_DECIDE)) {
-    throw new ForbiddenError("You do not have permission to decide how a requirement is met.");
-  }
-
-  const requirement = await db.requirement.findUnique({
-    where: { id: requirementId },
-    include: {
-      items: { orderBy: { lineNo: "asc" }, include: { item: { select: { categoryId: true } } } },
-      department: true,
-    },
-  });
-  if (!requirement) throw new NotFoundError("Requirement");
-  if (!["SUBMITTED", "CHECKING_STOCK"].includes(requirement.status)) {
-    throw new RuleViolationError(`A requirement at ${requirement.status} cannot be decided.`);
-  }
-
-  const requireCheck = await getConfigBool(CONFIG_KEYS.REQUIRE_INVENTORY_CHECK, requirement.entityId, db);
-  if (requireCheck && !requirement.checkedAt) {
-    throw new RuleViolationError(
-      "Stock must be checked before this requirement can be routed. Run the availability check first.",
-    );
-  }
-
-  const live = await checkAvailability(requirementId, db);
-  const byId = new Map(live.lines.map((l) => [l.requirementItemId, l]));
-  const chosen = new Map(decision.lines.map((l) => [l.requirementItemId, l]));
-
-  // A decision to buy what the shelf already holds is the one that needs saying.
-  let overrodeStock = false;
-  for (const line of requirement.items) {
-    const suggested = byId.get(line.id);
-    const picked = chosen.get(line.id);
-    if (!suggested || !picked) continue;
-    if (picked.fromStockQty + 1e-9 < suggested.fromStockQty) overrodeStock = true;
-    if (picked.fromStockQty + picked.procureQty > line.quantity + 1e-9) {
-      throw new ValidationError(
-        `Line ${line.lineNo}: stock plus procurement (${round2(picked.fromStockQty + picked.procureQty)}) exceeds the ${line.quantity} required.`,
-      );
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.REQUIREMENT_DECIDE)) {
+      throw new ForbiddenError("You do not have permission to decide how a requirement is met.");
     }
-    if (picked.fromStockQty > suggested.fromStockQty + 1e-9) {
-      throw new RuleViolationError(
-        `Line ${line.lineNo}: only ${suggested.fromStockQty} ${line.unit} is unreserved; ${picked.fromStockQty} cannot be issued from stock.`,
-      );
-    }
-  }
-  if (overrodeStock && !decision.note?.trim()) {
-    throw new ValidationError(
-      "Stock is available for at least one line but procurement was chosen. Record why before continuing.",
-    );
-  }
 
-  const stockLines = requirement.items
-    .map((line) => ({ line, pick: chosen.get(line.id) }))
-    .filter((x) => x.pick && x.pick.fromStockQty > 0);
-  const buyLines = requirement.items
-    .map((line) => ({ line, pick: chosen.get(line.id) }))
-    .filter((x) => x.pick && x.pick.procureQty > 0);
-
-  if (!stockLines.length && !buyLines.length) {
-    throw new ValidationError("Nothing was allocated. Give every line a stock or procurement quantity.");
-  }
-
-  /** A requisition line cannot exist without a category, so this refuses rather than guessing. */
-  const categoryFor = (line: (typeof requirement.items)[number]) => {
-    const id = line.categoryId ?? line.item?.categoryId ?? null;
-    if (!id) {
-      throw new ValidationError(
-        `Line ${line.lineNo} ("${line.description}") has no category. Pick a catalogue item or set a category before routing this to procurement.`,
-      );
-    }
-    return id;
-  };
-
-  const reserveOnDecision = await getConfigBool(CONFIG_KEYS.RESERVE_ON_DECISION, requirement.entityId, db);
-  const expiryDays = await getConfigNumber(CONFIG_KEYS.RESERVATION_EXPIRY_DAYS, requirement.entityId, db);
-  const requireHod = await getConfigBool(CONFIG_KEYS.SR_REQUIRE_HOD, requirement.entityId, db);
-
-  let storeIssueId: string | null = null;
-  let storeIssueNumber: string | null = null;
-  let reservedLines = 0;
-
-  /* ── Store requisition for the quantity on the shelf ── */
-  if (stockLines.length) {
-    // Every line issued from one store keeps the requisition simple; a line
-    // sourced elsewhere marks the whole document as cross-store, which is what
-    // needs the extra approval.
-    const sourceIds = new Set(
-      stockLines.map((x) => x.pick!.sourceStoreId ?? byId.get(x.line.id)?.sourceStoreId ?? null).filter(Boolean),
-    );
-    const issuingStoreId =
-      (requirement.storeId && sourceIds.has(requirement.storeId) ? requirement.storeId : null) ??
-      ([...sourceIds][0] as string | undefined) ??
-      requirement.storeId;
-    if (!issuingStoreId) throw new ValidationError("No store could be determined to issue from.");
-
-    const crossStore = issuingStoreId !== requirement.storeId && requirement.storeId !== null;
-    const number = await nextNumber(SEQ.ISSUE, db);
-    const issue = await db.storeIssue.create({
-      data: {
-        number,
-        storeId: issuingStoreId,
-        requestedById: user.id,
-        recipientName: requirement.department.name,
-        departmentId: requirement.departmentId,
-        projectId: requirement.projectId,
-        purpose: requirement.title,
-        requirementId: requirement.id,
-        sourceStoreId: crossStore ? issuingStoreId : null,
-        status: crossStore
-          ? "PENDING_CROSS_STORE_APPROVAL"
-          : requireHod
-            ? "PENDING_HOD_APPROVAL"
-            : "PENDING_DEPARTMENT_APPROVAL",
-        submittedAt: new Date(),
-        remarks: `Raised from requirement ${requirement.number}.`,
-        items: {
-          create: stockLines.map((x, i) => ({
-            lineNo: i + 1,
-            itemId: x.line.itemId!,
-            requestedQty: round2(x.pick!.fromStockQty),
-            unit: x.line.unit,
-            availableQty: byId.get(x.line.id)?.primaryAvailable ?? 0,
-            requirementItemId: x.line.id,
-            notes: x.line.specification ?? null,
-          })),
-        },
+    const requirement = await tx.requirement.findUnique({
+      where: { id: requirementId },
+      include: {
+        items: { orderBy: { lineNo: "asc" }, include: { item: { select: { categoryId: true } } } },
+        department: true,
       },
     });
-    storeIssueId = issue.id;
-    storeIssueNumber = issue.number;
+    if (!requirement) throw new NotFoundError("Requirement");
+    if (!["SUBMITTED", "CHECKING_STOCK"].includes(requirement.status)) {
+      throw new RuleViolationError(`A requirement at ${requirement.status} cannot be decided.`);
+    }
 
-    if (reserveOnDecision) {
-      const expiresAt = expiryDays > 0 ? new Date(Date.now() + expiryDays * 86400000) : null;
-      for (const x of stockLines) {
-        if (!x.line.itemId) continue;
-        await reserveStock(
-          user,
-          {
-            itemId: x.line.itemId,
-            storeId: issuingStoreId,
-            quantity: round2(x.pick!.fromStockQty),
-            unit: x.line.unit,
-            requirementItemId: x.line.id,
-            storeIssueId: issue.id,
-            reason: `Held for ${requirement.number} / ${issue.number}`,
-            createdById: user.id,
-            expiresAt,
-          },
-          db,
-          { cascade: "fulfilment decided from stock", from: [P.REQUIREMENT_DECIDE] },
+    const requireCheck = await getConfigBool(CONFIG_KEYS.REQUIRE_INVENTORY_CHECK, requirement.entityId, tx);
+    if (requireCheck && !requirement.checkedAt) {
+      throw new RuleViolationError(
+        "Stock must be checked before this requirement can be routed. Run the availability check first.",
+      );
+    }
+
+    const live = await checkAvailability(requirementId, tx);
+    const byId = new Map(live.lines.map((l) => [l.requirementItemId, l]));
+    const chosen = new Map(decision.lines.map((l) => [l.requirementItemId, l]));
+
+    // A decision to buy what the shelf already holds is the one that needs saying.
+    let overrodeStock = false;
+    for (const line of requirement.items) {
+      const suggested = byId.get(line.id);
+      const picked = chosen.get(line.id);
+      if (!suggested || !picked) continue;
+      if (picked.fromStockQty + 1e-9 < suggested.fromStockQty) overrodeStock = true;
+      if (picked.fromStockQty + picked.procureQty > line.quantity + 1e-9) {
+        throw new ValidationError(
+          `Line ${line.lineNo}: stock plus procurement (${round2(picked.fromStockQty + picked.procureQty)}) exceeds the ${line.quantity} required.`,
         );
-        reservedLines += 1;
+      }
+      if (picked.fromStockQty > suggested.fromStockQty + 1e-9) {
+        throw new RuleViolationError(
+          `Line ${line.lineNo}: only ${suggested.fromStockQty} ${line.unit} is unreserved; ${picked.fromStockQty} cannot be issued from stock.`,
+        );
       }
     }
+    if (overrodeStock && !decision.note?.trim()) {
+      throw new ValidationError(
+        "Stock is available for at least one line but procurement was chosen. Record why before continuing.",
+      );
+    }
 
-    await writeAudit({
-        entityType: "StoreIssue",
-        entityId: issue.id,
-        action: "CREATED",
-        actor: user,
-        reason: `Store requisition ${issue.number} raised from requirement ${requirement.number}.`,
-      }, db);
-  }
+    const stockLines = requirement.items
+      .map((line) => ({ line, pick: chosen.get(line.id) }))
+      .filter((x) => x.pick && x.pick.fromStockQty > 0);
+    const buyLines = requirement.items
+      .map((line) => ({ line, pick: chosen.get(line.id) }))
+      .filter((x) => x.pick && x.pick.procureQty > 0);
 
-  /* ── Purchase requisition for the shortfall ── */
-  let requisitionId: string | null = null;
-  let requisitionNumber: string | null = null;
-  if (buyLines.length) {
-    const prNumber = await nextNumber(SEQ.PR, db);
-    const pr = await db.purchaseRequisition.create({
-      data: {
-        number: prNumber,
-        entityId: requirement.entityId,
-        departmentId: requirement.departmentId,
-        requesterId: requirement.requesterId,
-        procurementType: "ON_DEMAND",
-        title: requirement.title,
-        justification:
-          requirement.justification ??
-          `Raised from requirement ${requirement.number}: quantity not available in stock.`,
-        projectId: requirement.projectId,
-        siteId: requirement.siteId,
-        costCenter: requirement.costCenter,
-        costCenterId: requirement.costCenterId,
-        expenditureType: requirement.expenditureType,
-        deliveryStoreId: requirement.storeId,
-        requiredDate: requirement.requiredDate,
-        priority: requirement.priority,
-        estimatedValue: round2(
-          buyLines.reduce((a, x) => a + (x.line.estimatedUnitCost ?? 0) * x.pick!.procureQty, 0),
-        ),
-        requirementId: requirement.id,
-        status: "SUBMITTED",
-        submittedAt: new Date(),
-        items: {
-          create: buyLines.map((x, i) => ({
-            lineNo: i + 1,
-            itemId: x.line.itemId ?? null,
-            categoryId: categoryFor(x.line),
-            description: x.line.description,
-            specification: x.line.specification ?? null,
-            quantity: round2(x.pick!.procureQty),
-            unit: x.line.unit,
-            estimatedUnitPrice: x.line.estimatedUnitCost ?? null,
-            estimatedTotal: round2((x.line.estimatedUnitCost ?? 0) * x.pick!.procureQty),
-            requiredDate: requirement.requiredDate,
-          })),
+    if (!stockLines.length && !buyLines.length) {
+      throw new ValidationError("Nothing was allocated. Give every line a stock or procurement quantity.");
+    }
+
+    /** A requisition line cannot exist without a category, so this refuses rather than guessing. */
+    const categoryFor = (line: (typeof requirement.items)[number]) => {
+      const id = line.categoryId ?? line.item?.categoryId ?? null;
+      if (!id) {
+        throw new ValidationError(
+          `Line ${line.lineNo} ("${line.description}") has no category. Pick a catalogue item or set a category before routing this to procurement.`,
+        );
+      }
+      return id;
+    };
+
+    const reserveOnDecision = await getConfigBool(CONFIG_KEYS.RESERVE_ON_DECISION, requirement.entityId, tx);
+    const expiryDays = await getConfigNumber(CONFIG_KEYS.RESERVATION_EXPIRY_DAYS, requirement.entityId, tx);
+    const requireHod = await getConfigBool(CONFIG_KEYS.SR_REQUIRE_HOD, requirement.entityId, tx);
+
+    let storeIssueId: string | null = null;
+    let storeIssueNumber: string | null = null;
+    let reservedLines = 0;
+
+    /* ── Store requisition for the quantity on the shelf ── */
+    if (stockLines.length) {
+      // Every line issued from one store keeps the requisition simple; a line
+      // sourced elsewhere marks the whole document as cross-store, which is what
+      // needs the extra approval.
+      const sourceIds = new Set(
+        stockLines.map((x) => x.pick!.sourceStoreId ?? byId.get(x.line.id)?.sourceStoreId ?? null).filter(Boolean),
+      );
+      const issuingStoreId =
+        (requirement.storeId && sourceIds.has(requirement.storeId) ? requirement.storeId : null) ??
+        ([...sourceIds][0] as string | undefined) ??
+        requirement.storeId;
+      if (!issuingStoreId) throw new ValidationError("No store could be determined to issue from.");
+
+      const crossStore = issuingStoreId !== requirement.storeId && requirement.storeId !== null;
+      const number = await nextNumber(SEQ.ISSUE, tx);
+      const issue = await tx.storeIssue.create({
+        data: {
+          number,
+          storeId: issuingStoreId,
+          requestedById: user.id,
+          recipientName: requirement.department.name,
+          departmentId: requirement.departmentId,
+          projectId: requirement.projectId,
+          purpose: requirement.title,
+          requirementId: requirement.id,
+          sourceStoreId: crossStore ? issuingStoreId : null,
+          status: crossStore
+            ? "PENDING_CROSS_STORE_APPROVAL"
+            : requireHod
+              ? "PENDING_HOD_APPROVAL"
+              : "PENDING_DEPARTMENT_APPROVAL",
+          submittedAt: new Date(),
+          remarks: `Raised from requirement ${requirement.number}.`,
+          items: {
+            create: stockLines.map((x, i) => ({
+              lineNo: i + 1,
+              itemId: x.line.itemId!,
+              requestedQty: round2(x.pick!.fromStockQty),
+              unit: x.line.unit,
+              availableQty: byId.get(x.line.id)?.primaryAvailable ?? 0,
+              requirementItemId: x.line.id,
+              notes: x.line.specification ?? null,
+            })),
+          },
         },
+      });
+      storeIssueId = issue.id;
+      storeIssueNumber = issue.number;
+
+      if (reserveOnDecision) {
+        const expiresAt = expiryDays > 0 ? new Date(Date.now() + expiryDays * 86400000) : null;
+        for (const x of stockLines) {
+          if (!x.line.itemId) continue;
+          await reserveStock(
+            user,
+            {
+              itemId: x.line.itemId,
+              storeId: issuingStoreId,
+              quantity: round2(x.pick!.fromStockQty),
+              unit: x.line.unit,
+              requirementItemId: x.line.id,
+              storeIssueId: issue.id,
+              reason: `Held for ${requirement.number} / ${issue.number}`,
+              createdById: user.id,
+              expiresAt,
+            },
+            tx,
+            { cascade: "fulfilment decided from stock", from: [P.REQUIREMENT_DECIDE] },
+          );
+          reservedLines += 1;
+        }
+      }
+
+      await writeAudit({
+          entityType: "StoreIssue",
+          entityId: issue.id,
+          action: "CREATED",
+          actor: user,
+          reason: `Store requisition ${issue.number} raised from requirement ${requirement.number}.`,
+        }, tx);
+    }
+
+    /* ── Purchase requisition for the shortfall ── */
+    let requisitionId: string | null = null;
+    let requisitionNumber: string | null = null;
+    if (buyLines.length) {
+      const prNumber = await nextNumber(SEQ.PR, tx);
+      const pr = await tx.purchaseRequisition.create({
+        data: {
+          number: prNumber,
+          entityId: requirement.entityId,
+          departmentId: requirement.departmentId,
+          requesterId: requirement.requesterId,
+          procurementType: "ON_DEMAND",
+          title: requirement.title,
+          justification:
+            requirement.justification ??
+            `Raised from requirement ${requirement.number}: quantity not available in stock.`,
+          projectId: requirement.projectId,
+          siteId: requirement.siteId,
+          costCenter: requirement.costCenter,
+          costCenterId: requirement.costCenterId,
+          expenditureType: requirement.expenditureType,
+          deliveryStoreId: requirement.storeId,
+          requiredDate: requirement.requiredDate,
+          priority: requirement.priority,
+          estimatedValue: round2(
+            buyLines.reduce((a, x) => a + (x.line.estimatedUnitCost ?? 0) * x.pick!.procureQty, 0),
+          ),
+          requirementId: requirement.id,
+          status: "SUBMITTED",
+          submittedAt: new Date(),
+          items: {
+            create: buyLines.map((x, i) => ({
+              lineNo: i + 1,
+              itemId: x.line.itemId ?? null,
+              categoryId: categoryFor(x.line),
+              description: x.line.description,
+              specification: x.line.specification ?? null,
+              quantity: round2(x.pick!.procureQty),
+              unit: x.line.unit,
+              estimatedUnitPrice: x.line.estimatedUnitCost ?? null,
+              estimatedTotal: round2((x.line.estimatedUnitCost ?? 0) * x.pick!.procureQty),
+              requiredDate: requirement.requiredDate,
+            })),
+          },
+        },
+      });
+      requisitionId = pr.id;
+      requisitionNumber = pr.number;
+
+      await writeAudit({
+          entityType: "PurchaseRequisition",
+          entityId: pr.id,
+          action: "CREATED",
+          actor: user,
+          reason: `${pr.number} raised from requirement ${requirement.number} for the quantity stock could not meet.`,
+        }, tx);
+    }
+
+    const status =
+      storeIssueId && requisitionId
+        ? "SPLIT"
+        : storeIssueId
+          ? "FULFILLED_FROM_STOCK"
+          : "SENT_TO_PROCUREMENT";
+
+    await tx.requirement.update({
+      where: { id: requirementId },
+      data: {
+        status,
+        decidedAt: new Date(),
+        decidedById: user.id,
+        decisionNote: decision.note?.trim() || null,
       },
     });
-    requisitionId = pr.id;
-    requisitionNumber = pr.number;
+
+    for (const line of requirement.items) {
+      const pick = chosen.get(line.id);
+      if (!pick) continue;
+      await tx.requirementItem.update({
+        where: { id: line.id },
+        data: {
+          fromStockQty: round2(pick.fromStockQty),
+          procureQty: round2(pick.procureQty),
+          sourceStoreId: pick.sourceStoreId ?? byId.get(line.id)?.sourceStoreId ?? null,
+        },
+      });
+    }
 
     await writeAudit({
-        entityType: "PurchaseRequisition",
-        entityId: pr.id,
-        action: "CREATED",
+        entityType: "Requirement",
+        entityId: requirementId,
+        action: "FULFILMENT_DECIDED",
         actor: user,
-        reason: `${pr.number} raised from requirement ${requirement.number} for the quantity stock could not meet.`,
-      }, db);
-  }
+        reason:
+          [storeIssueNumber && `Store requisition ${storeIssueNumber}`, requisitionNumber && `Requisition ${requisitionNumber}`]
+            .filter(Boolean)
+            .join(" · ") + (decision.note?.trim() ? ` — ${decision.note.trim()}` : ""),
+      }, tx);
 
-  const status =
-    storeIssueId && requisitionId
-      ? "SPLIT"
-      : storeIssueId
-        ? "FULFILLED_FROM_STOCK"
-        : "SENT_TO_PROCUREMENT";
-
-  await db.requirement.update({
-    where: { id: requirementId },
-    data: {
+    return {
+      requirementId,
       status,
-      decidedAt: new Date(),
-      decidedById: user.id,
-      decisionNote: decision.note?.trim() || null,
-    },
+      storeIssueId,
+      storeIssueNumber,
+      requisitionId,
+      requisitionNumber,
+      reservedLines,
+    };
   });
-
-  for (const line of requirement.items) {
-    const pick = chosen.get(line.id);
-    if (!pick) continue;
-    await db.requirementItem.update({
-      where: { id: line.id },
-      data: {
-        fromStockQty: round2(pick.fromStockQty),
-        procureQty: round2(pick.procureQty),
-        sourceStoreId: pick.sourceStoreId ?? byId.get(line.id)?.sourceStoreId ?? null,
-      },
-    });
-  }
-
-  await writeAudit({
-      entityType: "Requirement",
-      entityId: requirementId,
-      action: "FULFILMENT_DECIDED",
-      actor: user,
-      reason:
-        [storeIssueNumber && `Store requisition ${storeIssueNumber}`, requisitionNumber && `Requisition ${requisitionNumber}`]
-          .filter(Boolean)
-          .join(" · ") + (decision.note?.trim() ? ` — ${decision.note.trim()}` : ""),
-    }, db);
-
-  return {
-    requirementId,
-    status,
-    storeIssueId,
-    storeIssueNumber,
-    requisitionId,
-    requisitionNumber,
-    reservedLines,
-  };
 }
 
 export async function cancelRequirement(

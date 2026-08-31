@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { prisma, type DbClient } from "@/lib/db";
+import { prisma, withTransaction, type DbClient } from "@/lib/db";
 import { PERMISSIONS as P } from "@/lib/permissions";
 import { userHasPermission, type SessionUser } from "@/lib/rbac";
 import { ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
@@ -64,115 +64,117 @@ function safeName(name: string) {
 }
 
 export async function uploadDocument(user: SessionUser, input: UploadInput, db: DbClient = prisma) {
-  if (!userHasPermission(user, P.DOCUMENT_UPLOAD)) {
-    throw new ForbiddenError("You do not have permission to upload documents.");
-  }
-  if (!LINKED_TYPES.includes(input.linkedType)) {
-    throw new ValidationError("Documents must be linked to a valid business object.");
-  }
-  if (!input.linkedId) {
-    throw new ValidationError("Documents must be linked to a specific record — unlinked uploads are not permitted.");
-  }
-
-  const file = input.file;
-  if (!file || typeof file === "string" || file.size === 0) {
-    throw new ValidationError("Select a file to upload.");
-  }
-  if (file.size > MAX_BYTES) {
-    throw new ValidationError(`File exceeds the ${Math.round(MAX_BYTES / 1024 / 1024)}MB limit.`);
-  }
-  const ext = extOf(file.name);
-  if (!ALLOWED_EXT.has(ext)) {
-    throw new ValidationError(
-      `File type ".${ext}" is not permitted. Allowed: ${[...ALLOWED_EXT].join(", ")}.`,
-    );
-  }
-  const mime = file.type || "application/octet-stream";
-  if (!ALLOWED_MIME_PREFIXES.some((p) => mime.startsWith(p))) {
-    throw new ValidationError(`Content type "${mime}" is not permitted.`);
-  }
-
-  const buf = Buffer.from(await file.arrayBuffer());
-  // Reject payloads whose magic bytes contradict a declared image/pdf type.
-  if (mime === "application/pdf" && buf.subarray(0, 4).toString("latin1") !== "%PDF") {
-    throw new ValidationError("This file is declared as a PDF but its contents are not a PDF.");
-  }
-  const checksum = createHash("sha256").update(buf).digest("hex");
-
-  const now = new Date();
-  // The key is stable and relative, so the same document row works whether the
-  // bytes sit on a local disk or in a bucket.
-  const rel = [
-    String(now.getFullYear()),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    input.linkedType,
-    `${randomUUID()}.${ext}`,
-  ].join("/");
-  await putObject(rel, buf, mime);
-
-  let version = 1;
-  let parentDocumentId: string | null = null;
-  if (input.replacesDocumentId) {
-    const prev = await db.document.findUnique({ where: { id: input.replacesDocumentId } });
-    if (prev) {
-      version = prev.version + 1;
-      parentDocumentId = prev.parentDocumentId ?? prev.id;
-      await db.document.updateMany({
-        where: { OR: [{ id: prev.id }, { parentDocumentId }] },
-        data: { isCurrent: false },
-      });
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.DOCUMENT_UPLOAD)) {
+      throw new ForbiddenError("You do not have permission to upload documents.");
     }
-  }
+    if (!LINKED_TYPES.includes(input.linkedType)) {
+      throw new ValidationError("Documents must be linked to a valid business object.");
+    }
+    if (!input.linkedId) {
+      throw new ValidationError("Documents must be linked to a specific record — unlinked uploads are not permitted.");
+    }
 
-  const docType = input.documentTypeCode
-    ? await db.documentType.findUnique({ where: { code: input.documentTypeCode } })
-    : null;
+    const file = input.file;
+    if (!file || typeof file === "string" || file.size === 0) {
+      throw new ValidationError("Select a file to upload.");
+    }
+    if (file.size > MAX_BYTES) {
+      throw new ValidationError(`File exceeds the ${Math.round(MAX_BYTES / 1024 / 1024)}MB limit.`);
+    }
+    const ext = extOf(file.name);
+    if (!ALLOWED_EXT.has(ext)) {
+      throw new ValidationError(
+        `File type ".${ext}" is not permitted. Allowed: ${[...ALLOWED_EXT].join(", ")}.`,
+      );
+    }
+    const mime = file.type || "application/octet-stream";
+    if (!ALLOWED_MIME_PREFIXES.some((p) => mime.startsWith(p))) {
+      throw new ValidationError(`Content type "${mime}" is not permitted.`);
+    }
 
-  const doc = await db.document.create({
-    data: {
-      name: input.description?.trim() || safeName(file.name),
-      originalFilename: safeName(file.name),
-      storagePath: rel,
-      mimeType: mime,
-      sizeBytes: buf.byteLength,
-      checksum,
-      version,
-      parentDocumentId,
-      documentTypeId: docType?.id ?? null,
-      linkedType: input.linkedType,
-      linkedId: input.linkedId,
-      caseKey: input.caseKey ?? null,
-      category: input.category ?? docType?.category ?? "General",
-      description: input.description ?? null,
-      tags: input.tags ?? null,
-      confidentiality: input.confidentiality ?? docType?.viewPermission ? "CONFIDENTIAL" : (input.confidentiality ?? "INTERNAL"),
-      entityId: input.entityId ?? null,
-      uploadedById: user.id,
-      isCurrent: true,
-    },
-  });
+    const buf = Buffer.from(await file.arrayBuffer());
+    // Reject payloads whose magic bytes contradict a declared image/pdf type.
+    if (mime === "application/pdf" && buf.subarray(0, 4).toString("latin1") !== "%PDF") {
+      throw new ValidationError("This file is declared as a PDF but its contents are not a PDF.");
+    }
+    const checksum = createHash("sha256").update(buf).digest("hex");
 
-  await writeAudit(
-    {
-      entityType: "Document",
-      entityId: doc.id,
-      entityRef: doc.name,
-      action: version > 1 ? "DOCUMENT_VERSIONED" : "DOCUMENT_UPLOADED",
-      newValue: {
-        linkedType: doc.linkedType,
-        linkedId: doc.linkedId,
-        version,
-        sizeBytes: doc.sizeBytes,
+    const now = new Date();
+    // The key is stable and relative, so the same document row works whether the
+    // bytes sit on a local disk or in a bucket.
+    const rel = [
+      String(now.getFullYear()),
+      String(now.getMonth() + 1).padStart(2, "0"),
+      input.linkedType,
+      `${randomUUID()}.${ext}`,
+    ].join("/");
+    await putObject(rel, buf, mime);
+
+    let version = 1;
+    let parentDocumentId: string | null = null;
+    if (input.replacesDocumentId) {
+      const prev = await tx.document.findUnique({ where: { id: input.replacesDocumentId } });
+      if (prev) {
+        version = prev.version + 1;
+        parentDocumentId = prev.parentDocumentId ?? prev.id;
+        await tx.document.updateMany({
+          where: { OR: [{ id: prev.id }, { parentDocumentId }] },
+          data: { isCurrent: false },
+        });
+      }
+    }
+
+    const docType = input.documentTypeCode
+      ? await tx.documentType.findUnique({ where: { code: input.documentTypeCode } })
+      : null;
+
+    const doc = await tx.document.create({
+      data: {
+        name: input.description?.trim() || safeName(file.name),
+        originalFilename: safeName(file.name),
+        storagePath: rel,
+        mimeType: mime,
+        sizeBytes: buf.byteLength,
         checksum,
-        confidentiality: doc.confidentiality,
+        version,
+        parentDocumentId,
+        documentTypeId: docType?.id ?? null,
+        linkedType: input.linkedType,
+        linkedId: input.linkedId,
+        caseKey: input.caseKey ?? null,
+        category: input.category ?? docType?.category ?? "General",
+        description: input.description ?? null,
+        tags: input.tags ?? null,
+        confidentiality: input.confidentiality ?? docType?.viewPermission ? "CONFIDENTIAL" : (input.confidentiality ?? "INTERNAL"),
+        entityId: input.entityId ?? null,
+        uploadedById: user.id,
+        isCurrent: true,
       },
-      caseKey: input.caseKey ?? null,
-      actor: user,
-    },
-    db,
-  );
+    });
 
-  return doc;
+    await writeAudit(
+      {
+        entityType: "Document",
+        entityId: doc.id,
+        entityRef: doc.name,
+        action: version > 1 ? "DOCUMENT_VERSIONED" : "DOCUMENT_UPLOADED",
+        newValue: {
+          linkedType: doc.linkedType,
+          linkedId: doc.linkedId,
+          version,
+          sizeBytes: doc.sizeBytes,
+          checksum,
+          confidentiality: doc.confidentiality,
+        },
+        caseKey: input.caseKey ?? null,
+        actor: user,
+      },
+      tx,
+    );
+
+    return doc;
+  });
 }
 
 /** Confidentiality gate: RESTRICTED and CONFIDENTIAL need explicit grants. */

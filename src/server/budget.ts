@@ -1,4 +1,4 @@
-import { prisma, type DbClient } from "@/lib/db";
+import { prisma, withTransaction, type DbClient } from "@/lib/db";
 import { round2 } from "@/lib/format";
 import { CONFIG_KEYS, getConfig, getConfigNumber } from "@/lib/config";
 import { ForbiddenError, NotFoundError, RuleViolationError, ValidationError } from "@/lib/errors";
@@ -284,49 +284,51 @@ export async function upsertBudget(
   },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.BUDGET_MANAGE)) {
-    throw new ForbiddenError("You do not have permission to maintain budgets.");
-  }
-  if (!input.year?.trim()) throw new ValidationError("A financial year is required.");
-  if (input.allocated < 0) throw new ValidationError("An allocation cannot be negative.");
-
-  const data = {
-    entityId: input.entityId,
-    year: input.year.trim(),
-    departmentId: input.departmentId ?? null,
-    costCenterId: input.costCenterId ?? null,
-    categoryId: input.categoryId ?? null,
-    expenditureType: input.expenditureType ?? "BOTH",
-    allocated: round2(input.allocated),
-    hardLimit: Boolean(input.hardLimit),
-    notes: input.notes ?? null,
-  };
-
-  // Reducing an allocation below what is already committed is refused: the money
-  // is spoken for, and a negative remainder is not a budget.
-  if (input.id) {
-    const position = await budgetPosition(input.id, db);
-    if (data.allocated + 1e-9 < position.committed) {
-      throw new RuleViolationError(
-        `${position.committed} is already committed against this line; the allocation cannot be set below it.`,
-      );
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.BUDGET_MANAGE)) {
+      throw new ForbiddenError("You do not have permission to maintain budgets.");
     }
-  }
+    if (!input.year?.trim()) throw new ValidationError("A financial year is required.");
+    if (input.allocated < 0) throw new ValidationError("An allocation cannot be negative.");
 
-  const budget = input.id
-    ? await db.budget.update({ where: { id: input.id }, data })
-    : await db.budget.create({ data });
+    const data = {
+      entityId: input.entityId,
+      year: input.year.trim(),
+      departmentId: input.departmentId ?? null,
+      costCenterId: input.costCenterId ?? null,
+      categoryId: input.categoryId ?? null,
+      expenditureType: input.expenditureType ?? "BOTH",
+      allocated: round2(input.allocated),
+      hardLimit: Boolean(input.hardLimit),
+      notes: input.notes ?? null,
+    };
 
-  await writeAudit(
-    {
-      entityType: "Budget",
-      entityId: budget.id,
-      entityRef: `${budget.year} ${budget.expenditureType}`,
-      action: input.id ? "BUDGET_UPDATED" : "BUDGET_CREATED",
-      newValue: { allocated: budget.allocated, hardLimit: budget.hardLimit },
-      actor: user,
-    },
-    db,
-  );
-  return budget;
+    // Reducing an allocation below what is already committed is refused: the money
+    // is spoken for, and a negative remainder is not a budget.
+    if (input.id) {
+      const position = await budgetPosition(input.id, tx);
+      if (data.allocated + 1e-9 < position.committed) {
+        throw new RuleViolationError(
+          `${position.committed} is already committed against this line; the allocation cannot be set below it.`,
+        );
+      }
+    }
+
+    const budget = input.id
+      ? await tx.budget.update({ where: { id: input.id }, data })
+      : await tx.budget.create({ data });
+
+    await writeAudit(
+      {
+        entityType: "Budget",
+        entityId: budget.id,
+        entityRef: `${budget.year} ${budget.expenditureType}`,
+        action: input.id ? "BUDGET_UPDATED" : "BUDGET_CREATED",
+        newValue: { allocated: budget.allocated, hardLimit: budget.hardLimit },
+        actor: user,
+      },
+      tx,
+    );
+    return budget;
+  });
 }

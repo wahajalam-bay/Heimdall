@@ -1,4 +1,4 @@
-import { prisma, type DbClient } from "@/lib/db";
+import { prisma, withTransaction, type DbClient } from "@/lib/db";
 import { round2 } from "@/lib/format";
 import { RuleViolationError } from "@/lib/errors";
 import { PERMISSIONS as P } from "@/lib/permissions";
@@ -35,46 +35,48 @@ export async function allocate(
   db: DbClient = prisma,
   authority: Authority = { permission: [P.PO_CREATE, P.PO_EDIT] },
 ) {
-  assertAuthority(actor, DOMAIN_ACTIONS.ALLOCATION_APPLY, authority);
-  const createdById = actor.id;
-  for (const a of inputs) {
-    if (a.quantity <= 0) continue;
-    const remaining = await unallocatedQuantity(a.prItemId, db, a.poId);
-    if (a.quantity > remaining + 1e-9) {
-      const line = await db.purchaseRequisitionItem.findUnique({
-        where: { id: a.prItemId },
-        select: { lineNo: true, description: true },
+  return withTransaction(db, async (tx) => {
+    assertAuthority(actor, DOMAIN_ACTIONS.ALLOCATION_APPLY, authority);
+    const createdById = actor.id;
+    for (const a of inputs) {
+      if (a.quantity <= 0) continue;
+      const remaining = await unallocatedQuantity(a.prItemId, tx, a.poId);
+      if (a.quantity > remaining + 1e-9) {
+        const line = await tx.purchaseRequisitionItem.findUnique({
+          where: { id: a.prItemId },
+          select: { lineNo: true, description: true },
+        });
+        throw new RuleViolationError(
+          `Requisition line ${line?.lineNo ?? "?"} (${line?.description ?? a.prItemId}) has ${round2(remaining)} ${a.unit} left to order; this order asks for ${round2(a.quantity)}.`,
+        );
+      }
+      // A compound unique cannot be looked up through a null, so the pair is found
+      // rather than upserted. In practice every allocation names an order line;
+      // the nullable side exists for a line-less allocation, which is rare.
+      const existing = await tx.prPoAllocation.findFirst({
+        where: { prItemId: a.prItemId, poItemId: a.poItemId ?? null },
+        select: { id: true },
       });
-      throw new RuleViolationError(
-        `Requisition line ${line?.lineNo ?? "?"} (${line?.description ?? a.prItemId}) has ${round2(remaining)} ${a.unit} left to order; this order asks for ${round2(a.quantity)}.`,
-      );
+      if (existing) {
+        await tx.prPoAllocation.update({
+          where: { id: existing.id },
+          data: { quantity: round2(a.quantity), poId: a.poId, unit: a.unit },
+        });
+      } else {
+        await tx.prPoAllocation.create({
+          data: {
+            prId: a.prId,
+            prItemId: a.prItemId,
+            poId: a.poId,
+            poItemId: a.poItemId ?? null,
+            quantity: round2(a.quantity),
+            unit: a.unit,
+            createdById,
+          },
+        });
+      }
     }
-    // A compound unique cannot be looked up through a null, so the pair is found
-    // rather than upserted. In practice every allocation names an order line;
-    // the nullable side exists for a line-less allocation, which is rare.
-    const existing = await db.prPoAllocation.findFirst({
-      where: { prItemId: a.prItemId, poItemId: a.poItemId ?? null },
-      select: { id: true },
-    });
-    if (existing) {
-      await db.prPoAllocation.update({
-        where: { id: existing.id },
-        data: { quantity: round2(a.quantity), poId: a.poId, unit: a.unit },
-      });
-    } else {
-      await db.prPoAllocation.create({
-        data: {
-          prId: a.prId,
-          prItemId: a.prItemId,
-          poId: a.poId,
-          poItemId: a.poItemId ?? null,
-          quantity: round2(a.quantity),
-          unit: a.unit,
-          createdById,
-        },
-      });
-    }
-  }
+  });
 }
 
 /**

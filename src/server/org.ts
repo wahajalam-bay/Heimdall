@@ -1,4 +1,4 @@
-import { prisma, type DbClient } from "@/lib/db";
+import { prisma, withTransaction, type DbClient } from "@/lib/db";
 import { ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
 import { PERMISSIONS as P } from "@/lib/permissions";
 import { userHasPermission, type SessionUser } from "@/lib/rbac";
@@ -296,46 +296,48 @@ export async function appointPoc(
   input: { departmentId: string; userId: string; responsibility: string; primary?: boolean },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.MASTER_DATA_MANAGE, P.USER_MANAGE)) {
-    throw new ForbiddenError("You do not have permission to appoint a point of contact.");
-  }
-  // Only one primary per responsibility: two primaries is the same as none,
-  // because a requester still has to choose.
-  if (input.primary) {
-    await db.departmentPoc.updateMany({
-      where: { departmentId: input.departmentId, responsibility: input.responsibility, primary: true },
-      data: { primary: false },
-    });
-  }
-  const existing = await db.departmentPoc.findFirst({
-    where: { departmentId: input.departmentId, userId: input.userId, responsibility: input.responsibility },
-  });
-  const poc = existing
-    ? await db.departmentPoc.update({
-        where: { id: existing.id },
-        data: { primary: Boolean(input.primary), active: true },
-      })
-    : await db.departmentPoc.create({
-        data: {
-          departmentId: input.departmentId,
-          userId: input.userId,
-          responsibility: input.responsibility,
-          primary: Boolean(input.primary),
-        },
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.MASTER_DATA_MANAGE, P.USER_MANAGE)) {
+      throw new ForbiddenError("You do not have permission to appoint a point of contact.");
+    }
+    // Only one primary per responsibility: two primaries is the same as none,
+    // because a requester still has to choose.
+    if (input.primary) {
+      await tx.departmentPoc.updateMany({
+        where: { departmentId: input.departmentId, responsibility: input.responsibility, primary: true },
+        data: { primary: false },
       });
+    }
+    const existing = await tx.departmentPoc.findFirst({
+      where: { departmentId: input.departmentId, userId: input.userId, responsibility: input.responsibility },
+    });
+    const poc = existing
+      ? await tx.departmentPoc.update({
+          where: { id: existing.id },
+          data: { primary: Boolean(input.primary), active: true },
+        })
+      : await tx.departmentPoc.create({
+          data: {
+            departmentId: input.departmentId,
+            userId: input.userId,
+            responsibility: input.responsibility,
+            primary: Boolean(input.primary),
+          },
+        });
 
-  await writeAudit(
-    {
-      entityType: "DepartmentPoc",
-      entityId: poc.id,
-      entityRef: pocLabel(input.responsibility),
-      action: existing ? "POC_UPDATED" : "POC_APPOINTED",
-      newValue: { userId: input.userId, primary: poc.primary },
-      actor: user,
-    },
-    db,
-  );
-  return poc;
+    await writeAudit(
+      {
+        entityType: "DepartmentPoc",
+        entityId: poc.id,
+        entityRef: pocLabel(input.responsibility),
+        action: existing ? "POC_UPDATED" : "POC_APPOINTED",
+        newValue: { userId: input.userId, primary: poc.primary },
+        actor: user,
+      },
+      tx,
+    );
+    return poc;
+  });
 }
 
 export async function removePoc(user: SessionUser, pocId: string, db: DbClient = prisma) {

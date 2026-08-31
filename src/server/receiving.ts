@@ -1,4 +1,4 @@
-import { prisma, type DbClient } from "@/lib/db";
+import { prisma, withTransaction, type DbClient } from "@/lib/db";
 import { nextNumber, nextSerial, SEQ } from "@/lib/numbering";
 import { CONFIG_KEYS, getConfigArray, getConfigNumber } from "@/lib/config";
 import { ForbiddenError, NotFoundError, RuleViolationError, ValidationError } from "@/lib/errors";
@@ -39,110 +39,112 @@ export type GatePassInput = {
 };
 
 export async function createGatePass(user: SessionUser, input: GatePassInput, db: DbClient = prisma) {
-  if (!userHasPermission(user, P.GATE_PASS_CREATE)) {
-    throw new ForbiddenError("You do not have permission to record gate passes.");
-  }
-  const store = await db.store.findUnique({ where: { id: input.storeId } });
-  if (!store) throw new NotFoundError("Receiving store");
-
-  let vendorId = input.vendorId ?? null;
-  let po = null;
-  if (input.poId) {
-    po = await db.purchaseOrder.findUnique({ where: { id: input.poId }, include: { vendor: true, pr: true } });
-    if (!po) throw new NotFoundError("Purchase order");
-    const receivable = ["ISSUED", "PARTIALLY_RECEIVED", "APPROVED"];
-    if (!receivable.includes(po.status)) {
-      throw new RuleViolationError(
-        `Purchase order ${po.number} is ${po.status} — goods cannot be booked in against it.`,
-      );
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.GATE_PASS_CREATE)) {
+      throw new ForbiddenError("You do not have permission to record gate passes.");
     }
-    vendorId = po.vendorId;
-  }
+    const store = await tx.store.findUnique({ where: { id: input.storeId } });
+    if (!store) throw new NotFoundError("Receiving store");
 
-  const number = await nextNumber(SEQ.GATE_PASS, db);
-  const serial = await nextSerial(SEQ.GATE_PASS, db);
+    let vendorId = input.vendorId ?? null;
+    let po = null;
+    if (input.poId) {
+      po = await tx.purchaseOrder.findUnique({ where: { id: input.poId }, include: { vendor: true, pr: true } });
+      if (!po) throw new NotFoundError("Purchase order");
+      const receivable = ["ISSUED", "PARTIALLY_RECEIVED", "APPROVED"];
+      if (!receivable.includes(po.status)) {
+        throw new RuleViolationError(
+          `Purchase order ${po.number} is ${po.status} — goods cannot be booked in against it.`,
+        );
+      }
+      vendorId = po.vendorId;
+    }
 
-  const gp = await db.gatePass.create({
-    data: {
-      number,
-      serial,
-      direction: input.direction ?? "INWARD",
-      poId: input.poId ?? null,
-      vendorId,
-      storeId: input.storeId,
-      vehicleNumber: input.vehicleNumber ?? null,
-      vehicleType: input.vehicleType ?? null,
-      driverName: input.driverName ?? null,
-      driverCnic: input.driverCnic ?? null,
-      driverPhone: input.driverPhone ?? null,
-      deliveryNoteRef: input.deliveryNoteRef ?? null,
-      invoiceRef: input.invoiceRef ?? null,
-      materialSummary: input.materialSummary ?? null,
-      declaredQuantity: input.declaredQuantity ?? null,
-      declaredPackages: input.declaredPackages ?? null,
-      securityCheckedById: user.id,
-      securityRemarks: input.securityRemarks ?? null,
-      recordedById: user.id,
-      arrivedAt: input.arrivedAt ?? new Date(),
-      status: "RECORDED",
-    },
-  });
+    const number = await nextNumber(SEQ.GATE_PASS, tx);
+    const serial = await nextSerial(SEQ.GATE_PASS, tx);
 
-  // Route the vendor to the receiving store owner.
-  await db.gatePass.update({ where: { id: gp.id }, data: { status: "ROUTED_TO_STORE" } });
-  await createTask(
-    {
-      title: `Receive goods against ${gp.number}${po ? ` · ${po.number}` : ""}`,
-      description: `${input.materialSummary ?? "Inward delivery"} at ${store.name}`,
-      taskType: "RECEIVING",
-      assigneeId: store.managerId ?? null,
-      assignedRoleCode: store.managerId ? null : store.kind === "SITE_STORE" ? "SITE_STORE_USER" : "STORE_RECEIVER",
-      entityId: store.entityId,
-      documentType: "GATE_PASS",
-      documentId: gp.id,
-      documentRef: gp.number,
-      priority: "HIGH",
-      slaHours: 8,
-      linkUrl: `/gate-passes/${gp.id}`,
-    },
-    db,
-  );
-  await notify(
-    {
-      userIds: store.managerId ? [store.managerId] : [],
-      roleCodes: store.managerId ? [] : ["STORE_RECEIVER", "STORE_MANAGER", "SITE_STORE_USER"],
-      entityId: store.entityId,
-      type: "GENERAL",
-      title: `Vehicle arrived — ${gp.number} at ${store.name}`,
-      body: [input.vehicleNumber, input.driverName, po?.number].filter(Boolean).join(" · "),
-      priority: "HIGH",
-      linkType: "GATE_PASS",
-      linkId: gp.id,
-      linkUrl: `/gate-passes/${gp.id}`,
-    },
-    db,
-  );
-
-  await writeAudit(
-    {
-      entityType: "GatePass",
-      entityId: gp.id,
-      entityRef: gp.number,
-      action: "GATE_PASS_RECORDED",
-      newValue: {
+    const gp = await tx.gatePass.create({
+      data: {
+        number,
         serial,
-        store: store.name,
-        po: po?.number ?? null,
-        vehicle: input.vehicleNumber,
-        declaredPackages: input.declaredPackages,
+        direction: input.direction ?? "INWARD",
+        poId: input.poId ?? null,
+        vendorId,
+        storeId: input.storeId,
+        vehicleNumber: input.vehicleNumber ?? null,
+        vehicleType: input.vehicleType ?? null,
+        driverName: input.driverName ?? null,
+        driverCnic: input.driverCnic ?? null,
+        driverPhone: input.driverPhone ?? null,
+        deliveryNoteRef: input.deliveryNoteRef ?? null,
+        invoiceRef: input.invoiceRef ?? null,
+        materialSummary: input.materialSummary ?? null,
+        declaredQuantity: input.declaredQuantity ?? null,
+        declaredPackages: input.declaredPackages ?? null,
+        securityCheckedById: user.id,
+        securityRemarks: input.securityRemarks ?? null,
+        recordedById: user.id,
+        arrivedAt: input.arrivedAt ?? new Date(),
+        status: "RECORDED",
       },
-      caseKey: po?.pr?.number ?? null,
-      actor: user,
-    },
-    db,
-  );
+    });
 
-  return gp;
+    // Route the vendor to the receiving store owner.
+    await tx.gatePass.update({ where: { id: gp.id }, data: { status: "ROUTED_TO_STORE" } });
+    await createTask(
+      {
+        title: `Receive goods against ${gp.number}${po ? ` · ${po.number}` : ""}`,
+        description: `${input.materialSummary ?? "Inward delivery"} at ${store.name}`,
+        taskType: "RECEIVING",
+        assigneeId: store.managerId ?? null,
+        assignedRoleCode: store.managerId ? null : store.kind === "SITE_STORE" ? "SITE_STORE_USER" : "STORE_RECEIVER",
+        entityId: store.entityId,
+        documentType: "GATE_PASS",
+        documentId: gp.id,
+        documentRef: gp.number,
+        priority: "HIGH",
+        slaHours: 8,
+        linkUrl: `/gate-passes/${gp.id}`,
+      },
+      tx,
+    );
+    await notify(
+      {
+        userIds: store.managerId ? [store.managerId] : [],
+        roleCodes: store.managerId ? [] : ["STORE_RECEIVER", "STORE_MANAGER", "SITE_STORE_USER"],
+        entityId: store.entityId,
+        type: "GENERAL",
+        title: `Vehicle arrived — ${gp.number} at ${store.name}`,
+        body: [input.vehicleNumber, input.driverName, po?.number].filter(Boolean).join(" · "),
+        priority: "HIGH",
+        linkType: "GATE_PASS",
+        linkId: gp.id,
+        linkUrl: `/gate-passes/${gp.id}`,
+      },
+      tx,
+    );
+
+    await writeAudit(
+      {
+        entityType: "GatePass",
+        entityId: gp.id,
+        entityRef: gp.number,
+        action: "GATE_PASS_RECORDED",
+        newValue: {
+          serial,
+          store: store.name,
+          po: po?.number ?? null,
+          vehicle: input.vehicleNumber,
+          declaredPackages: input.declaredPackages,
+        },
+        caseKey: po?.pr?.number ?? null,
+        actor: user,
+      },
+      tx,
+    );
+
+    return gp;
+  });
 }
 
 /* ── Physical verification (delivery) ─────────────────────── */
@@ -190,259 +192,261 @@ export type DeliveryInput = {
  * raises a tracked exception.
  */
 export async function recordDelivery(user: SessionUser, input: DeliveryInput, db: DbClient = prisma) {
-  if (!userHasPermission(user, P.RECEIVE_GOODS)) {
-    throw new ForbiddenError("You do not have permission to record goods receiving.");
-  }
-  const po = await db.purchaseOrder.findUnique({
-    where: { id: input.poId },
-    include: { items: true, vendor: true, pr: true },
-  });
-  if (!po) throw new NotFoundError("Purchase order");
-  if (!["ISSUED", "PARTIALLY_RECEIVED", "APPROVED", "ON_HOLD"].includes(po.status)) {
-    throw new RuleViolationError(`Purchase order ${po.number} is ${po.status} — goods cannot be received.`);
-  }
-  if (!input.items.length) throw new ValidationError("Record at least one received line.");
-
-  const store = await db.store.findUnique({ where: { id: input.storeId } });
-  if (!store) throw new NotFoundError("Receiving store");
-
-  const overReceiptPct = await getConfigNumber(CONFIG_KEYS.ALLOW_EXCESS_RECEIPT_PERCENT, po.entityId, db);
-
-  // Validate every line against the outstanding PO balance before writing.
-  const prepared: Array<DeliveryItemInput & { lineNo: number; poItem: (typeof po.items)[number]; expectedQty: number }> = [];
-  const problems: string[] = [];
-  let lineNo = 0;
-  for (const li of input.items) {
-    const poItem = po.items.find((i) => i.id === li.poItemId);
-    if (!poItem) {
-      problems.push("A received line does not belong to this purchase order.");
-      continue;
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.RECEIVE_GOODS)) {
+      throw new ForbiddenError("You do not have permission to record goods receiving.");
     }
-    lineNo += 1;
-    const alreadyReceived = poItem.receivedQty;
-    const expectedQty = round2(Math.max(0, poItem.quantity - poItem.acceptedQty));
-    const ceiling = round2(poItem.quantity * (1 + overReceiptPct / 100));
-
-    if (li.actualQty < 0) problems.push(`Line ${lineNo}: received quantity cannot be negative.`);
-    if (li.acceptedQty < 0) problems.push(`Line ${lineNo}: accepted quantity cannot be negative.`);
-    if (li.acceptedQty > li.actualQty + 1e-9) {
-      problems.push(`Line ${lineNo}: accepted quantity (${li.acceptedQty}) exceeds the quantity delivered (${li.actualQty}).`);
+    const po = await tx.purchaseOrder.findUnique({
+      where: { id: input.poId },
+      include: { items: true, vendor: true, pr: true },
+    });
+    if (!po) throw new NotFoundError("Purchase order");
+    if (!["ISSUED", "PARTIALLY_RECEIVED", "APPROVED", "ON_HOLD"].includes(po.status)) {
+      throw new RuleViolationError(`Purchase order ${po.number} is ${po.status} — goods cannot be received.`);
     }
-    if (round2(alreadyReceived + li.actualQty) > ceiling + 1e-9) {
-      problems.push(
-        `Line ${lineNo} (${poItem.description}): receiving ${li.actualQty} ${poItem.unit} would bring total receipts to ${round2(alreadyReceived + li.actualQty)} against an ordered quantity of ${poItem.quantity} ${poItem.unit}. Over-receipt beyond ${overReceiptPct}% is not permitted.`,
+    if (!input.items.length) throw new ValidationError("Record at least one received line.");
+
+    const store = await tx.store.findUnique({ where: { id: input.storeId } });
+    if (!store) throw new NotFoundError("Receiving store");
+
+    const overReceiptPct = await getConfigNumber(CONFIG_KEYS.ALLOW_EXCESS_RECEIPT_PERCENT, po.entityId, tx);
+
+    // Validate every line against the outstanding PO balance before writing.
+    const prepared: Array<DeliveryItemInput & { lineNo: number; poItem: (typeof po.items)[number]; expectedQty: number }> = [];
+    const problems: string[] = [];
+    let lineNo = 0;
+    for (const li of input.items) {
+      const poItem = po.items.find((i) => i.id === li.poItemId);
+      if (!poItem) {
+        problems.push("A received line does not belong to this purchase order.");
+        continue;
+      }
+      lineNo += 1;
+      const alreadyReceived = poItem.receivedQty;
+      const expectedQty = round2(Math.max(0, poItem.quantity - poItem.acceptedQty));
+      const ceiling = round2(poItem.quantity * (1 + overReceiptPct / 100));
+
+      if (li.actualQty < 0) problems.push(`Line ${lineNo}: received quantity cannot be negative.`);
+      if (li.acceptedQty < 0) problems.push(`Line ${lineNo}: accepted quantity cannot be negative.`);
+      if (li.acceptedQty > li.actualQty + 1e-9) {
+        problems.push(`Line ${lineNo}: accepted quantity (${li.acceptedQty}) exceeds the quantity delivered (${li.actualQty}).`);
+      }
+      if (round2(alreadyReceived + li.actualQty) > ceiling + 1e-9) {
+        problems.push(
+          `Line ${lineNo} (${poItem.description}): receiving ${li.actualQty} ${poItem.unit} would bring total receipts to ${round2(alreadyReceived + li.actualQty)} against an ordered quantity of ${poItem.quantity} ${poItem.unit}. Over-receipt beyond ${overReceiptPct}% is not permitted.`,
+        );
+      }
+      prepared.push({ ...li, lineNo, poItem, expectedQty });
+    }
+    if (problems.length) throw new RuleViolationError("This delivery cannot be recorded.", problems);
+
+    // Derive the overall verification status from the lines.
+    const anyRejected = prepared.some((p) => (p.rejectedQty ?? 0) > 0);
+    const anyShort = prepared.some((p) => p.actualQty + 1e-9 < p.expectedQty);
+    const anyDiscrepancy = prepared.some((p) => (p.discrepancyType ?? "OK") !== "OK");
+    const allRejected = prepared.every((p) => p.acceptedQty <= 0);
+
+    const status = allRejected
+      ? "REJECTED"
+      : anyDiscrepancy || input.damageObserved || input.leakageObserved
+        ? "ACCEPTED_WITH_DISCREPANCY"
+        : anyRejected || anyShort
+          ? "PARTIALLY_ACCEPTED"
+          : "ACCEPTED";
+
+    const number = await nextNumber(SEQ.DELIVERY, tx);
+    const delivery = await tx.delivery.create({
+      data: {
+        number,
+        poId: po.id,
+        gatePassId: input.gatePassId ?? null,
+        vendorId: po.vendorId,
+        storeId: input.storeId,
+        deliveryNoteRef: input.deliveryNoteRef ?? null,
+        deliveryDate: input.deliveryDate ?? new Date(),
+        receivedById: user.id,
+        totalPackages: input.totalPackages ?? null,
+        packagesVerified: input.packagesVerified ?? null,
+        packagingCondition: input.packagingCondition ?? null,
+        physicalCondition: input.physicalCondition ?? null,
+        damageObserved: Boolean(input.damageObserved),
+        damageNotes: input.damageNotes ?? null,
+        leakageObserved: Boolean(input.leakageObserved),
+        handlingNotes: input.handlingNotes ?? null,
+        weightRecorded: input.weightRecorded ?? null,
+        weightUnit: input.weightUnit ?? null,
+        documentationComplete: input.documentationComplete ?? true,
+        status,
+        remarks: input.remarks ?? null,
+        items: {
+          create: prepared.map((p) => ({
+            poItemId: p.poItemId,
+            itemId: p.poItem.itemId,
+            lineNo: p.lineNo,
+            description: p.poItem.description,
+            orderedQty: p.poItem.quantity,
+            expectedQty: p.expectedQty,
+            actualQty: p.actualQty,
+            acceptedQty: p.acceptedQty,
+            rejectedQty: p.rejectedQty ?? round2(Math.max(0, p.actualQty - p.acceptedQty)),
+            unit: p.poItem.unit,
+            packages: p.packages ?? null,
+            batchNumber: p.batchNumber ?? null,
+            serialNumbers: p.serialNumbers ?? null,
+            expiryDate: p.expiryDate ?? null,
+            warrantyMonths: p.warrantyMonths ?? null,
+            specificationMatch: p.specificationMatch ?? true,
+            conditionNotes: p.conditionNotes ?? null,
+            discrepancyType: p.discrepancyType ?? "OK",
+            discrepancyNotes: p.discrepancyNotes ?? null,
+          })),
+        },
+      },
+    });
+
+    if (input.gatePassId) {
+      await tx.gatePass.update({
+        where: { id: input.gatePassId },
+        data: { status: "RECEIVED", releasedAt: new Date() },
+      });
+      await completeTasks("GATE_PASS", input.gatePassId, user.id, tx);
+    }
+
+    // Every discrepancy becomes a first-class exception.
+    for (const p of prepared) {
+      const dt = p.discrepancyType ?? "OK";
+      const short = p.actualQty + 1e-9 < p.expectedQty;
+      if (dt === "OK" && !short) continue;
+
+      const typeMap: Partial<Record<DiscrepancyType, "QUANTITY_MISMATCH" | "DAMAGED_MATERIAL" | "OTHER">> = {
+        QUANTITY_MISMATCH: "QUANTITY_MISMATCH",
+        SHORT_DELIVERY: "QUANTITY_MISMATCH",
+        EXCESS_DELIVERY: "QUANTITY_MISMATCH",
+        DAMAGED: "DAMAGED_MATERIAL",
+        EXPIRED: "DAMAGED_MATERIAL",
+        WRONG_ITEM: "OTHER",
+        WRONG_SPEC: "OTHER",
+        MISSING_SERIAL: "OTHER",
+        MISSING_WARRANTY: "OTHER",
+      };
+      const excType = typeMap[dt] ?? "QUANTITY_MISMATCH";
+
+      await raiseException(
+        {
+          type: excType,
+          severity: dt === "DAMAGED" || dt === "EXPIRED" || dt === "WRONG_ITEM" ? "HIGH" : "MEDIUM",
+          title: `${delivery.number} line ${p.lineNo}: ${dt === "OK" ? "SHORT_DELIVERY" : dt}`,
+          description: `${p.poItem.description} — expected ${p.expectedQty} ${p.poItem.unit}, delivered ${p.actualQty}, accepted ${p.acceptedQty}. ${p.discrepancyNotes ?? ""}`.trim(),
+          documentType: "PO",
+          documentId: po.id,
+          documentRef: po.number,
+          poId: po.id,
+          caseKey: po.pr?.number ?? null,
+          entityId: po.entityId,
+          raisedById: user.id,
+          notifyRoles: ["PROCUREMENT_OFFICER", "PROCUREMENT_SENIOR_MANAGER", "STORE_MANAGER"],
+        },
+        tx,
+        user,
       );
     }
-    prepared.push({ ...li, lineNo, poItem, expectedQty });
-  }
-  if (problems.length) throw new RuleViolationError("This delivery cannot be recorded.", problems);
 
-  // Derive the overall verification status from the lines.
-  const anyRejected = prepared.some((p) => (p.rejectedQty ?? 0) > 0);
-  const anyShort = prepared.some((p) => p.actualQty + 1e-9 < p.expectedQty);
-  const anyDiscrepancy = prepared.some((p) => (p.discrepancyType ?? "OK") !== "OK");
-  const allRejected = prepared.every((p) => p.acceptedQty <= 0);
+    // Late delivery against the promised PO date.
+    if (po.deliveryDate && delivery.deliveryDate > po.deliveryDate) {
+      const lateDays = Math.ceil((delivery.deliveryDate.getTime() - po.deliveryDate.getTime()) / 86400000);
+      await raiseException(
+        {
+          type: "LATE_DELIVERY",
+          severity: lateDays > 14 ? "HIGH" : "MEDIUM",
+          title: `${po.number} delivered ${lateDays} day(s) late by ${po.vendor.name}`,
+          description: `Promised ${po.deliveryDate.toISOString().slice(0, 10)}, delivered ${delivery.deliveryDate.toISOString().slice(0, 10)}.`,
+          documentType: "PO",
+          documentId: po.id,
+          documentRef: po.number,
+          poId: po.id,
+          caseKey: po.pr?.number ?? null,
+          entityId: po.entityId,
+          raisedById: user.id,
+        },
+        tx,
+        user,
+      );
+    }
 
-  const status = allRejected
-    ? "REJECTED"
-    : anyDiscrepancy || input.damageObserved || input.leakageObserved
-      ? "ACCEPTED_WITH_DISCREPANCY"
-      : anyRejected || anyShort
-        ? "PARTIALLY_ACCEPTED"
-        : "ACCEPTED";
-
-  const number = await nextNumber(SEQ.DELIVERY, db);
-  const delivery = await db.delivery.create({
-    data: {
-      number,
-      poId: po.id,
-      gatePassId: input.gatePassId ?? null,
-      vendorId: po.vendorId,
-      storeId: input.storeId,
-      deliveryNoteRef: input.deliveryNoteRef ?? null,
-      deliveryDate: input.deliveryDate ?? new Date(),
-      receivedById: user.id,
-      totalPackages: input.totalPackages ?? null,
-      packagesVerified: input.packagesVerified ?? null,
-      packagingCondition: input.packagingCondition ?? null,
-      physicalCondition: input.physicalCondition ?? null,
-      damageObserved: Boolean(input.damageObserved),
-      damageNotes: input.damageNotes ?? null,
-      leakageObserved: Boolean(input.leakageObserved),
-      handlingNotes: input.handlingNotes ?? null,
-      weightRecorded: input.weightRecorded ?? null,
-      weightUnit: input.weightUnit ?? null,
-      documentationComplete: input.documentationComplete ?? true,
-      status,
-      remarks: input.remarks ?? null,
-      items: {
-        create: prepared.map((p) => ({
-          poItemId: p.poItemId,
-          itemId: p.poItem.itemId,
-          lineNo: p.lineNo,
-          description: p.poItem.description,
-          orderedQty: p.poItem.quantity,
-          expectedQty: p.expectedQty,
-          actualQty: p.actualQty,
-          acceptedQty: p.acceptedQty,
-          rejectedQty: p.rejectedQty ?? round2(Math.max(0, p.actualQty - p.acceptedQty)),
-          unit: p.poItem.unit,
-          packages: p.packages ?? null,
-          batchNumber: p.batchNumber ?? null,
-          serialNumbers: p.serialNumbers ?? null,
-          expiryDate: p.expiryDate ?? null,
-          warrantyMonths: p.warrantyMonths ?? null,
-          specificationMatch: p.specificationMatch ?? true,
-          conditionNotes: p.conditionNotes ?? null,
-          discrepancyType: p.discrepancyType ?? "OK",
-          discrepancyNotes: p.discrepancyNotes ?? null,
-        })),
-      },
-    },
-  });
-
-  if (input.gatePassId) {
-    await db.gatePass.update({
-      where: { id: input.gatePassId },
-      data: { status: "RECEIVED", releasedAt: new Date() },
-    });
-    await completeTasks("GATE_PASS", input.gatePassId, user.id, db);
-  }
-
-  // Every discrepancy becomes a first-class exception.
-  for (const p of prepared) {
-    const dt = p.discrepancyType ?? "OK";
-    const short = p.actualQty + 1e-9 < p.expectedQty;
-    if (dt === "OK" && !short) continue;
-
-    const typeMap: Partial<Record<DiscrepancyType, "QUANTITY_MISMATCH" | "DAMAGED_MATERIAL" | "OTHER">> = {
-      QUANTITY_MISMATCH: "QUANTITY_MISMATCH",
-      SHORT_DELIVERY: "QUANTITY_MISMATCH",
-      EXCESS_DELIVERY: "QUANTITY_MISMATCH",
-      DAMAGED: "DAMAGED_MATERIAL",
-      EXPIRED: "DAMAGED_MATERIAL",
-      WRONG_ITEM: "OTHER",
-      WRONG_SPEC: "OTHER",
-      MISSING_SERIAL: "OTHER",
-      MISSING_WARRANTY: "OTHER",
-    };
-    const excType = typeMap[dt] ?? "QUANTITY_MISMATCH";
-
-    await raiseException(
+    await writeAudit(
       {
-        type: excType,
-        severity: dt === "DAMAGED" || dt === "EXPIRED" || dt === "WRONG_ITEM" ? "HIGH" : "MEDIUM",
-        title: `${delivery.number} line ${p.lineNo}: ${dt === "OK" ? "SHORT_DELIVERY" : dt}`,
-        description: `${p.poItem.description} — expected ${p.expectedQty} ${p.poItem.unit}, delivered ${p.actualQty}, accepted ${p.acceptedQty}. ${p.discrepancyNotes ?? ""}`.trim(),
-        documentType: "PO",
-        documentId: po.id,
-        documentRef: po.number,
-        poId: po.id,
+        entityType: "Delivery",
+        entityId: delivery.id,
+        entityRef: delivery.number,
+        action: "DELIVERY_VERIFIED",
+        newValue: {
+          po: po.number,
+          store: store.name,
+          status,
+          lines: prepared.map((p) => ({
+            line: p.lineNo,
+            delivered: p.actualQty,
+            accepted: p.acceptedQty,
+            discrepancy: p.discrepancyType ?? "OK",
+          })),
+        },
         caseKey: po.pr?.number ?? null,
-        entityId: po.entityId,
-        raisedById: user.id,
-        notifyRoles: ["PROCUREMENT_OFFICER", "PROCUREMENT_SENIOR_MANAGER", "STORE_MANAGER"],
+        actor: user,
       },
-      db,
-      user,
+      tx,
     );
-  }
 
-  // Late delivery against the promised PO date.
-  if (po.deliveryDate && delivery.deliveryDate > po.deliveryDate) {
-    const lateDays = Math.ceil((delivery.deliveryDate.getTime() - po.deliveryDate.getTime()) / 86400000);
-    await raiseException(
-      {
-        type: "LATE_DELIVERY",
-        severity: lateDays > 14 ? "HIGH" : "MEDIUM",
-        title: `${po.number} delivered ${lateDays} day(s) late by ${po.vendor.name}`,
-        description: `Promised ${po.deliveryDate.toISOString().slice(0, 10)}, delivered ${delivery.deliveryDate.toISOString().slice(0, 10)}.`,
-        documentType: "PO",
-        documentId: po.id,
-        documentRef: po.number,
-        poId: po.id,
-        caseKey: po.pr?.number ?? null,
-        entityId: po.entityId,
-        raisedById: user.id,
-      },
-      db,
-      user,
+    // Queue technical inspection where the PO lines demand it.
+    const needsInspection = po.items.filter(
+      (i) => i.requiresInspection && prepared.some((p) => p.poItemId === i.id && p.acceptedQty > 0),
     );
-  }
+    let inspection = null;
+    if (needsInspection.length) {
+      inspection = await scheduleInspection(
+        user,
+        {
+          deliveryId: delivery.id,
+          poId: po.id,
+          poItemIds: needsInspection.map((i) => i.id),
+        },
+        tx,
+      );
+    } else {
+      await createTask(
+        {
+          title: `Raise GRN for ${delivery.number}`,
+          description: `${po.number} · ${store.name}`,
+          taskType: "ACTION",
+          assigneeId: store.managerId ?? user.id,
+          entityId: po.entityId,
+          documentType: "DELIVERY",
+          documentId: delivery.id,
+          documentRef: delivery.number,
+          priority: "HIGH",
+          slaHours: await getConfigNumber(CONFIG_KEYS.SLA_GRN_HOURS, po.entityId, tx),
+          linkUrl: `/receiving/${delivery.id}`,
+        },
+        tx,
+      );
+    }
 
-  await writeAudit(
-    {
-      entityType: "Delivery",
-      entityId: delivery.id,
-      entityRef: delivery.number,
-      action: "DELIVERY_VERIFIED",
-      newValue: {
-        po: po.number,
-        store: store.name,
-        status,
-        lines: prepared.map((p) => ({
-          line: p.lineNo,
-          delivered: p.actualQty,
-          accepted: p.acceptedQty,
-          discrepancy: p.discrepancyType ?? "OK",
-        })),
-      },
-      caseKey: po.pr?.number ?? null,
-      actor: user,
-    },
-    db,
-  );
-
-  // Queue technical inspection where the PO lines demand it.
-  const needsInspection = po.items.filter(
-    (i) => i.requiresInspection && prepared.some((p) => p.poItemId === i.id && p.acceptedQty > 0),
-  );
-  let inspection = null;
-  if (needsInspection.length) {
-    inspection = await scheduleInspection(
-      user,
+    await notify(
       {
-        deliveryId: delivery.id,
-        poId: po.id,
-        poItemIds: needsInspection.map((i) => i.id),
-      },
-      db,
-    );
-  } else {
-    await createTask(
-      {
-        title: `Raise GRN for ${delivery.number}`,
-        description: `${po.number} · ${store.name}`,
-        taskType: "ACTION",
-        assigneeId: store.managerId ?? user.id,
+        roleCodes: ["PROCUREMENT_OFFICER", "BUYER", "STORE_MANAGER"],
         entityId: po.entityId,
-        documentType: "DELIVERY",
-        documentId: delivery.id,
-        documentRef: delivery.number,
-        priority: "HIGH",
-        slaHours: await getConfigNumber(CONFIG_KEYS.SLA_GRN_HOURS, po.entityId, db),
+        type: status === "ACCEPTED" ? "GRN_PENDING" : "GENERAL",
+        title: `${delivery.number} recorded against ${po.number} — ${status.replace(/_/g, " ").toLowerCase()}`,
+        body: `${store.name} · ${prepared.length} line(s)`,
+        priority: status === "ACCEPTED" ? "NORMAL" : "HIGH",
+        linkType: "DELIVERY",
+        linkId: delivery.id,
         linkUrl: `/receiving/${delivery.id}`,
       },
-      db,
+      tx,
     );
-  }
 
-  await notify(
-    {
-      roleCodes: ["PROCUREMENT_OFFICER", "BUYER", "STORE_MANAGER"],
-      entityId: po.entityId,
-      type: status === "ACCEPTED" ? "GRN_PENDING" : "GENERAL",
-      title: `${delivery.number} recorded against ${po.number} — ${status.replace(/_/g, " ").toLowerCase()}`,
-      body: `${store.name} · ${prepared.length} line(s)`,
-      priority: status === "ACCEPTED" ? "NORMAL" : "HIGH",
-      linkType: "DELIVERY",
-      linkId: delivery.id,
-      linkUrl: `/receiving/${delivery.id}`,
-    },
-    db,
-  );
-
-  return { delivery, inspection, status };
+    return { delivery, inspection, status };
+  });
 }
 
 /* ── Technical inspection ─────────────────────────────────── */
@@ -687,143 +691,145 @@ export async function recordInspection(
   },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.INSPECTION_PERFORM)) {
-    throw new ForbiddenError("You do not have permission to perform technical inspections.");
-  }
-  const inspection = await db.inspection.findUnique({
-    where: { id: input.inspectionId },
-    include: { items: true, delivery: { include: { store: true } }, po: { include: { pr: true } } },
-  });
-  if (!inspection) throw new NotFoundError("Inspection");
-  if (["APPROVED", "REJECTED"].includes(inspection.result)) {
-    throw new RuleViolationError(`Inspection ${inspection.number} is already ${inspection.result.toLowerCase()}.`);
-  }
-  if (!input.signedByName?.trim()) {
-    throw new ValidationError("The inspection must be signed by the responsible inspector.");
-  }
-  if (input.result === "CONDITIONAL" && !input.conditions?.trim()) {
-    throw new ValidationError("Record the conditions attached to a conditional approval.");
-  }
-  if (input.result === "REJECTED" && !input.findings?.trim()) {
-    throw new ValidationError("Record the findings that led to rejection.");
-  }
-
-  for (const r of input.items) {
-    const item = inspection.items.find((i) => i.id === r.inspectionItemId);
-    if (!item) throw new ValidationError("An inspection result does not belong to this inspection.");
-    if (round2(r.quantityPassed + r.quantityFailed) > item.quantityInspected + 1e-9) {
-      throw new ValidationError(
-        `Line ${item.lineNo}: passed + failed (${round2(r.quantityPassed + r.quantityFailed)}) exceeds the quantity presented (${item.quantityInspected}).`,
-      );
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.INSPECTION_PERFORM)) {
+      throw new ForbiddenError("You do not have permission to perform technical inspections.");
     }
-    await db.inspectionItem.update({
-      where: { id: item.id },
+    const inspection = await tx.inspection.findUnique({
+      where: { id: input.inspectionId },
+      include: { items: true, delivery: { include: { store: true } }, po: { include: { pr: true } } },
+    });
+    if (!inspection) throw new NotFoundError("Inspection");
+    if (["APPROVED", "REJECTED"].includes(inspection.result)) {
+      throw new RuleViolationError(`Inspection ${inspection.number} is already ${inspection.result.toLowerCase()}.`);
+    }
+    if (!input.signedByName?.trim()) {
+      throw new ValidationError("The inspection must be signed by the responsible inspector.");
+    }
+    if (input.result === "CONDITIONAL" && !input.conditions?.trim()) {
+      throw new ValidationError("Record the conditions attached to a conditional approval.");
+    }
+    if (input.result === "REJECTED" && !input.findings?.trim()) {
+      throw new ValidationError("Record the findings that led to rejection.");
+    }
+
+    for (const r of input.items) {
+      const item = inspection.items.find((i) => i.id === r.inspectionItemId);
+      if (!item) throw new ValidationError("An inspection result does not belong to this inspection.");
+      if (round2(r.quantityPassed + r.quantityFailed) > item.quantityInspected + 1e-9) {
+        throw new ValidationError(
+          `Line ${item.lineNo}: passed + failed (${round2(r.quantityPassed + r.quantityFailed)}) exceeds the quantity presented (${item.quantityInspected}).`,
+        );
+      }
+      await tx.inspectionItem.update({
+        where: { id: item.id },
+        data: {
+          quantityPassed: r.quantityPassed,
+          quantityFailed: r.quantityFailed,
+          serialNumber: r.serialNumber ?? item.serialNumber,
+          modelVerified: r.modelVerified ?? null,
+          specVerified: r.specVerified ?? null,
+          configuration: r.configuration ?? null,
+          condition: r.condition ?? null,
+          performanceNotes: r.performanceNotes ?? null,
+          accessoriesComplete: r.accessoriesComplete ?? true,
+          verdict: r.verdict,
+          criteriaResults: JSON.stringify(r.criteriaResults ?? []),
+          notes: r.notes ?? null,
+        },
+      });
+    }
+
+    const updated = await tx.inspection.update({
+      where: { id: inspection.id },
       data: {
-        quantityPassed: r.quantityPassed,
-        quantityFailed: r.quantityFailed,
-        serialNumber: r.serialNumber ?? item.serialNumber,
-        modelVerified: r.modelVerified ?? null,
-        specVerified: r.specVerified ?? null,
-        configuration: r.configuration ?? null,
-        condition: r.condition ?? null,
-        performanceNotes: r.performanceNotes ?? null,
-        accessoriesComplete: r.accessoriesComplete ?? true,
-        verdict: r.verdict,
-        criteriaResults: JSON.stringify(r.criteriaResults ?? []),
-        notes: r.notes ?? null,
+        result: input.result,
+        findings: input.findings ?? null,
+        conditions: input.conditions ?? null,
+        inspectorId: inspection.inspectorId ?? user.id,
+        inspectedAt: new Date(),
+        signedByName: input.signedByName.trim(),
+        signedAt: new Date(),
       },
     });
-  }
 
-  const updated = await db.inspection.update({
-    where: { id: inspection.id },
-    data: {
-      result: input.result,
-      findings: input.findings ?? null,
-      conditions: input.conditions ?? null,
-      inspectorId: inspection.inspectorId ?? user.id,
-      inspectedAt: new Date(),
-      signedByName: input.signedByName.trim(),
-      signedAt: new Date(),
-    },
-  });
+    await completeTasks("INSPECTION", inspection.id, user.id, tx);
 
-  await completeTasks("INSPECTION", inspection.id, user.id, db);
+    if (input.result === "REJECTED" || input.result === "RE_INSPECTION_REQUIRED") {
+      await raiseException(
+        {
+          type: "FAILED_INSPECTION",
+          severity: input.result === "REJECTED" ? "HIGH" : "MEDIUM",
+          title: `${inspection.number}: inspection ${input.result.toLowerCase().replace(/_/g, " ")}`,
+          description: input.findings ?? undefined,
+          documentType: "PO",
+          documentId: inspection.poId ?? "",
+          documentRef: inspection.po?.number ?? inspection.number,
+          poId: inspection.poId,
+          caseKey: inspection.po?.pr?.number ?? null,
+          entityId: inspection.po?.entityId ?? null,
+          raisedById: user.id,
+          blocking: input.result === "REJECTED",
+          notifyRoles: ["PROCUREMENT_OFFICER", "PROCUREMENT_SENIOR_MANAGER", "STORE_MANAGER"],
+        },
+        tx,
+        user,
+      );
+    }
 
-  if (input.result === "REJECTED" || input.result === "RE_INSPECTION_REQUIRED") {
-    await raiseException(
+    if (input.result === "APPROVED" || input.result === "CONDITIONAL") {
+      await createTask(
+        {
+          title: `Raise GRN — inspection ${inspection.number} cleared`,
+          taskType: "ACTION",
+          assigneeId: inspection.delivery?.store.managerId ?? null,
+          assignedRoleCode: inspection.delivery?.store.managerId ? null : "STORE_MANAGER",
+          entityId: inspection.po?.entityId ?? null,
+          documentType: "DELIVERY",
+          documentId: inspection.deliveryId ?? inspection.id,
+          documentRef: inspection.delivery?.number ?? inspection.number,
+          priority: "HIGH",
+          slaHours: 24,
+          linkUrl: inspection.deliveryId ? `/receiving/${inspection.deliveryId}` : `/inspections/${inspection.id}`,
+        },
+        tx,
+      );
+    }
+
+    await notify(
       {
-        type: "FAILED_INSPECTION",
-        severity: input.result === "REJECTED" ? "HIGH" : "MEDIUM",
-        title: `${inspection.number}: inspection ${input.result.toLowerCase().replace(/_/g, " ")}`,
-        description: input.findings ?? undefined,
-        documentType: "PO",
-        documentId: inspection.poId ?? "",
-        documentRef: inspection.po?.number ?? inspection.number,
-        poId: inspection.poId,
+        roleCodes: ["PROCUREMENT_OFFICER", "STORE_MANAGER", "WAREHOUSE_MANAGER"],
+        entityId: inspection.po?.entityId ?? null,
+        type: "INSPECTION_REQUIRED",
+        title: `Inspection ${inspection.number} — ${input.result.replace(/_/g, " ").toLowerCase()}`,
+        body: input.findings ?? undefined,
+        priority: input.result === "REJECTED" ? "HIGH" : "NORMAL",
+        linkType: "INSPECTION",
+        linkId: inspection.id,
+        linkUrl: `/inspections/${inspection.id}`,
+      },
+      tx,
+    );
+
+    await writeAudit(
+      {
+        entityType: "Inspection",
+        entityId: inspection.id,
+        entityRef: inspection.number,
+        action: `INSPECTION_${input.result}`,
+        newValue: {
+          signedBy: input.signedByName,
+          lines: input.items.map((i) => ({ passed: i.quantityPassed, failed: i.quantityFailed, verdict: i.verdict })),
+        },
+        reason: input.findings ?? null,
         caseKey: inspection.po?.pr?.number ?? null,
-        entityId: inspection.po?.entityId ?? null,
-        raisedById: user.id,
-        blocking: input.result === "REJECTED",
-        notifyRoles: ["PROCUREMENT_OFFICER", "PROCUREMENT_SENIOR_MANAGER", "STORE_MANAGER"],
+        actor: user,
       },
-      db,
-      user,
+      tx,
     );
-  }
 
-  if (input.result === "APPROVED" || input.result === "CONDITIONAL") {
-    await createTask(
-      {
-        title: `Raise GRN — inspection ${inspection.number} cleared`,
-        taskType: "ACTION",
-        assigneeId: inspection.delivery?.store.managerId ?? null,
-        assignedRoleCode: inspection.delivery?.store.managerId ? null : "STORE_MANAGER",
-        entityId: inspection.po?.entityId ?? null,
-        documentType: "DELIVERY",
-        documentId: inspection.deliveryId ?? inspection.id,
-        documentRef: inspection.delivery?.number ?? inspection.number,
-        priority: "HIGH",
-        slaHours: 24,
-        linkUrl: inspection.deliveryId ? `/receiving/${inspection.deliveryId}` : `/inspections/${inspection.id}`,
-      },
-      db,
-    );
-  }
-
-  await notify(
-    {
-      roleCodes: ["PROCUREMENT_OFFICER", "STORE_MANAGER", "WAREHOUSE_MANAGER"],
-      entityId: inspection.po?.entityId ?? null,
-      type: "INSPECTION_REQUIRED",
-      title: `Inspection ${inspection.number} — ${input.result.replace(/_/g, " ").toLowerCase()}`,
-      body: input.findings ?? undefined,
-      priority: input.result === "REJECTED" ? "HIGH" : "NORMAL",
-      linkType: "INSPECTION",
-      linkId: inspection.id,
-      linkUrl: `/inspections/${inspection.id}`,
-    },
-    db,
-  );
-
-  await writeAudit(
-    {
-      entityType: "Inspection",
-      entityId: inspection.id,
-      entityRef: inspection.number,
-      action: `INSPECTION_${input.result}`,
-      newValue: {
-        signedBy: input.signedByName,
-        lines: input.items.map((i) => ({ passed: i.quantityPassed, failed: i.quantityFailed, verdict: i.verdict })),
-      },
-      reason: input.findings ?? null,
-      caseKey: inspection.po?.pr?.number ?? null,
-      actor: user,
-    },
-    db,
-  );
-
-  return updated;
+    return updated;
+  });
 }
 
 export async function assignInspector(

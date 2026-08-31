@@ -1,4 +1,4 @@
-import { prisma, type DbClient } from "@/lib/db";
+import { prisma, withTransaction, type DbClient } from "@/lib/db";
 import { nextNumber, SEQ } from "@/lib/numbering";
 import { RuleViolationError, NotFoundError } from "@/lib/errors";
 import { writeAudit, type AuditActor } from "@/lib/audit";
@@ -159,160 +159,170 @@ export async function postMovement(
    */
   authority: Authority = { permission: MOVEMENT_AUTHORITY[type] ?? [] },
 ): Promise<InventoryTransactionRow> {
+  // The authorization check stays outside the transaction: it must not be able
+  // to hold a pool slot, and refusing is not a database operation.
   assertAuthority(actor, DOMAIN_ACTIONS.INVENTORY_MOVEMENT_POST, authority);
   if (input.quantity <= 0 && type !== "ADJUSTMENT") {
     throw new RuleViolationError("Movement quantity must be greater than zero.");
   }
-  const key = bucketKey(input);
 
-  // Outbound with no batch or serial named: the caller wants "this quantity of
-  // this item from this store" and does not care which receipt it came from.
-  // Availability is reported across every bucket, so consumption has to work the
-  // same way — otherwise batch-tracked stock could be seen but never issued.
-  // A negative adjustment is outbound in every way that matters: it takes stock
-  // off the shelf. Without this, goods found faulty after receipt could not be
-  // adjusted out of batch-tracked stock at all without naming the exact batch —
-  // which the person holding the broken item does not know.
-  const outboundAdjustment = type === "ADJUSTMENT" && input.quantity < 0;
-  if ((OUTBOUND.has(type) || outboundAdjustment) && key.batchNumber === null && key.serialNumber === null) {
-    const allocated = await allocateOutbound(type, input, db, actor, authority);
-    if (allocated) return allocated;
-  }
+  // A movement is a bucket update *and* a ledger row, and the two must not come
+  // apart: a bucket without its transaction is stock that appeared from nowhere,
+  // and a transaction without its bucket is a ledger that does not reconcile.
+  // Callers that are already inside a transaction — posting a receipt, issuing
+  // against a requisition — join theirs rather than opening a second one.
+  return withTransaction(db, async (tx) => {
+    const key = bucketKey(input);
 
-  const existing = await db.inventoryItem.findFirst({
-    where: {
-      itemId: input.itemId,
-      storeId: input.storeId,
-      batchNumber: key.batchNumber,
-      serialNumber: key.serialNumber,
-    },
-  });
-
-  const signed =
-    type === "ADJUSTMENT"
-      ? input.quantity
-      : INBOUND.has(type)
-        ? Math.abs(input.quantity)
-        : -Math.abs(input.quantity);
-
-  const currentQty = existing?.quantity ?? 0;
-  const reserved = existing?.reservedQty ?? 0;
-
-  if (signed < 0) {
-    const free = currentQty - reserved;
-    if (free + signed < -1e-9) {
-      const item = await db.item.findUnique({ where: { id: input.itemId }, select: { name: true, sku: true } });
-      throw new RuleViolationError(
-        `Insufficient stock for ${item?.sku ?? input.itemId} — available ${round2(free)} ${input.unit}, requested ${round2(Math.abs(signed))} ${input.unit}.`,
-      );
+    // Outbound with no batch or serial named: the caller wants "this quantity of
+    // this item from this store" and does not care which receipt it came from.
+    // Availability is reported across every bucket, so consumption has to work the
+    // same way — otherwise batch-tracked stock could be seen but never issued.
+    // A negative adjustment is outbound in every way that matters: it takes stock
+    // off the shelf. Without this, goods found faulty after receipt could not be
+    // adjusted out of batch-tracked stock at all without naming the exact batch —
+    // which the person holding the broken item does not know.
+    const outboundAdjustment = type === "ADJUSTMENT" && input.quantity < 0;
+    if ((OUTBOUND.has(type) || outboundAdjustment) && key.batchNumber === null && key.serialNumber === null) {
+      const allocated = await allocateOutbound(type, input, tx, actor, authority);
+      if (allocated) return allocated;
     }
-  }
 
-  const newQty = round2(currentQty + signed);
-  // Weighted-average costing on inbound movements.
-  const inCost = input.unitCost ?? existing?.unitCost ?? 0;
-  let unitCost = existing?.unitCost ?? inCost;
-  if (signed > 0 && input.unitCost !== undefined && input.unitCost > 0) {
-    const prevValue = currentQty * (existing?.unitCost ?? 0);
-    const addValue = signed * input.unitCost;
-    unitCost = newQty > 0 ? round2((prevValue + addValue) / newQty) : input.unitCost;
-  }
-
-  const warrantyUntil =
-    input.warrantyMonths && input.warrantyMonths > 0
-      ? new Date(Date.now() + input.warrantyMonths * 30 * 86400000)
-      : (existing?.warrantyUntil ?? null);
-
-  if (existing) {
-    await db.inventoryItem.update({
-      where: { id: existing.id },
-      data: {
-        quantity: newQty,
-        unitCost,
-        totalValue: round2(newQty * unitCost),
-        unit: input.unit,
-        locationId: input.locationId ?? existing.locationId,
-        projectId: input.projectId ?? existing.projectId,
-        expiryDate: input.expiryDate ?? existing.expiryDate,
-        warrantyMonths: input.warrantyMonths ?? existing.warrantyMonths,
-        warrantyUntil,
-        entityId: input.entityId ?? existing.entityId,
-        ...(input.source.kind === "GRN" ? { lastGrnId: input.source.id } : {}),
-      },
-    });
-  } else {
-    if (signed < 0) {
-      throw new RuleViolationError("Cannot issue from a store where this item has no stock record.");
-    }
-    await db.inventoryItem.create({
-      data: {
+    const existing = await tx.inventoryItem.findFirst({
+      where: {
         itemId: input.itemId,
         storeId: input.storeId,
-        locationId: input.locationId ?? null,
-        projectId: input.projectId ?? null,
         batchNumber: key.batchNumber,
         serialNumber: key.serialNumber,
-        expiryDate: input.expiryDate ?? null,
-        quantity: newQty,
-        unit: input.unit,
-        unitCost: inCost,
-        totalValue: round2(newQty * inCost),
-        warrantyMonths: input.warrantyMonths ?? null,
-        warrantyUntil,
-        entityId: input.entityId ?? null,
-        ...(input.source.kind === "GRN" ? { lastGrnId: input.source.id } : {}),
       },
     });
-    unitCost = inCost;
-  }
 
-  const number = await nextNumber(SEQ.INV_TXN, db);
-  const txn = await db.inventoryTransaction.create({
-    data: {
-      number,
-      itemId: input.itemId,
-      storeId: input.storeId,
-      type,
-      quantity: round2(Math.abs(signed)) * (signed < 0 ? -1 : 1),
-      unit: input.unit,
-      unitCost,
-      value: round2(Math.abs(signed) * unitCost),
-      balanceAfter: newQty,
-      batchNumber: key.batchNumber,
-      serialNumber: key.serialNumber,
-      sourceType: input.source.kind,
-      sourceId: input.source.id ?? null,
-      sourceRef: input.source.ref,
-      grnId: input.source.kind === "GRN" ? input.source.id : null,
-      issueId: input.source.kind === "ISSUE" ? input.source.id : null,
-      transferId: input.source.kind === "TRANSFER" ? input.source.id : null,
-      disposalId: input.source.kind === "DISPOSAL" ? input.source.id : null,
-      pettyCashId: input.source.kind === "PETTY_CASH" ? input.source.id : null,
-      reason: input.reason ?? null,
-      performedById: input.performedById,
-    },
-  });
+    const signed =
+      type === "ADJUSTMENT"
+        ? input.quantity
+        : INBOUND.has(type)
+          ? Math.abs(input.quantity)
+          : -Math.abs(input.quantity);
 
-  await writeAudit(
-    {
-      entityType: "InventoryTransaction",
-      entityId: txn.id,
-      entityRef: txn.number,
-      action: `INVENTORY_${type}`,
-      newValue: {
+    const currentQty = existing?.quantity ?? 0;
+    const reserved = existing?.reservedQty ?? 0;
+
+    if (signed < 0) {
+      const free = currentQty - reserved;
+      if (free + signed < -1e-9) {
+        const item = await tx.item.findUnique({ where: { id: input.itemId }, select: { name: true, sku: true } });
+        throw new RuleViolationError(
+          `Insufficient stock for ${item?.sku ?? input.itemId} — available ${round2(free)} ${input.unit}, requested ${round2(Math.abs(signed))} ${input.unit}.`,
+        );
+      }
+    }
+
+    const newQty = round2(currentQty + signed);
+    // Weighted-average costing on inbound movements.
+    const inCost = input.unitCost ?? existing?.unitCost ?? 0;
+    let unitCost = existing?.unitCost ?? inCost;
+    if (signed > 0 && input.unitCost !== undefined && input.unitCost > 0) {
+      const prevValue = currentQty * (existing?.unitCost ?? 0);
+      const addValue = signed * input.unitCost;
+      unitCost = newQty > 0 ? round2((prevValue + addValue) / newQty) : input.unitCost;
+    }
+
+    const warrantyUntil =
+      input.warrantyMonths && input.warrantyMonths > 0
+        ? new Date(Date.now() + input.warrantyMonths * 30 * 86400000)
+        : (existing?.warrantyUntil ?? null);
+
+    if (existing) {
+      await tx.inventoryItem.update({
+        where: { id: existing.id },
+        data: {
+          quantity: newQty,
+          unitCost,
+          totalValue: round2(newQty * unitCost),
+          unit: input.unit,
+          locationId: input.locationId ?? existing.locationId,
+          projectId: input.projectId ?? existing.projectId,
+          expiryDate: input.expiryDate ?? existing.expiryDate,
+          warrantyMonths: input.warrantyMonths ?? existing.warrantyMonths,
+          warrantyUntil,
+          entityId: input.entityId ?? existing.entityId,
+          ...(input.source.kind === "GRN" ? { lastGrnId: input.source.id } : {}),
+        },
+      });
+    } else {
+      if (signed < 0) {
+        throw new RuleViolationError("Cannot issue from a store where this item has no stock record.");
+      }
+      await tx.inventoryItem.create({
+        data: {
+          itemId: input.itemId,
+          storeId: input.storeId,
+          locationId: input.locationId ?? null,
+          projectId: input.projectId ?? null,
+          batchNumber: key.batchNumber,
+          serialNumber: key.serialNumber,
+          expiryDate: input.expiryDate ?? null,
+          quantity: newQty,
+          unit: input.unit,
+          unitCost: inCost,
+          totalValue: round2(newQty * inCost),
+          warrantyMonths: input.warrantyMonths ?? null,
+          warrantyUntil,
+          entityId: input.entityId ?? null,
+          ...(input.source.kind === "GRN" ? { lastGrnId: input.source.id } : {}),
+        },
+      });
+      unitCost = inCost;
+    }
+
+    const number = await nextNumber(SEQ.INV_TXN, tx);
+    const txn = await tx.inventoryTransaction.create({
+      data: {
+        number,
         itemId: input.itemId,
         storeId: input.storeId,
-        quantity: txn.quantity,
+        type,
+        quantity: round2(Math.abs(signed)) * (signed < 0 ? -1 : 1),
+        unit: input.unit,
+        unitCost,
+        value: round2(Math.abs(signed) * unitCost),
         balanceAfter: newQty,
-        source: `${input.source.kind}:${input.source.ref}`,
+        batchNumber: key.batchNumber,
+        serialNumber: key.serialNumber,
+        sourceType: input.source.kind,
+        sourceId: input.source.id ?? null,
+        sourceRef: input.source.ref,
+        grnId: input.source.kind === "GRN" ? input.source.id : null,
+        issueId: input.source.kind === "ISSUE" ? input.source.id : null,
+        transferId: input.source.kind === "TRANSFER" ? input.source.id : null,
+        disposalId: input.source.kind === "DISPOSAL" ? input.source.id : null,
+        pettyCashId: input.source.kind === "PETTY_CASH" ? input.source.id : null,
+        reason: input.reason ?? null,
+        performedById: input.performedById,
       },
-      reason: input.reason ?? null,
-      actor: actor ?? null,
-    },
-    db,
-  );
+    });
 
-  return txn;
+    await writeAudit(
+      {
+        entityType: "InventoryTransaction",
+        entityId: txn.id,
+        entityRef: txn.number,
+        action: `INVENTORY_${type}`,
+        newValue: {
+          itemId: input.itemId,
+          storeId: input.storeId,
+          quantity: txn.quantity,
+          balanceAfter: newQty,
+          source: `${input.source.kind}:${input.source.ref}`,
+        },
+        reason: input.reason ?? null,
+        actor: actor ?? null,
+      },
+      tx,
+    );
+
+    return txn;
+  });
 }
 
 /**

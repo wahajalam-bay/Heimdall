@@ -1,4 +1,4 @@
-import { prisma, type DbClient } from "@/lib/db";
+import { prisma, withTransaction, type DbClient } from "@/lib/db";
 import { nextNumber, SEQ } from "@/lib/numbering";
 import { CONFIG_KEYS, getConfigBool, getConfigNumber } from "@/lib/config";
 import { ForbiddenError, NotFoundError, RuleViolationError, ValidationError } from "@/lib/errors";
@@ -108,217 +108,219 @@ export type PoInput = {
 
 /** Creates a draft PO from the approved procurement case. */
 export async function createPoFromCase(user: SessionUser, input: PoInput, db: DbClient = prisma) {
-  if (!userHasPermission(user, P.PO_CREATE)) {
-    throw new ForbiddenError("You do not have permission to create purchase orders.");
-  }
-  await assertRequisitionComplete(input.prId, "Raising a purchase order", db);
-  const readiness = await poReadiness(input.prId, db);
-  if (!readiness.ready) {
-    throw new RuleViolationError("This case is not ready for a purchase order.", readiness.issues);
-  }
-
-  const pr = await db.purchaseRequisition.findUnique({
-    where: { id: input.prId },
-    include: {
-      items: { include: { category: true } },
-      comparatives: {
-        where: { status: { in: ["RECOMMENDED", "APPROVED"] } },
-        orderBy: { preparedAt: "desc" },
-        include: { lines: { where: { isSelected: true }, include: { vendor: true, quote: { include: { items: true } } } }, rfq: true },
-      },
-      deliveryStore: true,
-    },
-  });
-  if (!pr) throw new NotFoundError("Requisition");
-  const comparative = pr.comparatives[0];
-  const selected = comparative.lines[0];
-  const quote = selected.quote;
-  const vendor = selected.vendor;
-
-  const eligibility = await checkVendorEligibility(vendor.id, pr.entityId, db);
-  if (!eligibility.eligible) {
-    throw new RuleViolationError(eligibility.reason ?? "The awarded vendor is not eligible.");
-  }
-
-  // Apply the negotiated outcome proportionally so the PO reflects the final price.
-  const negotiated = await effectiveQuoteTotal(quote.id, db);
-  const factor = quote.total > 0 ? negotiated / quote.total : 1;
-
-  const inspectionCategories = await (await import("@/lib/config")).getConfigArray<string>(
-    CONFIG_KEYS.REQUIRE_INSPECTION_CATEGORIES,
-    pr.entityId,
-    db,
-  );
-
-  const lines = quote.items.map((qi, idx) => {
-    const prItem = pr.items.find((p) => p.id === qi.prItemId) ?? pr.items[idx] ?? pr.items[0];
-    const qty = input.quantities?.[qi.id] ?? qi.quantity;
-    const unitPrice = round2(qi.unitPrice * factor);
-    const net = round2(unitPrice * qty);
-    const taxAmount = round2(net * (qi.taxRate / 100));
-    const category = prItem?.category;
-    const requiresInspection =
-      Boolean(category?.requiresInspection) ||
-      (category ? inspectionCategories.includes(category.code) : false);
-    return {
-      lineNo: idx + 1,
-      itemId: qi.itemId ?? prItem?.itemId ?? null,
-      prItemId: prItem?.id ?? null,
-      description: qi.description,
-      brand: qi.brand ?? prItem?.brand ?? null,
-      model: qi.model ?? prItem?.model ?? null,
-      specification: qi.specification ?? prItem?.specification ?? null,
-      quantity: qty,
-      unit: qi.unit,
-      unitPrice,
-      taxRate: qi.taxRate,
-      taxAmount,
-      lineTotal: round2(net + taxAmount),
-      disposition: prItem?.disposition ?? category?.defaultDisposition ?? "INVENTORY",
-      requiresInspection,
-      net,
-    };
-  });
-
-  const subtotal = round2(lines.reduce((a, l) => a + l.net, 0));
-  const taxAmount = round2(lines.reduce((a, l) => a + l.taxAmount, 0));
-  const deliveryCharges = round2(quote.deliveryCharges * factor);
-  const otherCharges = round2(quote.otherCharges * factor);
-  const discount = round2(quote.discount * factor);
-  const total = round2(subtotal + taxAmount + deliveryCharges + otherCharges - discount);
-
-  // Advance payment governance.
-  let advanceAmount: number | null = null;
-  if (input.advanceRequired) {
-    const allowed = await getConfigBool(CONFIG_KEYS.ADVANCE_PAYMENT_ALLOWED, pr.entityId, db);
-    if (!allowed) throw new RuleViolationError("Advance payments are not permitted for this entity.");
-    const maxPct = await getConfigNumber(CONFIG_KEYS.ADVANCE_MAX_PERCENT, pr.entityId, db);
-    const pct = input.advancePercent ?? maxPct;
-    if (pct > maxPct) {
-      throw new RuleViolationError(`Advance of ${pct}% exceeds the maximum permitted ${maxPct}%.`);
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.PO_CREATE)) {
+      throw new ForbiddenError("You do not have permission to create purchase orders.");
     }
-    const needsCollateral = await getConfigBool(CONFIG_KEYS.ADVANCE_REQUIRES_COLLATERAL, pr.entityId, db);
-    if (needsCollateral && (!input.collateralType || input.collateralType === "NONE" || !input.collateralRef?.trim())) {
-      throw new RuleViolationError(
-        "An advance payment requires collateral — record the security cheque or bank guarantee reference.",
-      );
+    await assertRequisitionComplete(input.prId, "Raising a purchase order", tx);
+    const readiness = await poReadiness(input.prId, tx);
+    if (!readiness.ready) {
+      throw new RuleViolationError("This case is not ready for a purchase order.", readiness.issues);
     }
-    advanceAmount = round2((total * pct) / 100);
-  }
 
-  const number = await nextNumber(SEQ.PO, db);
-  const po = await db.purchaseOrder.create({
-    data: {
-      number,
-      entityId: pr.entityId,
-      prId: pr.id,
-      // The expenditure treatment is decided at the requisition and must not be
-      // re-decided here; finance reads it off the receipt without walking back
-      // up the chain.
-      expenditureType: pr.expenditureType,
-      costCenterId: pr.costCenterId,
-      rfqId: comparative.rfqId,
-      quoteId: quote.id,
-      vendorId: vendor.id,
-      vendorAddress: vendor.address,
-      vendorContact: [vendor.contactPerson, vendor.contactPhone, vendor.contactEmail].filter(Boolean).join(" · ") || null,
-      deliveryStoreId: input.deliveryStoreId ?? pr.deliveryStoreId,
-      deliveryAddress: input.deliveryAddress ?? pr.deliveryStore?.address ?? pr.deliveryLocationNote,
-      deliveryDate:
-        input.deliveryDate ??
-        (quote.deliveryDays ? new Date(Date.now() + quote.deliveryDays * 86400000) : pr.requiredDate),
-      paymentTerms: input.paymentTerms ?? quote.paymentTerms ?? vendor.paymentTerms,
-      creditDays: input.creditDays ?? quote.creditDays ?? vendor.creditDays,
-      warrantyTerms: input.warrantyTerms ?? quote.warrantyTerms,
-      termsConditions: input.termsConditions ?? null,
-      incoterms: input.incoterms ?? null,
-      subtotal,
-      taxAmount,
-      deliveryCharges,
-      otherCharges,
-      discount,
-      total,
-      advanceRequired: Boolean(input.advanceRequired),
-      advanceAmount,
-      advancePercent: input.advancePercent ?? null,
-      advanceStatus: input.advanceRequired ? "PENDING" : null,
-      collateralType: input.collateralType ?? null,
-      collateralRef: input.collateralRef ?? null,
-      collateralNotes: input.collateralNotes ?? null,
-      status: "DRAFT",
-      createdById: user.id,
-      items: {
-        create: lines.map((l) => ({
-          lineNo: l.lineNo,
-          itemId: l.itemId,
-          prItemId: l.prItemId,
-          description: l.description,
-          brand: l.brand,
-          model: l.model,
-          specification: l.specification,
-          quantity: l.quantity,
-          unit: l.unit,
-          unitPrice: l.unitPrice,
-          taxRate: l.taxRate,
-          taxAmount: l.taxAmount,
-          lineTotal: l.lineTotal,
-          disposition: l.disposition,
-          requiresInspection: l.requiresInspection,
-        })),
+    const pr = await tx.purchaseRequisition.findUnique({
+      where: { id: input.prId },
+      include: {
+        items: { include: { category: true } },
+        comparatives: {
+          where: { status: { in: ["RECOMMENDED", "APPROVED"] } },
+          orderBy: { preparedAt: "desc" },
+          include: { lines: { where: { isSelected: true }, include: { vendor: true, quote: { include: { items: true } } } }, rfq: true },
+        },
+        deliveryStore: true,
       },
-    },
-  });
+    });
+    if (!pr) throw new NotFoundError("Requisition");
+    const comparative = pr.comparatives[0];
+    const selected = comparative.lines[0];
+    const quote = selected.quote;
+    const vendor = selected.vendor;
 
-  // What this order took from each requisition line. One line can be split
-  // across several orders, so the placed quantity is recorded rather than
-  // inferred from the order's own header.
-  const created = await db.purchaseOrder.findUniqueOrThrow({
-    where: { id: po.id },
-    select: { items: { select: { id: true, prItemId: true, quantity: true, unit: true } } },
-  });
-  await allocate(
-    user,
-    created.items
-      .filter((i) => i.prItemId)
-      .map((i) => ({
+    const eligibility = await checkVendorEligibility(vendor.id, pr.entityId, tx);
+    if (!eligibility.eligible) {
+      throw new RuleViolationError(eligibility.reason ?? "The awarded vendor is not eligible.");
+    }
+
+    // Apply the negotiated outcome proportionally so the PO reflects the final price.
+    const negotiated = await effectiveQuoteTotal(quote.id, tx);
+    const factor = quote.total > 0 ? negotiated / quote.total : 1;
+
+    const inspectionCategories = await (await import("@/lib/config")).getConfigArray<string>(
+      CONFIG_KEYS.REQUIRE_INSPECTION_CATEGORIES,
+      pr.entityId,
+      tx,
+    );
+
+    const lines = quote.items.map((qi, idx) => {
+      const prItem = pr.items.find((p) => p.id === qi.prItemId) ?? pr.items[idx] ?? pr.items[0];
+      const qty = input.quantities?.[qi.id] ?? qi.quantity;
+      const unitPrice = round2(qi.unitPrice * factor);
+      const net = round2(unitPrice * qty);
+      const taxAmount = round2(net * (qi.taxRate / 100));
+      const category = prItem?.category;
+      const requiresInspection =
+        Boolean(category?.requiresInspection) ||
+        (category ? inspectionCategories.includes(category.code) : false);
+      return {
+        lineNo: idx + 1,
+        itemId: qi.itemId ?? prItem?.itemId ?? null,
+        prItemId: prItem?.id ?? null,
+        description: qi.description,
+        brand: qi.brand ?? prItem?.brand ?? null,
+        model: qi.model ?? prItem?.model ?? null,
+        specification: qi.specification ?? prItem?.specification ?? null,
+        quantity: qty,
+        unit: qi.unit,
+        unitPrice,
+        taxRate: qi.taxRate,
+        taxAmount,
+        lineTotal: round2(net + taxAmount),
+        disposition: prItem?.disposition ?? category?.defaultDisposition ?? "INVENTORY",
+        requiresInspection,
+        net,
+      };
+    });
+
+    const subtotal = round2(lines.reduce((a, l) => a + l.net, 0));
+    const taxAmount = round2(lines.reduce((a, l) => a + l.taxAmount, 0));
+    const deliveryCharges = round2(quote.deliveryCharges * factor);
+    const otherCharges = round2(quote.otherCharges * factor);
+    const discount = round2(quote.discount * factor);
+    const total = round2(subtotal + taxAmount + deliveryCharges + otherCharges - discount);
+
+    // Advance payment governance.
+    let advanceAmount: number | null = null;
+    if (input.advanceRequired) {
+      const allowed = await getConfigBool(CONFIG_KEYS.ADVANCE_PAYMENT_ALLOWED, pr.entityId, tx);
+      if (!allowed) throw new RuleViolationError("Advance payments are not permitted for this entity.");
+      const maxPct = await getConfigNumber(CONFIG_KEYS.ADVANCE_MAX_PERCENT, pr.entityId, tx);
+      const pct = input.advancePercent ?? maxPct;
+      if (pct > maxPct) {
+        throw new RuleViolationError(`Advance of ${pct}% exceeds the maximum permitted ${maxPct}%.`);
+      }
+      const needsCollateral = await getConfigBool(CONFIG_KEYS.ADVANCE_REQUIRES_COLLATERAL, pr.entityId, tx);
+      if (needsCollateral && (!input.collateralType || input.collateralType === "NONE" || !input.collateralRef?.trim())) {
+        throw new RuleViolationError(
+          "An advance payment requires collateral — record the security cheque or bank guarantee reference.",
+        );
+      }
+      advanceAmount = round2((total * pct) / 100);
+    }
+
+    const number = await nextNumber(SEQ.PO, tx);
+    const po = await tx.purchaseOrder.create({
+      data: {
+        number,
+        entityId: pr.entityId,
         prId: pr.id,
-        prItemId: i.prItemId as string,
-        poId: po.id,
-        poItemId: i.id,
-        quantity: i.quantity,
-        unit: i.unit,
-      })),
-    db,
-    { cascade: "purchase order created from the approved case", from: [P.PO_CREATE] },
-  );
-
-  if (pr.status !== "PO_PREPARATION") {
-    await transitionPr(user, pr.id, "PO_PREPARATION", { force: true }, db);
-  }
-  await db.vendorQuote.update({ where: { id: quote.id }, data: { status: "SELECTED" } });
-  await db.rfq.update({ where: { id: comparative.rfqId }, data: { status: "AWARDED" } });
-
-  await writeAudit(
-    {
-      entityType: "PurchaseOrder",
-      entityId: po.id,
-      entityRef: po.number,
-      action: "PO_CREATED",
-      newValue: {
-        pr: pr.number,
-        vendor: vendor.name,
+        // The expenditure treatment is decided at the requisition and must not be
+        // re-decided here; finance reads it off the receipt without walking back
+        // up the chain.
+        expenditureType: pr.expenditureType,
+        costCenterId: pr.costCenterId,
+        rfqId: comparative.rfqId,
+        quoteId: quote.id,
+        vendorId: vendor.id,
+        vendorAddress: vendor.address,
+        vendorContact: [vendor.contactPerson, vendor.contactPhone, vendor.contactEmail].filter(Boolean).join(" · ") || null,
+        deliveryStoreId: input.deliveryStoreId ?? pr.deliveryStoreId,
+        deliveryAddress: input.deliveryAddress ?? pr.deliveryStore?.address ?? pr.deliveryLocationNote,
+        deliveryDate:
+          input.deliveryDate ??
+          (quote.deliveryDays ? new Date(Date.now() + quote.deliveryDays * 86400000) : pr.requiredDate),
+        paymentTerms: input.paymentTerms ?? quote.paymentTerms ?? vendor.paymentTerms,
+        creditDays: input.creditDays ?? quote.creditDays ?? vendor.creditDays,
+        warrantyTerms: input.warrantyTerms ?? quote.warrantyTerms,
+        termsConditions: input.termsConditions ?? null,
+        incoterms: input.incoterms ?? null,
+        subtotal,
+        taxAmount,
+        deliveryCharges,
+        otherCharges,
+        discount,
         total,
-        lines: lines.length,
-        negotiatedFactor: round2(factor),
+        advanceRequired: Boolean(input.advanceRequired),
         advanceAmount,
+        advancePercent: input.advancePercent ?? null,
+        advanceStatus: input.advanceRequired ? "PENDING" : null,
+        collateralType: input.collateralType ?? null,
+        collateralRef: input.collateralRef ?? null,
+        collateralNotes: input.collateralNotes ?? null,
+        status: "DRAFT",
+        createdById: user.id,
+        items: {
+          create: lines.map((l) => ({
+            lineNo: l.lineNo,
+            itemId: l.itemId,
+            prItemId: l.prItemId,
+            description: l.description,
+            brand: l.brand,
+            model: l.model,
+            specification: l.specification,
+            quantity: l.quantity,
+            unit: l.unit,
+            unitPrice: l.unitPrice,
+            taxRate: l.taxRate,
+            taxAmount: l.taxAmount,
+            lineTotal: l.lineTotal,
+            disposition: l.disposition,
+            requiresInspection: l.requiresInspection,
+          })),
+        },
       },
-      caseKey: pr.number,
-      actor: user,
-    },
-    db,
-  );
+    });
 
-  return po;
+    // What this order took from each requisition line. One line can be split
+    // across several orders, so the placed quantity is recorded rather than
+    // inferred from the order's own header.
+    const created = await tx.purchaseOrder.findUniqueOrThrow({
+      where: { id: po.id },
+      select: { items: { select: { id: true, prItemId: true, quantity: true, unit: true } } },
+    });
+    await allocate(
+      user,
+      created.items
+        .filter((i) => i.prItemId)
+        .map((i) => ({
+          prId: pr.id,
+          prItemId: i.prItemId as string,
+          poId: po.id,
+          poItemId: i.id,
+          quantity: i.quantity,
+          unit: i.unit,
+        })),
+      tx,
+      { cascade: "purchase order created from the approved case", from: [P.PO_CREATE] },
+    );
+
+    if (pr.status !== "PO_PREPARATION") {
+      await transitionPr(user, pr.id, "PO_PREPARATION", { force: true }, tx);
+    }
+    await tx.vendorQuote.update({ where: { id: quote.id }, data: { status: "SELECTED" } });
+    await tx.rfq.update({ where: { id: comparative.rfqId }, data: { status: "AWARDED" } });
+
+    await writeAudit(
+      {
+        entityType: "PurchaseOrder",
+        entityId: po.id,
+        entityRef: po.number,
+        action: "PO_CREATED",
+        newValue: {
+          pr: pr.number,
+          vendor: vendor.name,
+          total,
+          lines: lines.length,
+          negotiatedFactor: round2(factor),
+          advanceAmount,
+        },
+        caseKey: pr.number,
+        actor: user,
+      },
+      tx,
+    );
+
+    return po;
+  });
 }
 
 /**

@@ -1,4 +1,4 @@
-import { prisma, type DbClient } from "@/lib/db";
+import { prisma, withTransaction, type DbClient } from "@/lib/db";
 import { nextNumber, SEQ } from "@/lib/numbering";
 import { CONFIG_KEYS, getConfigNumber } from "@/lib/config";
 import { ForbiddenError, NotFoundError, RuleViolationError, ValidationError } from "@/lib/errors";
@@ -291,75 +291,77 @@ export async function selectPettyCashQuote(
   input: { requestId: string; quoteId: string; justification?: string | null },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.PETTY_CASH_EVALUATE)) throw new ForbiddenError("Not permitted.");
-  const pc = await db.pettyCashRequest.findUnique({
-    where: { id: input.requestId },
-    include: { quotes: true },
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.PETTY_CASH_EVALUATE)) throw new ForbiddenError("Not permitted.");
+    const pc = await tx.pettyCashRequest.findUnique({
+      where: { id: input.requestId },
+      include: { quotes: true },
+    });
+    if (!pc) throw new NotFoundError("Petty cash request");
+
+    const minQuotes = await getConfigNumber(CONFIG_KEYS.PETTY_CASH_MIN_QUOTES, pc.entityId, tx);
+    if (pc.quotes.length < minQuotes) {
+      throw new RuleViolationError(
+        `Procurement policy requires at least ${minQuotes} written market quotation(s); only ${pc.quotes.length} recorded.`,
+      );
+    }
+    const chosen = pc.quotes.find((q) => q.id === input.quoteId);
+    if (!chosen) throw new ValidationError("The selected quote does not belong to this request.");
+
+    const lowest = Math.min(...pc.quotes.map((q) => q.amount));
+    if (chosen.amount > lowest + 0.01 && !input.justification?.trim()) {
+      throw new RuleViolationError(
+        `${chosen.vendorName} at PKR ${chosen.amount.toLocaleString("en-PK")} is not the lowest quote (PKR ${lowest.toLocaleString("en-PK")}). A justification is required.`,
+      );
+    }
+
+    await tx.pettyCashQuote.updateMany({ where: { requestId: pc.id }, data: { isSelected: false } });
+    await tx.pettyCashQuote.update({ where: { id: input.quoteId }, data: { isSelected: true } });
+
+    await transitionPc(
+      user,
+      pc.id,
+      "QUOTES_COMPARED",
+      {
+        force: true,
+        extra: { selectedQuoteId: input.quoteId, approvedAmount: chosen.amount, evaluatedById: user.id },
+      },
+      tx,
+    );
+
+    await writeAudit(
+      {
+        entityType: "PettyCashRequest",
+        entityId: pc.id,
+        entityRef: pc.number,
+        action: "PETTY_CASH_QUOTE_SELECTED",
+        newValue: { vendor: chosen.vendorName, amount: chosen.amount, lowest, quotes: pc.quotes.length },
+        reason: input.justification ?? null,
+        caseKey: pc.number,
+        actor: user,
+      },
+      tx,
+    );
+
+    await transitionPc(user, pc.id, "PENDING_APPROVAL", { force: true }, tx);
+    await createTask(
+      {
+        title: `Approve cash purchase ${pc.number}`,
+        description: `${chosen.vendorName} · PKR ${chosen.amount.toLocaleString("en-PK")}`,
+        taskType: "APPROVAL",
+        assignedRoleCode: "PROCUREMENT_SENIOR_MANAGER",
+        entityId: pc.entityId,
+        documentType: "PETTY_CASH",
+        documentId: pc.id,
+        documentRef: pc.number,
+        priority: "NORMAL",
+        slaHours: 24,
+        linkUrl: `/petty-cash/${pc.id}`,
+      },
+      tx,
+    );
+    return chosen;
   });
-  if (!pc) throw new NotFoundError("Petty cash request");
-
-  const minQuotes = await getConfigNumber(CONFIG_KEYS.PETTY_CASH_MIN_QUOTES, pc.entityId, db);
-  if (pc.quotes.length < minQuotes) {
-    throw new RuleViolationError(
-      `Procurement policy requires at least ${minQuotes} written market quotation(s); only ${pc.quotes.length} recorded.`,
-    );
-  }
-  const chosen = pc.quotes.find((q) => q.id === input.quoteId);
-  if (!chosen) throw new ValidationError("The selected quote does not belong to this request.");
-
-  const lowest = Math.min(...pc.quotes.map((q) => q.amount));
-  if (chosen.amount > lowest + 0.01 && !input.justification?.trim()) {
-    throw new RuleViolationError(
-      `${chosen.vendorName} at PKR ${chosen.amount.toLocaleString("en-PK")} is not the lowest quote (PKR ${lowest.toLocaleString("en-PK")}). A justification is required.`,
-    );
-  }
-
-  await db.pettyCashQuote.updateMany({ where: { requestId: pc.id }, data: { isSelected: false } });
-  await db.pettyCashQuote.update({ where: { id: input.quoteId }, data: { isSelected: true } });
-
-  await transitionPc(
-    user,
-    pc.id,
-    "QUOTES_COMPARED",
-    {
-      force: true,
-      extra: { selectedQuoteId: input.quoteId, approvedAmount: chosen.amount, evaluatedById: user.id },
-    },
-    db,
-  );
-
-  await writeAudit(
-    {
-      entityType: "PettyCashRequest",
-      entityId: pc.id,
-      entityRef: pc.number,
-      action: "PETTY_CASH_QUOTE_SELECTED",
-      newValue: { vendor: chosen.vendorName, amount: chosen.amount, lowest, quotes: pc.quotes.length },
-      reason: input.justification ?? null,
-      caseKey: pc.number,
-      actor: user,
-    },
-    db,
-  );
-
-  await transitionPc(user, pc.id, "PENDING_APPROVAL", { force: true }, db);
-  await createTask(
-    {
-      title: `Approve cash purchase ${pc.number}`,
-      description: `${chosen.vendorName} · PKR ${chosen.amount.toLocaleString("en-PK")}`,
-      taskType: "APPROVAL",
-      assignedRoleCode: "PROCUREMENT_SENIOR_MANAGER",
-      entityId: pc.entityId,
-      documentType: "PETTY_CASH",
-      documentId: pc.id,
-      documentRef: pc.number,
-      priority: "NORMAL",
-      slaHours: 24,
-      linkUrl: `/petty-cash/${pc.id}`,
-    },
-    db,
-  );
-  return chosen;
 }
 
 export async function approvePettyCash(
@@ -686,119 +688,121 @@ export async function completeStoreEntry(
   },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.INVENTORY_ADJUST, P.STORE_ISSUE, P.GRN_POST)) {
-    throw new ForbiddenError("You do not have permission to record store entries.");
-  }
-  const pc = await db.pettyCashRequest.findUnique({
-    where: { id: input.requestId },
-    include: { items: true },
-  });
-  if (!pc) throw new NotFoundError("Petty cash request");
-  if (!["STORE_ENTRY_PENDING", "VOUCHER_APPROVED"].includes(pc.status)) {
-    throw new RuleViolationError(
-      `Request ${pc.number} is ${pc.status} — a store entry is not expected at this stage.`,
-    );
-  }
-  if (!input.lines.length) throw new ValidationError("Record at least one store entry line.");
-
-  for (const l of input.lines) {
-    const it = pc.items.find((x) => x.id === l.pettyCashItemId);
-    if (!it) throw new ValidationError("A store entry line does not belong to this request.");
-    if (l.quantity <= 0) throw new ValidationError(`Quantity must be greater than zero for "${it.description}".`);
-    if (l.quantity > it.quantity + 1e-9) {
-      throw new ValidationError(
-        `Cannot book ${l.quantity} ${it.unit} of "${it.description}" — only ${it.quantity} ${it.unit} was purchased.`,
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.INVENTORY_ADJUST, P.STORE_ISSUE, P.GRN_POST)) {
+      throw new ForbiddenError("You do not have permission to record store entries.");
+    }
+    const pc = await tx.pettyCashRequest.findUnique({
+      where: { id: input.requestId },
+      include: { items: true },
+    });
+    if (!pc) throw new NotFoundError("Petty cash request");
+    if (!["STORE_ENTRY_PENDING", "VOUCHER_APPROVED"].includes(pc.status)) {
+      throw new RuleViolationError(
+        `Request ${pc.number} is ${pc.status} — a store entry is not expected at this stage.`,
       );
     }
+    if (!input.lines.length) throw new ValidationError("Record at least one store entry line.");
 
-    await postMovement(
-      "RECEIPT",
-      {
-        itemId: l.itemId,
-        storeId: input.storeId,
-        quantity: l.quantity,
-        unit: it.unit,
-        unitCost: l.unitCost,
-        locationId: l.locationId ?? null,
-        entityId: pc.entityId,
-        source: { kind: "PETTY_CASH", id: pc.id, ref: pc.number },
-        reason: `Petty cash purchase ${pc.number}`,
-        performedById: user.id,
-      },
-      db,
-      user,
+    for (const l of input.lines) {
+      const it = pc.items.find((x) => x.id === l.pettyCashItemId);
+      if (!it) throw new ValidationError("A store entry line does not belong to this request.");
+      if (l.quantity <= 0) throw new ValidationError(`Quantity must be greater than zero for "${it.description}".`);
+      if (l.quantity > it.quantity + 1e-9) {
+        throw new ValidationError(
+          `Cannot book ${l.quantity} ${it.unit} of "${it.description}" — only ${it.quantity} ${it.unit} was purchased.`,
+        );
+      }
+
+      await postMovement(
+        "RECEIPT",
+        {
+          itemId: l.itemId,
+          storeId: input.storeId,
+          quantity: l.quantity,
+          unit: it.unit,
+          unitCost: l.unitCost,
+          locationId: l.locationId ?? null,
+          entityId: pc.entityId,
+          source: { kind: "PETTY_CASH", id: pc.id, ref: pc.number },
+          reason: `Petty cash purchase ${pc.number}`,
+          performedById: user.id,
+        },
+        tx,
+        user,
+      );
+      await tx.pettyCashItem.update({
+        where: { id: it.id },
+        data: { storeEntered: true, itemId: l.itemId },
+      });
+    }
+
+    // Every inventory-bearing line must now be booked.
+    const refreshed = await tx.pettyCashItem.findMany({ where: { requestId: pc.id } });
+    const outstanding = refreshed.filter(
+      (i) => STORE_ENTRY_DISPOSITIONS.includes(i.disposition as Disposition) && !i.storeEntered,
     );
-    await db.pettyCashItem.update({
-      where: { id: it.id },
-      data: { storeEntered: true, itemId: l.itemId },
-    });
-  }
+    if (outstanding.length) {
+      await writeAudit(
+        {
+          entityType: "PettyCashRequest",
+          entityId: pc.id,
+          entityRef: pc.number,
+          action: "PETTY_CASH_STORE_ENTRY_PARTIAL",
+          newValue: { outstanding: outstanding.map((o) => o.description) },
+          caseKey: pc.number,
+          actor: user,
+        },
+        tx,
+      );
+      return { complete: false, outstanding: outstanding.map((o) => o.description) };
+    }
 
-  // Every inventory-bearing line must now be booked.
-  const refreshed = await db.pettyCashItem.findMany({ where: { requestId: pc.id } });
-  const outstanding = refreshed.filter(
-    (i) => STORE_ENTRY_DISPOSITIONS.includes(i.disposition as Disposition) && !i.storeEntered,
-  );
-  if (outstanding.length) {
+    await transitionPc(
+      user,
+      pc.id,
+      "STORE_ENTRY_DONE",
+      { force: true, extra: { storeId: input.storeId, storeEntryDoneAt: new Date() } },
+      tx,
+    );
+    await autoResolveExceptions(
+      "PETTY_CASH",
+      pc.id,
+      ["STORE_ENTRY_MISSING"],
+      "All inventory-bearing items booked into store",
+      tx,
+    );
+    await completeTasks("PETTY_CASH", pc.id, user.id, tx, "DATA_ENTRY");
+    await createTask(
+      {
+        title: `Reconcile petty cash ${pc.number}`,
+        taskType: "VERIFICATION",
+        assignedRoleCode: "FINANCE_USER",
+        entityId: pc.entityId,
+        documentType: "PETTY_CASH",
+        documentId: pc.id,
+        documentRef: pc.number,
+        slaHours: 72,
+        linkUrl: `/petty-cash/${pc.id}`,
+      },
+      tx,
+    );
+
     await writeAudit(
       {
         entityType: "PettyCashRequest",
         entityId: pc.id,
         entityRef: pc.number,
-        action: "PETTY_CASH_STORE_ENTRY_PARTIAL",
-        newValue: { outstanding: outstanding.map((o) => o.description) },
+        action: "PETTY_CASH_STORE_ENTRY_DONE",
+        newValue: { storeId: input.storeId, lines: input.lines.length },
         caseKey: pc.number,
         actor: user,
       },
-      db,
+      tx,
     );
-    return { complete: false, outstanding: outstanding.map((o) => o.description) };
-  }
 
-  await transitionPc(
-    user,
-    pc.id,
-    "STORE_ENTRY_DONE",
-    { force: true, extra: { storeId: input.storeId, storeEntryDoneAt: new Date() } },
-    db,
-  );
-  await autoResolveExceptions(
-    "PETTY_CASH",
-    pc.id,
-    ["STORE_ENTRY_MISSING"],
-    "All inventory-bearing items booked into store",
-    db,
-  );
-  await completeTasks("PETTY_CASH", pc.id, user.id, db, "DATA_ENTRY");
-  await createTask(
-    {
-      title: `Reconcile petty cash ${pc.number}`,
-      taskType: "VERIFICATION",
-      assignedRoleCode: "FINANCE_USER",
-      entityId: pc.entityId,
-      documentType: "PETTY_CASH",
-      documentId: pc.id,
-      documentRef: pc.number,
-      slaHours: 72,
-      linkUrl: `/petty-cash/${pc.id}`,
-    },
-    db,
-  );
-
-  await writeAudit(
-    {
-      entityType: "PettyCashRequest",
-      entityId: pc.id,
-      entityRef: pc.number,
-      action: "PETTY_CASH_STORE_ENTRY_DONE",
-      newValue: { storeId: input.storeId, lines: input.lines.length },
-      caseKey: pc.number,
-      actor: user,
-    },
-    db,
-  );
-
-  return { complete: true, outstanding: [] as string[] };
+    return { complete: true, outstanding: [] as string[] };
+  });
 }
 
 /**

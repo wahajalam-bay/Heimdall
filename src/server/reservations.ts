@@ -1,4 +1,4 @@
-import { prisma, type DbClient } from "@/lib/db";
+import { prisma, withTransaction, type DbClient } from "@/lib/db";
 import { nextNumber, SEQ } from "@/lib/numbering";
 import { round2 } from "@/lib/format";
 import { RuleViolationError } from "@/lib/errors";
@@ -67,63 +67,65 @@ export async function reserveStock(
   db: DbClient = prisma,
   authority: Authority = { permission: [P.INVENTORY_RESERVE] },
 ) {
-  assertAuthority(actor, DOMAIN_ACTIONS.RESERVATION_CREATE, authority);
-  if (input.quantity <= 0) throw new RuleViolationError("Reserved quantity must be greater than zero.");
+  return withTransaction(db, async (tx) => {
+    assertAuthority(actor, DOMAIN_ACTIONS.RESERVATION_CREATE, authority);
+    if (input.quantity <= 0) throw new RuleViolationError("Reserved quantity must be greater than zero.");
 
-  const buckets = await bucketsFor(input.itemId, input.storeId, db);
-  const free = round2(buckets.reduce((a, b) => a + b.free, 0));
-  if (free + 1e-9 < input.quantity) {
-    const item = await db.item.findUnique({ where: { id: input.itemId }, select: { sku: true } });
-    throw new RuleViolationError(
-      `Cannot reserve ${input.quantity} ${input.unit} of ${item?.sku ?? input.itemId} — only ${free} ${input.unit} is unreserved.`,
-    );
-  }
+    const buckets = await bucketsFor(input.itemId, input.storeId, tx);
+    const free = round2(buckets.reduce((a, b) => a + b.free, 0));
+    if (free + 1e-9 < input.quantity) {
+      const item = await tx.item.findUnique({ where: { id: input.itemId }, select: { sku: true } });
+      throw new RuleViolationError(
+        `Cannot reserve ${input.quantity} ${input.unit} of ${item?.sku ?? input.itemId} — only ${free} ${input.unit} is unreserved.`,
+      );
+    }
 
-  let remaining = input.quantity;
-  for (const b of buckets) {
-    if (remaining <= 1e-9) break;
-    const take = Math.min(b.free, remaining);
-    await db.inventoryItem.update({
-      where: { id: b.row.id },
-      data: { reservedQty: round2(b.row.reservedQty + take) },
+    let remaining = input.quantity;
+    for (const b of buckets) {
+      if (remaining <= 1e-9) break;
+      const take = Math.min(b.free, remaining);
+      await tx.inventoryItem.update({
+        where: { id: b.row.id },
+        data: { reservedQty: round2(b.row.reservedQty + take) },
+      });
+      remaining = round2(remaining - take);
+    }
+
+    const reservation = await tx.inventoryReservation.create({
+      data: {
+        itemId: input.itemId,
+        storeId: input.storeId,
+        quantity: round2(input.quantity),
+        unit: input.unit,
+        requirementItemId: input.requirementItemId ?? null,
+        storeIssueId: input.storeIssueId ?? null,
+        status: "ACTIVE",
+        reason: input.reason ?? null,
+        createdById: input.createdById,
+        expiresAt: input.expiresAt ?? null,
+      },
     });
-    remaining = round2(remaining - take);
-  }
 
-  const reservation = await db.inventoryReservation.create({
-    data: {
-      itemId: input.itemId,
-      storeId: input.storeId,
-      quantity: round2(input.quantity),
-      unit: input.unit,
-      requirementItemId: input.requirementItemId ?? null,
-      storeIssueId: input.storeIssueId ?? null,
-      status: "ACTIVE",
-      reason: input.reason ?? null,
-      createdById: input.createdById,
-      expiresAt: input.expiresAt ?? null,
-    },
+    const after = await freeQuantity(input.itemId, input.storeId, tx);
+    await tx.inventoryTransaction.create({
+      data: {
+        number: await nextNumber(SEQ.INV_TXN, tx),
+        itemId: input.itemId,
+        storeId: input.storeId,
+        type: "RESERVATION",
+        quantity: round2(input.quantity),
+        unit: input.unit,
+        balanceAfter: after.physical,
+        sourceType: "REQUIREMENT",
+        sourceId: reservation.id,
+        sourceRef: input.reason ?? "Reservation",
+        reason: input.reason ?? null,
+        performedById: input.createdById,
+      },
+    });
+
+    return reservation;
   });
-
-  const after = await freeQuantity(input.itemId, input.storeId, db);
-  await db.inventoryTransaction.create({
-    data: {
-      number: await nextNumber(SEQ.INV_TXN, db),
-      itemId: input.itemId,
-      storeId: input.storeId,
-      type: "RESERVATION",
-      quantity: round2(input.quantity),
-      unit: input.unit,
-      balanceAfter: after.physical,
-      sourceType: "REQUIREMENT",
-      sourceId: reservation.id,
-      sourceRef: input.reason ?? "Reservation",
-      reason: input.reason ?? null,
-      performedById: input.createdById,
-    },
-  });
-
-  return reservation;
 }
 
 /** Gives the quantity back. Used when a requirement is cancelled or re-decided. */
@@ -134,50 +136,52 @@ export async function releaseReservation(
   db: DbClient = prisma,
   authority: Authority = { permission: [P.INVENTORY_RESERVE] },
 ) {
-  assertAuthority(actor, DOMAIN_ACTIONS.RESERVATION_RELEASE, authority);
-  const performedById = actor.id;
-  const res = await db.inventoryReservation.findUnique({ where: { id: reservationId } });
-  if (!res || res.status !== "ACTIVE") return null;
+  return withTransaction(db, async (tx) => {
+    assertAuthority(actor, DOMAIN_ACTIONS.RESERVATION_RELEASE, authority);
+    const performedById = actor.id;
+    const res = await tx.inventoryReservation.findUnique({ where: { id: reservationId } });
+    if (!res || res.status !== "ACTIVE") return null;
 
-  const rows = await db.inventoryItem.findMany({
-    where: { itemId: res.itemId, storeId: res.storeId, reservedQty: { gt: 0 } },
-    orderBy: { id: "asc" },
-  });
-  let remaining = res.quantity;
-  for (const r of rows) {
-    if (remaining <= 1e-9) break;
-    const give = Math.min(r.reservedQty, remaining);
-    await db.inventoryItem.update({
-      where: { id: r.id },
-      data: { reservedQty: round2(r.reservedQty - give) },
+    const rows = await tx.inventoryItem.findMany({
+      where: { itemId: res.itemId, storeId: res.storeId, reservedQty: { gt: 0 } },
+      orderBy: { id: "asc" },
     });
-    remaining = round2(remaining - give);
-  }
+    let remaining = res.quantity;
+    for (const r of rows) {
+      if (remaining <= 1e-9) break;
+      const give = Math.min(r.reservedQty, remaining);
+      await tx.inventoryItem.update({
+        where: { id: r.id },
+        data: { reservedQty: round2(r.reservedQty - give) },
+      });
+      remaining = round2(remaining - give);
+    }
 
-  const updated = await db.inventoryReservation.update({
-    where: { id: reservationId },
-    data: { status: "RELEASED", releasedAt: new Date() },
+    const updated = await tx.inventoryReservation.update({
+      where: { id: reservationId },
+      data: { status: "RELEASED", releasedAt: new Date() },
+    });
+
+    const after = await freeQuantity(res.itemId, res.storeId, tx);
+    await tx.inventoryTransaction.create({
+      data: {
+        number: await nextNumber(SEQ.INV_TXN, tx),
+        itemId: res.itemId,
+        storeId: res.storeId,
+        type: "RELEASE",
+        quantity: res.quantity,
+        unit: res.unit,
+        balanceAfter: after.physical,
+        sourceType: "REQUIREMENT",
+        sourceId: reservationId,
+        sourceRef: reason ?? "Reservation released",
+        reason,
+        performedById,
+      },
+    });
+
+    return updated;
   });
-
-  const after = await freeQuantity(res.itemId, res.storeId, db);
-  await db.inventoryTransaction.create({
-    data: {
-      number: await nextNumber(SEQ.INV_TXN, db),
-      itemId: res.itemId,
-      storeId: res.storeId,
-      type: "RELEASE",
-      quantity: res.quantity,
-      unit: res.unit,
-      balanceAfter: after.physical,
-      sourceType: "REQUIREMENT",
-      sourceId: reservationId,
-      sourceRef: reason ?? "Reservation released",
-      reason,
-      performedById,
-    },
-  });
-
-  return updated;
 }
 
 /**
@@ -193,29 +197,31 @@ export async function consumeReservation(
   db: DbClient = prisma,
   authority: Authority = { permission: [P.INVENTORY_RESERVE] },
 ) {
-  assertAuthority(actor, DOMAIN_ACTIONS.RESERVATION_CONSUME, authority);
-  const performedById = actor.id;
-  const res = await db.inventoryReservation.findUnique({ where: { id: reservationId } });
-  if (!res || res.status !== "ACTIVE") return null;
+  return withTransaction(db, async (tx) => {
+    assertAuthority(actor, DOMAIN_ACTIONS.RESERVATION_CONSUME, authority);
+    const performedById = actor.id;
+    const res = await tx.inventoryReservation.findUnique({ where: { id: reservationId } });
+    if (!res || res.status !== "ACTIVE") return null;
 
-  const rows = await db.inventoryItem.findMany({
-    where: { itemId: res.itemId, storeId: res.storeId, reservedQty: { gt: 0 } },
-    orderBy: { id: "asc" },
-  });
-  let remaining = res.quantity;
-  for (const r of rows) {
-    if (remaining <= 1e-9) break;
-    const give = Math.min(r.reservedQty, remaining);
-    await db.inventoryItem.update({
-      where: { id: r.id },
-      data: { reservedQty: round2(r.reservedQty - give) },
+    const rows = await tx.inventoryItem.findMany({
+      where: { itemId: res.itemId, storeId: res.storeId, reservedQty: { gt: 0 } },
+      orderBy: { id: "asc" },
     });
-    remaining = round2(remaining - give);
-  }
+    let remaining = res.quantity;
+    for (const r of rows) {
+      if (remaining <= 1e-9) break;
+      const give = Math.min(r.reservedQty, remaining);
+      await tx.inventoryItem.update({
+        where: { id: r.id },
+        data: { reservedQty: round2(r.reservedQty - give) },
+      });
+      remaining = round2(remaining - give);
+    }
 
-  return db.inventoryReservation.update({
-    where: { id: reservationId },
-    data: { status: "CONSUMED", consumedAt: new Date() },
+    return tx.inventoryReservation.update({
+      where: { id: reservationId },
+      data: { status: "CONSUMED", consumedAt: new Date() },
+    });
   });
 }
 

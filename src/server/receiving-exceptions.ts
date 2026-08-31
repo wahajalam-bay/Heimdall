@@ -1,4 +1,4 @@
-import { prisma, type DbClient } from "@/lib/db";
+import { prisma, withTransaction, type DbClient } from "@/lib/db";
 import { nextNumber, SEQ } from "@/lib/numbering";
 import { round2 } from "@/lib/format";
 import { CONFIG_KEYS, getConfigNumber } from "@/lib/config";
@@ -245,71 +245,73 @@ export async function recordRejection(
   input: RejectionInput,
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.RECEIVE_GOODS, P.GRN_CREATE, P.INSPECTION_PERFORM)) {
-    throw new ForbiddenError("You do not have permission to record a rejection.");
-  }
-  if (input.quantity <= 0) throw new ValidationError("A rejected quantity must be greater than zero.");
-
-  const disposition = input.disposition ?? "SPOT_REJECTION";
-  let adjusted = false;
-
-  if (disposition === "ADJUSTED_OUT") {
-    if (!input.itemId || !input.storeId) {
-      throw new ValidationError(
-        "Adjusting stock out needs the item and the store it was received into.",
-      );
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.RECEIVE_GOODS, P.GRN_CREATE, P.INSPECTION_PERFORM)) {
+      throw new ForbiddenError("You do not have permission to record a rejection.");
     }
-    await postMovement(
-      "ADJUSTMENT",
-      {
-        itemId: input.itemId,
-        storeId: input.storeId,
-        quantity: -Math.abs(input.quantity),
+    if (input.quantity <= 0) throw new ValidationError("A rejected quantity must be greater than zero.");
+
+    const disposition = input.disposition ?? "SPOT_REJECTION";
+    let adjusted = false;
+
+    if (disposition === "ADJUSTED_OUT") {
+      if (!input.itemId || !input.storeId) {
+        throw new ValidationError(
+          "Adjusting stock out needs the item and the store it was received into.",
+        );
+      }
+      await postMovement(
+        "ADJUSTMENT",
+        {
+          itemId: input.itemId,
+          storeId: input.storeId,
+          quantity: -Math.abs(input.quantity),
+          unit: input.unit,
+          source: { kind: "ADJUSTMENT", ref: "Rejection after receipt" },
+          reason: `Rejected after receipt: ${input.reasonCode}${input.reason ? ` — ${input.reason}` : ""}`,
+          performedById: user.id,
+        },
+        tx,
+        user,
+        {
+          cascade: "goods rejected after receipt",
+          from: [P.GRN_CREATE, P.INSPECTION_PERFORM, P.RECEIVE_GOODS],
+        },
+      );
+      adjusted = true;
+    }
+
+    const row = await tx.rejectionRecord.create({
+      data: {
+        number: await nextNumber(SEQ.REJECTION, tx),
+        deliveryId: input.deliveryId ?? null,
+        inspectionId: input.inspectionId ?? null,
+        grnId: input.grnId ?? null,
+        itemId: input.itemId ?? null,
+        description: input.description,
+        quantity: round2(input.quantity),
         unit: input.unit,
-        source: { kind: "ADJUSTMENT", ref: "Rejection after receipt" },
-        reason: `Rejected after receipt: ${input.reasonCode}${input.reason ? ` — ${input.reason}` : ""}`,
-        performedById: user.id,
+        reasonCode: input.reasonCode,
+        reason: input.reason ?? null,
+        disposition,
+        inventoryAdjusted: adjusted,
+        raisedById: user.id,
       },
-      db,
-      user,
+    });
+
+    await writeAudit(
       {
-        cascade: "goods rejected after receipt",
-        from: [P.GRN_CREATE, P.INSPECTION_PERFORM, P.RECEIVE_GOODS],
+        entityType: "RejectionRecord",
+        entityId: row.id,
+        entityRef: row.number,
+        action: "REJECTION_RECORDED",
+        newValue: { quantity: input.quantity, reasonCode: input.reasonCode, disposition, inventoryAdjusted: adjusted },
+        actor: user,
       },
+      tx,
     );
-    adjusted = true;
-  }
-
-  const row = await db.rejectionRecord.create({
-    data: {
-      number: await nextNumber(SEQ.REJECTION, db),
-      deliveryId: input.deliveryId ?? null,
-      inspectionId: input.inspectionId ?? null,
-      grnId: input.grnId ?? null,
-      itemId: input.itemId ?? null,
-      description: input.description,
-      quantity: round2(input.quantity),
-      unit: input.unit,
-      reasonCode: input.reasonCode,
-      reason: input.reason ?? null,
-      disposition,
-      inventoryAdjusted: adjusted,
-      raisedById: user.id,
-    },
+    return row;
   });
-
-  await writeAudit(
-    {
-      entityType: "RejectionRecord",
-      entityId: row.id,
-      entityRef: row.number,
-      action: "REJECTION_RECORDED",
-      newValue: { quantity: input.quantity, reasonCode: input.reasonCode, disposition, inventoryAdjusted: adjusted },
-      actor: user,
-    },
-    db,
-  );
-  return row;
 }
 
 /* ── Returns to vendor ────────────────────────────────────── */
@@ -336,65 +338,67 @@ export async function createVendorReturn(
   },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.RETURN_CREATE)) {
-    throw new ForbiddenError("You do not have permission to raise vendor returns.");
-  }
-  if (!input.items.length) throw new ValidationError("A return needs at least one line.");
-  if (!input.reason?.trim()) throw new ValidationError("State why the goods are going back.");
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.RETURN_CREATE)) {
+      throw new ForbiddenError("You do not have permission to raise vendor returns.");
+    }
+    if (!input.items.length) throw new ValidationError("A return needs at least one line.");
+    if (!input.reason?.trim()) throw new ValidationError("State why the goods are going back.");
 
-  const lines = input.items.map((l, i) => {
-    if (l.quantity <= 0) throw new ValidationError(`Line ${i + 1}: quantity must be greater than zero.`);
-    const unitValue = round2(l.unitValue ?? 0);
-    return {
-      lineNo: i + 1,
-      itemId: l.itemId ?? null,
-      description: l.description,
-      quantity: round2(l.quantity),
-      unit: l.unit,
-      unitValue,
-      lineValue: round2(unitValue * l.quantity),
-      reasonCode: l.reasonCode ?? null,
-    };
-  });
-
-  const days = await getConfigNumber(CONFIG_KEYS.RETURN_REPLACEMENT_DAYS, null, db);
-  const ret = await db.vendorReturn.create({
-    data: {
-      number: await nextNumber(SEQ.VENDOR_RETURN, db),
-      vendorId: input.vendorId,
-      poId: input.poId ?? null,
-      grnId: input.grnId ?? null,
-      status: "DRAFT",
-      reason: input.reason.trim(),
-      totalValue: round2(lines.reduce((a, l) => a + l.lineValue, 0)),
-      replacementRequired: Boolean(input.replacementRequired),
-      replacementStatus: input.replacementRequired ? "AWAITED" : "NOT_REQUIRED",
-      replacementDueDate: input.replacementRequired ? new Date(Date.now() + days * 86400000) : null,
-      raisedById: user.id,
-      items: { create: lines },
-    },
-  });
-
-  // Tie the findings to the goods going back, so the vendor record connects the two.
-  if (input.rejectionIds?.length) {
-    await db.rejectionRecord.updateMany({
-      where: { id: { in: input.rejectionIds } },
-      data: { returnId: ret.id },
+    const lines = input.items.map((l, i) => {
+      if (l.quantity <= 0) throw new ValidationError(`Line ${i + 1}: quantity must be greater than zero.`);
+      const unitValue = round2(l.unitValue ?? 0);
+      return {
+        lineNo: i + 1,
+        itemId: l.itemId ?? null,
+        description: l.description,
+        quantity: round2(l.quantity),
+        unit: l.unit,
+        unitValue,
+        lineValue: round2(unitValue * l.quantity),
+        reasonCode: l.reasonCode ?? null,
+      };
     });
-  }
 
-  await writeAudit(
-    {
-      entityType: "VendorReturn",
-      entityId: ret.id,
-      entityRef: ret.number,
-      action: "RETURN_CREATED",
-      newValue: { lines: lines.length, value: ret.totalValue, replacement: ret.replacementRequired },
-      actor: user,
-    },
-    db,
-  );
-  return ret;
+    const days = await getConfigNumber(CONFIG_KEYS.RETURN_REPLACEMENT_DAYS, null, tx);
+    const ret = await tx.vendorReturn.create({
+      data: {
+        number: await nextNumber(SEQ.VENDOR_RETURN, tx),
+        vendorId: input.vendorId,
+        poId: input.poId ?? null,
+        grnId: input.grnId ?? null,
+        status: "DRAFT",
+        reason: input.reason.trim(),
+        totalValue: round2(lines.reduce((a, l) => a + l.lineValue, 0)),
+        replacementRequired: Boolean(input.replacementRequired),
+        replacementStatus: input.replacementRequired ? "AWAITED" : "NOT_REQUIRED",
+        replacementDueDate: input.replacementRequired ? new Date(Date.now() + days * 86400000) : null,
+        raisedById: user.id,
+        items: { create: lines },
+      },
+    });
+
+    // Tie the findings to the goods going back, so the vendor record connects the two.
+    if (input.rejectionIds?.length) {
+      await tx.rejectionRecord.updateMany({
+        where: { id: { in: input.rejectionIds } },
+        data: { returnId: ret.id },
+      });
+    }
+
+    await writeAudit(
+      {
+        entityType: "VendorReturn",
+        entityId: ret.id,
+        entityRef: ret.number,
+        action: "RETURN_CREATED",
+        newValue: { lines: lines.length, value: ret.totalValue, replacement: ret.replacementRequired },
+        actor: user,
+      },
+      tx,
+    );
+    return ret;
+  });
 }
 
 /** Authorises the return, which is what allows the goods off site. */
@@ -451,67 +455,69 @@ export async function advanceReturn(
   },
   db: DbClient = prisma,
 ) {
-  if (!userHasPermission(user, P.RETURN_CREATE, P.RETURN_AUTHORISE)) {
-    throw new ForbiddenError("You do not have permission to progress vendor returns.");
-  }
-  const ret = await db.vendorReturn.findUnique({ where: { id: input.returnId } });
-  if (!ret) throw new NotFoundError("Vendor return");
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.RETURN_CREATE, P.RETURN_AUTHORISE)) {
+      throw new ForbiddenError("You do not have permission to progress vendor returns.");
+    }
+    const ret = await tx.vendorReturn.findUnique({ where: { id: input.returnId } });
+    if (!ret) throw new NotFoundError("Vendor return");
 
-  // The order the states may be reached in. A return cannot be acknowledged
-  // before it was sent, and cannot be closed while a replacement is still owed.
-  const allowed: Record<string, string[]> = {
-    AUTHORISED: ["DISPATCHED", "CANCELLED"],
-    DISPATCHED: ["ACKNOWLEDGED", "CANCELLED"],
-    ACKNOWLEDGED: ["REPLACED", "CREDITED", "CLOSED"],
-    REPLACED: ["CLOSED"],
-    CREDITED: ["CLOSED"],
-  };
-  if (!allowed[ret.status]?.includes(input.to)) {
-    throw new RuleViolationError(`A return that is ${ret.status} cannot move to ${input.to}.`);
-  }
-  if (input.to === "CLOSED" && ret.replacementRequired && ret.replacementStatus === "AWAITED") {
-    throw new RuleViolationError(
-      "A replacement is still awaited. Record the replacement or the credit note before closing.",
+    // The order the states may be reached in. A return cannot be acknowledged
+    // before it was sent, and cannot be closed while a replacement is still owed.
+    const allowed: Record<string, string[]> = {
+      AUTHORISED: ["DISPATCHED", "CANCELLED"],
+      DISPATCHED: ["ACKNOWLEDGED", "CANCELLED"],
+      ACKNOWLEDGED: ["REPLACED", "CREDITED", "CLOSED"],
+      REPLACED: ["CLOSED"],
+      CREDITED: ["CLOSED"],
+    };
+    if (!allowed[ret.status]?.includes(input.to)) {
+      throw new RuleViolationError(`A return that is ${ret.status} cannot move to ${input.to}.`);
+    }
+    if (input.to === "CLOSED" && ret.replacementRequired && ret.replacementStatus === "AWAITED") {
+      throw new RuleViolationError(
+        "A replacement is still awaited. Record the replacement or the credit note before closing.",
+      );
+    }
+    if (input.to === "CREDITED" && !input.creditNoteRef?.trim()) {
+      throw new ValidationError("Record the credit note reference.");
+    }
+
+    const updated = await tx.vendorReturn.update({
+      where: { id: input.returnId },
+      data: {
+        status: input.to,
+        gatePassRef: input.gatePassRef ?? ret.gatePassRef,
+        dispatchedAt: input.to === "DISPATCHED" ? new Date() : ret.dispatchedAt,
+        acknowledgedAt: input.to === "ACKNOWLEDGED" ? new Date() : ret.acknowledgedAt,
+        closedAt: input.to === "CLOSED" ? new Date() : ret.closedAt,
+        replacementGrnId: input.replacementGrnId ?? ret.replacementGrnId,
+        creditNoteRef: input.creditNoteRef ?? ret.creditNoteRef,
+        creditNoteAmount: input.creditNoteAmount ?? ret.creditNoteAmount,
+        replacementStatus:
+          input.to === "REPLACED"
+            ? "RECEIVED"
+            : input.to === "CREDITED"
+              ? "CREDIT_NOTE"
+              : ret.replacementStatus,
+      },
+    });
+    if (["CLOSED", "CANCELLED"].includes(input.to)) {
+      await completeTasks("VENDOR_RETURN", input.returnId, user.id, tx);
+    }
+    await writeAudit(
+      {
+        entityType: "VendorReturn",
+        entityId: input.returnId,
+        entityRef: ret.number,
+        action: `RETURN_${input.to}`,
+        reason: input.note ?? null,
+        actor: user,
+      },
+      tx,
     );
-  }
-  if (input.to === "CREDITED" && !input.creditNoteRef?.trim()) {
-    throw new ValidationError("Record the credit note reference.");
-  }
-
-  const updated = await db.vendorReturn.update({
-    where: { id: input.returnId },
-    data: {
-      status: input.to,
-      gatePassRef: input.gatePassRef ?? ret.gatePassRef,
-      dispatchedAt: input.to === "DISPATCHED" ? new Date() : ret.dispatchedAt,
-      acknowledgedAt: input.to === "ACKNOWLEDGED" ? new Date() : ret.acknowledgedAt,
-      closedAt: input.to === "CLOSED" ? new Date() : ret.closedAt,
-      replacementGrnId: input.replacementGrnId ?? ret.replacementGrnId,
-      creditNoteRef: input.creditNoteRef ?? ret.creditNoteRef,
-      creditNoteAmount: input.creditNoteAmount ?? ret.creditNoteAmount,
-      replacementStatus:
-        input.to === "REPLACED"
-          ? "RECEIVED"
-          : input.to === "CREDITED"
-            ? "CREDIT_NOTE"
-            : ret.replacementStatus,
-    },
+    return updated;
   });
-  if (["CLOSED", "CANCELLED"].includes(input.to)) {
-    await completeTasks("VENDOR_RETURN", input.returnId, user.id, db);
-  }
-  await writeAudit(
-    {
-      entityType: "VendorReturn",
-      entityId: input.returnId,
-      entityRef: ret.number,
-      action: `RETURN_${input.to}`,
-      reason: input.note ?? null,
-      actor: user,
-    },
-    db,
-  );
-  return updated;
 }
 
 /* ── Reading ──────────────────────────────────────────────── */
