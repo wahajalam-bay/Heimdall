@@ -26,6 +26,8 @@ exactly that case.
 | BD-008 | FIFO costing alongside FEFO picking | Inventory valuation | **OPEN — confirm, likely both** |
 | BD-009 | Definition of an Exceptional Purchase | CEO routing | **OPEN** |
 | BD-010 | Prohibited role combinations | Segregation of duties | **OPEN — no combination stated** |
+| BD-011 | Payment pack for a service invoice | Service payments | **OPEN — Annexure A assumes a GRN** |
+| BD-012 | Undertaking and GD document types | Payment pack accuracy | **OPEN — no exact type exists** |
 
 ---
 
@@ -312,3 +314,57 @@ that team's requisitions.
 
 **Question.** Are there role pairs nobody may hold at once — and if so, which,
 and why.
+
+---
+
+## BD-011 · What a service invoice needs in place of a GRN
+
+**ZAM/PUR/SOP-01 Annexure A.** Lists seven documents, of which the **GRN** is one
+of the four unconditional ones. The chain is written around goods arriving.
+
+**The problem.** A service has no goods receipt. Requiring one on a service
+invoice makes every service payment impossible; dropping it silently makes a
+service payment answer to four documents where a goods payment answers to five.
+
+**Current system.** The Annexure A pack is seeded for `transactionType = GOODS`
+only. A service invoice therefore has **no pack requirements at all**, which is
+honest — nothing has been invented — but it means services currently carry no
+document control.
+
+**Impact.** Every service payment, and every work order and contract payment once
+those exist.
+
+**Recommendation.** Seed a services pack that mirrors Annexure A with the service
+acceptance record standing where the GRN stands: requisition, order, **confirmed
+service acceptance**, invoice, plus the same three conditionals. That is a
+substitution of like for like — the acceptance is the services evidence that the
+work happened, exactly as the receipt is for goods — but it is a substitution the
+SOP does not make, so it needs saying rather than assuming.
+
+**Question.** Confirm the services pack is requisition, order, service
+acceptance, invoice, plus the three conditionals — or state what it should be.
+
+---
+
+## BD-012 · No document type exists for an undertaking or a goods declaration
+
+**ZAM/PUR/SOP-01 Annexure A.** Names "Undertaking (if applicable)" and "GD (if
+applicable)".
+
+**Current system.** Neither exists among the thirty seeded document types. The
+pack currently points the undertaking at "Other Supporting Document" and the
+goods declaration at "Mill / Test Certificate", both labelled as substitutions in
+the source reference so the mapping is visible on screen rather than buried.
+
+**Why it matters.** A goods declaration is a customs document and a mill
+certificate is a metallurgical one. Filing one under the other means the pack
+looks satisfied while holding the wrong paper — which is worse than an empty
+slot, because an empty slot is obvious.
+
+**Recommendation.** Add two document types — `UNDERTAKING` and `GD` — with their
+own retention and confidentiality settings, then re-run
+`scripts/seed-payment-pack.ts`, which repoints the requirements automatically.
+Two rows of master data; the reason it is a decision rather than a change is that
+somebody should confirm the retention period and who may view them.
+
+**Question.** Approve adding both types, and state their retention period.
