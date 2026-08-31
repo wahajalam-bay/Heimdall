@@ -53,6 +53,7 @@ export const DOMAIN_ACTIONS = {
   INVENTORY_MOVEMENT_POST: "inventory.movementPost",
   POLICY_LAPSE_EXPIRED: "policy.lapseExpired",
   PO_FULFILMENT_RECOMPUTE: "po.fulfilmentRecompute",
+  PO_TRANSITION: "po.transition",
   PR_TRANSITION: "pr.transition",
   RESERVATION_CONSUME: "reservation.consume",
   RESERVATION_CREATE: "reservation.create",

@@ -646,19 +646,20 @@ export async function decideInvoice(
   // a part-delivered order has several, and any one of them being the approver's
   // own work defeats the same control.
   if (decision === "APPROVED" && invoice.poId) {
-    // `Grn` records who *received* the goods but not who posted the receipt —
-    // that is only in the audit trail, so the receiver is the closest recorded
-    // counterpart. Adding `postedById` to the row is scheduled with the
-    // receiving module so this rule can name the poster exactly.
+    // The poster is the counterpart that matters: their act created the stock
+    // record the invoice is matched against. Receipts posted before
+    // `postedById` existed fall back to the receiver, which is the closest
+    // recorded counterpart for them and still catches the same person on both
+    // sides in the overwhelmingly common case where they are one and the same.
     const posted = await db.grn.findMany({
       where: { poId: invoice.poId, status: "POSTED" },
-      select: { id: true, number: true, receivedById: true },
+      select: { id: true, number: true, postedById: true, receivedById: true },
     });
     for (const g of posted) {
       await assertSeparation(
         user,
         SOD_RULES.GRN_POST_INVOICE_APPROVE,
-        g.receivedById,
+        g.postedById ?? g.receivedById,
         {
           entityId: invoice.po?.entityId ?? null,
           documentType: "Invoice",

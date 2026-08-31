@@ -64,6 +64,7 @@ model User {
   deliveriesReceived Delivery[]            @relation("DeliveryReceivedBy")
   inspections        Inspection[]          @relation("InspectionInspector")
   grns               Grn[]                 @relation("GrnReceivedBy")
+  grnsPosted         Grn[]                 @relation("GrnPostedBy")
   invoicesVerified   Invoice[]             @relation("InvoiceVerifiedBy")
   vendorEvaluations  VendorEvaluation[]
   cpcMemberships     CpcCaseMember[]
@@ -1370,6 +1371,14 @@ model Grn {
   totalValue       Float     @default(0)
   remarks          String?
   postedAt         DateTime?
+  /// Who committed the receipt to inventory.
+  ///
+  /// Distinct from `receivedById`, which is who took delivery. The segregation
+  /// rule that keeps the three-way match independent needs the person whose act
+  /// created the stock record, and that used to exist only in the audit trail —
+  /// so the rule had to settle for the receiver.
+  postedById       String?
+  postedBy         User?     @relation("GrnPostedBy", fields: [postedById], references: [id])
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 

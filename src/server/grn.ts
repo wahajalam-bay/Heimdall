@@ -300,7 +300,7 @@ export async function postGrn(user: SessionUser, grnId: string, db: DbClient = p
 
   const posted = await db.grn.update({
     where: { id: grnId },
-    data: { status: "POSTED", postedAt: new Date() },
+    data: { status: "POSTED", postedAt: new Date(), postedById: user.id },
   });
 
   for (const li of grn.items) {

@@ -333,8 +333,6 @@ export type ActOnApprovalInput = {
   actor: SessionUser;
   caseKey?: string | null;
   linkUrl?: string | null;
-  /** Skip role checks — used by CPC consolidation and system escalations. */
-  system?: boolean;
 };
 
 export type ActOnApprovalResult = {
@@ -371,26 +369,32 @@ export async function actOnApproval(
   );
   if (!current) throw new RuleViolationError("No pending approval step to act on.");
 
-  if (!input.system) {
-    const isSysAdmin = input.actor.roleCodes.includes("SYSTEM_ADMIN");
-    const holdsRole = current.assignedRoleCode
-      ? input.actor.roleCodes.includes(current.assignedRoleCode)
-      : false;
-    const isNamedAssignee = await db.task.findFirst({
-      where: {
-        documentType: instance.documentType,
-        documentId: instance.documentId,
-        assigneeId: input.actor.id,
-        taskType: "APPROVAL",
-        status: { in: ["OPEN", "IN_PROGRESS"] },
-      },
-      select: { id: true },
-    });
-    if (!isSysAdmin && !holdsRole && !isNamedAssignee) {
-      throw new ForbiddenError(
-        `This step (${current.stepName}) is assigned to ${current.assignedRoleCode ?? "a specific approver"}. You are not an authorised approver for it.`,
-      );
-    }
+  // Holding the permission is not the same as being this step's approver. An
+  // approval assigned to the finance approver is not actionable by a different
+  // holder of the same role's permission set, and a step assigned to a named
+  // person is not actionable by anybody else at all.
+  //
+  // This check used to be skippable with an `input.system` flag. Nothing passed
+  // it, and a dormant bypass of the only control that separates one approver
+  // from another is worth deleting rather than keeping in case.
+  const isSysAdmin = input.actor.roleCodes.includes("SYSTEM_ADMIN");
+  const holdsRole = current.assignedRoleCode
+    ? input.actor.roleCodes.includes(current.assignedRoleCode)
+    : false;
+  const isNamedAssignee = await db.task.findFirst({
+    where: {
+      documentType: instance.documentType,
+      documentId: instance.documentId,
+      assigneeId: input.actor.id,
+      taskType: "APPROVAL",
+      status: { in: ["OPEN", "IN_PROGRESS"] },
+    },
+    select: { id: true },
+  });
+  if (!isSysAdmin && !holdsRole && !isNamedAssignee) {
+    throw new ForbiddenError(
+      `This step (${current.stepName}) is assigned to ${current.assignedRoleCode ?? "a specific approver"}. You are not an authorised approver for it.`,
+    );
   }
 
   if (current.step?.commentRequired && !input.comment?.trim() && input.decision !== "APPROVED") {

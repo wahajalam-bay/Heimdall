@@ -9,7 +9,7 @@ import { startApproval, actOnApproval, getPendingApproval, type ApprovalDecision
 import { PERMISSIONS as P } from "@/lib/permissions";
 import { assertEntityAccess, userHasPermission, type SessionUser } from "@/lib/rbac";
 import { DOMAIN_ACTIONS, assertAuthority, type Actor, type Authority } from "@/lib/actor";
-import { PO_LIFECYCLE, requisitionComplete, type PoStatus } from "@/lib/domain";
+import { PO_LIFECYCLE, PO_TRANSITION_AUTHORITY, requisitionComplete, type PoStatus } from "@/lib/domain";
 import { round2 } from "@/lib/format";
 import { transitionPr, assertRequisitionComplete } from "./pr";
 import { checkVendorEligibility, effectiveQuoteTotal } from "./sourcing";
@@ -322,11 +322,14 @@ export async function createPoFromCase(user: SessionUser, input: PoInput, db: Db
 }
 
 /**
- * Module-private: every exported function in this file authorizes before
- * calling it, which is why it carries no authority map of its own. Callers
- * that are themselves cascades pass `authority` so the grounds are re-verified
- * on the way through. A per-target-state authority map for purchase orders is
- * scheduled with the purchase order module rebuild.
+ * Moves a purchase order, checking both that the move is legal and that the
+ * actor may make it.
+ *
+ * Module-private, and every exported function here authorizes before calling
+ * it — but that is a property of today's callers, not of the function, so the
+ * authority for the state being entered is checked here too. Callers that are
+ * themselves consequences of work elsewhere pass `authority` naming the
+ * permission that authorized them, and it is re-verified on the way through.
  */
 async function transitionPo(
   actor: Actor,
@@ -340,9 +343,12 @@ async function transitionPo(
   } = {},
   db: DbClient = prisma,
 ) {
-  if (opts.authority) assertAuthority(actor, DOMAIN_ACTIONS.PO_FULFILMENT_RECOMPUTE, opts.authority);
   const po = await db.purchaseOrder.findUnique({ where: { id: poId }, include: { pr: true } });
   if (!po) throw new NotFoundError("Purchase order");
+
+  const authority: Authority = opts.authority ?? { permission: PO_TRANSITION_AUTHORITY[to] ?? [] };
+  assertAuthority(actor, DOMAIN_ACTIONS.PO_TRANSITION, authority);
+  assertEntityAccess(actor, po.entityId);
   const from = po.status as PoStatus;
   if (from === to && to !== "PARTIALLY_RECEIVED") return po;
 
@@ -454,7 +460,23 @@ export async function submitPoForApproval(user: SessionUser, poId: string, db: D
   );
 
   if (approval.autoApproved) {
-    await transitionPo(user, poId, "APPROVED", { reason: "No approval rule matched — auto-approved" }, db);
+    // The approval engine matched no approver for this order. It advances on the
+    // engine's decision, not on the submitter's authority — the same situation
+    // as PC-027 on requisitions, and named the same way so the audit trail says
+    // which orders were approved by nobody.
+    await transitionPo(
+      user,
+      poId,
+      "APPROVED",
+      {
+        reason: "No approval rule matched — auto-approved",
+        authority: {
+          cascade: "approval engine: no applicable purchase order approver",
+          from: [P.PO_CREATE, P.PO_EDIT, P.PO_APPROVE],
+        },
+      },
+      db,
+    );
     if (po.prId) {
       await transitionPr(
         user,
@@ -520,7 +542,19 @@ export async function decidePo(
       );
     }
   } else if (decision === "RETURNED" || decision === "CLARIFICATION_REQUESTED") {
-    await transitionPo(user, poId, "DRAFT", { reason: comment }, db);
+    // Rejecting an order sends it back to the buyer to redraft. The approver
+    // does not hold `po.edit`, and does not need to: returning it is part of
+    // deciding it.
+    await transitionPo(
+      user,
+      poId,
+      "DRAFT",
+      {
+        reason: comment,
+        authority: { cascade: "purchase order rejected, returned to draft", from: [P.PO_APPROVE] },
+      },
+      db,
+    );
     await createTask(
       {
         title: `Revise purchase order ${po.number}`,

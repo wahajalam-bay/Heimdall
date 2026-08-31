@@ -253,6 +253,33 @@ export const PO_STATUSES = [
 ] as const;
 export type PoStatus = (typeof PO_STATUSES)[number];
 
+/**
+ * Which permission entitles an actor to move a purchase order *into* a state.
+ *
+ * The requisition equivalent is `PR_TRANSITION_AUTHORITY`, and the reasoning is
+ * the same: the transition table says which moves are legal, this says who may
+ * make them, and they are different questions. `transitionPo` is private to the
+ * purchase order module and every exported function there authorizes before
+ * calling it — but "the callers all check" is a property that holds until
+ * somebody adds a caller, so the check belongs on the move itself.
+ *
+ * Keyed on the target state, because entering APPROVED *is* approving and
+ * entering ISSUED *is* issuing. States normally reached as a consequence of work
+ * in another module — a receipt posted, an order closed out — are reached with a
+ * declared cascade whose originating permission is re-verified instead.
+ */
+export const PO_TRANSITION_AUTHORITY: Record<PoStatus, readonly string[]> = {
+  DRAFT: [PERMISSIONS.PO_CREATE, PERMISSIONS.PO_EDIT],
+  PENDING_APPROVAL: [PERMISSIONS.PO_CREATE, PERMISSIONS.PO_EDIT],
+  APPROVED: [PERMISSIONS.PO_APPROVE],
+  ISSUED: [PERMISSIONS.PO_ISSUE],
+  PARTIALLY_RECEIVED: [PERMISSIONS.GRN_POST, PERMISSIONS.GRN_CANCEL],
+  FULLY_RECEIVED: [PERMISSIONS.GRN_POST, PERMISSIONS.GRN_CANCEL],
+  CLOSED: [PERMISSIONS.PO_CLOSE],
+  CANCELLED: [PERMISSIONS.PO_CANCEL, PERMISSIONS.PO_CLOSE, PERMISSIONS.PO_APPROVE],
+  ON_HOLD: [PERMISSIONS.PO_EDIT, PERMISSIONS.PO_APPROVE],
+};
+
 export const PO_LIFECYCLE: PoStatus[] = [
   "DRAFT",
   "PENDING_APPROVAL",
