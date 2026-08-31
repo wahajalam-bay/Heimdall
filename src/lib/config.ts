@@ -19,6 +19,9 @@ export type ConfigDef = {
 };
 
 export const CONFIG_KEYS = {
+  // Inventory ageing bands and the near-expiry window.
+  AGEING_BANDS: "inventory.ageing_bands",
+  NEAR_EXPIRY_DAYS: "inventory.near_expiry_days",
   // Accounting treatment — see lib/treatment.ts and BD-002.
   CAPITALISATION_THRESHOLD: "treatment.capitalisation_threshold",
   CAPITALISATION_MODE: "treatment.capitalisation_mode",
@@ -1007,6 +1010,26 @@ export const CONFIG_DEFS: ConfigDef[] = [
     group: "Accounting treatment",
     valueType: "json",
     default: [],
+  },
+
+  /* ── Inventory ageing ─────────────────────────────────────────────────── */
+  {
+    key: CONFIG_KEYS.AGEING_BANDS,
+    label: "Inventory ageing bands",
+    description:
+      'Bands the ageing report groups by, as JSON: [{"label":"0–30 days","fromDays":0,"toDays":30}]. A null toDays means open-ended. Empty falls back to the shipped six bands.',
+    group: "Stores",
+    valueType: "json",
+    default: [],
+  },
+  {
+    key: CONFIG_KEYS.NEAR_EXPIRY_DAYS,
+    label: "Near-expiry window (days)",
+    description:
+      "Stock expiring within this many days is flagged as near expiry. Distinct from ageing: age is how long money has sat on a shelf, expiry is how long the goods remain usable.",
+    group: "Stores",
+    valueType: "number",
+    default: 60,
   },
 ];
 
