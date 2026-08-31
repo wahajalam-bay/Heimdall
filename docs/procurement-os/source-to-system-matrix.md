@@ -26,8 +26,7 @@ The largest reclassification is the **`R-###` Roles & Responsibilities series: 3
 of its rows came from the ZD SOP**, not from ZAM/PUR/SOP-01. ZAM/PUR/SOP-01 has
 its own Roles & Responsibilities section and its own Checklist of Roles &
 Responsibilities, and those need reading against this series before any of it is
-treated as a Zameen Media duty. That verification is **open** and is recorded as
-`BD-001` in `business-decisions.md`.
+treated as a Zameen Media duty. That verification is **done** — see the [R-ZAM series](#roles--responsibilities----zameen-media----r-zam-series). Zameen Media states four procurement responsibilities, not thirty-four, so the ZD series stays out of scope and `BD-001` is closed.
 
 ## Zameen Media coverage
 
@@ -400,6 +399,83 @@ captured under a different name in the previous register it is carried across:
 > record them per row. They are filled in as each phase touches the requirement,
 > rather than guessed now: a wrong table name in a traceability document is worse
 > than an admitted blank.
+
+
+## Roles & Responsibilities  ·  Zameen Media  ·  R-ZAM series
+
+Read from ZAM/PUR/SOP-01 directly, to settle `BD-001`. Zameen Media states its
+responsibilities in three places and **none of them corresponds to the 34-row
+`R-###` series carried over from the ZD SOP**:
+
+| Location | Content |
+|---|---|
+| §3 Responsibilities | **Four clauses**, 3.1 to 3.4 |
+| ROLES & RESPONSIBILITIES (p. 33) | Ten departments, prose, **build-out scoped** |
+| Checklist of Roles & Responsibilities | `image23.PNG` + `image24.PNG` — ten departments, **33 named responsibilities**, build-out scoped. The document's final heading, with the content entirely in the two images |
+
+So Zameen Media's procurement duties are **4 clauses**, not 34. The ZD series
+stays `FUTURE / ZD ONLY`, and `BD-001` is closed. The four clauses are
+substantive — three of them name controls the system does not yet evidence.
+
+### §3 — Responsibilities
+
+| ID | § | Requirement | Actor | Current | Code | Status | Required change | Pri |
+|---|---|---|---|---|---|---|---|---|
+| R-ZAM-001 | §3.1 | (Director / Senior Manager) Procurement is responsible to arrange resources of procurement, selection, pre-qualification and registration of new suppliers; to monitor performance and evaluation of existing approved suppliers; and to make sure all procurement activities are done in line with the stipulated process | Procurement Director / Sr Manager | Roles exist with these permissions. **The duty itself is not evidenced** — no record that monitoring occurred, and no periodic control that asks for it | `src/lib/permissions.ts`, `src/server/vendors.ts` | **PARTIAL** | Attach the duty to the Control Calendar so 'monitor performance' produces a dated control with evidence, rather than being implied by holding a permission | P2 |
+| R-ZAM-002 | §3.2 | Requesting departmental POCs are responsible to define specifications, quality, brand, frequency of all required demands. **After delivery the concerned departmental head or their representative verifies the specifications and signs the Material Inspection form** | Requesting department POC / HOD | PR items carry specification fields. The **concerned-department sign-off on the inspection form is absent** — inspection records the inspector, not the requesting department's verification | `src/server/receiving.ts`, `src/server/pr.ts` | **PARTIAL** | Add the concerned-department attestation to inspection, per Annexure 4's second signature block. Route it to the requesting department's POC, not to whoever inspected | **P1** |
+| R-ZAM-003 | §3.3 | Manager Logistics is responsible to maintain the stock list with specifications and **minimum stock level defined on the basis of past history (consumption) or on advice of concerned departmental POCs**, for record keeping of receipt and issuance, and is liable to present it as and when required | Manager Logistics | Minimum level is a manual number on the item. **No consumption-derived suggestion**, and no named owner for the stock list | `src/server/inventory.ts`, `src/server/stores.ts` | **PARTIAL** | Derive a suggested minimum from consumption history and show it beside the manual figure; record which basis was used. Name the Manager Logistics as owner of the stock list | **P1** |
+| R-ZAM-004 | §3.4 | Procurement team will process all invoices and ensure availability of supporting documents before submitting to finance **as per Annexure A** | Procurement team | Invoice verification and the three-way match exist. **All 30 document types are `optional`** — the Annexure A set is not enforced | `src/server/invoice.ts`, `DocumentType.required` | **PARTIAL** | Payment Pack with the Annexure A set required per transaction type; payment blocked without them or an authorised, reasoned exception | **P0** |
+
+### Checklist of Roles & Responsibilities
+
+Build-out scoped, so these land with the build-out module rather than with core
+procurement. Recorded now so the departmental task matrix is built from the
+document rather than invented — the brief asks for exactly this checklist as a
+template.
+
+| ID | Department | Responsibility | Status | Lands in |
+|---|---|---|---|---|
+| R-ZAM-005 | Sales | Hiring Forecast | **MISSING** | Build-outs |
+| R-ZAM-006 | Sales | Initial requirements coordination | **MISSING** | Build-outs |
+| R-ZAM-007 | Human Resources | Installation of attendance machines | **MISSING** | Build-outs |
+| R-ZAM-008 | Human Resources | Departmental hiring | **MISSING** | Build-outs |
+| R-ZAM-009 | Human Resources | Trainings | **MISSING** | Build-outs |
+| R-ZAM-010 | Information Technology | Support Staff Deployment | **MISSING** | Build-outs |
+| R-ZAM-011 | Information Technology | Data base administration | **MISSING** | Build-outs |
+| R-ZAM-012 | Information Technology | Required trainings | **MISSING** | Build-outs |
+| R-ZAM-013 | Information Technology | IT equipment deployment | **MISSING** | Build-outs |
+| R-ZAM-014 | Information Technology | Internet Connectivity | **MISSING** | Build-outs |
+| R-ZAM-015 | Procurement | RFQ to vendors | **MISSING** | Build-outs |
+| R-ZAM-016 | Procurement | Quotations | **MISSING** | Build-outs |
+| R-ZAM-017 | Procurement | Timely tagging of assets | **MISSING** | Build-outs |
+| R-ZAM-018 | Procurement | Comparative statements | **MISSING** | Build-outs |
+| R-ZAM-019 | Procurement | Procurement orders | **MISSING** | Build-outs |
+| R-ZAM-020 | Administration | Detailed requirement gathering from relevant departments | **MISSING** | Build-outs |
+| R-ZAM-021 | Administration | Timely deliveries at site | **MISSING** | Build-outs |
+| R-ZAM-022 | Administration | Requirement gathering | **MISSING** | Build-outs |
+| R-ZAM-023 | Administration | Scope of work | **MISSING** | Build-outs |
+| R-ZAM-024 | Administration | Work order generation | **MISSING** | Build-outs |
+| R-ZAM-025 | Administration | Day wise schedule compliance | **MISSING** | Build-outs |
+| R-ZAM-026 | Administration | Timely monitoring of BOQ with actual | **MISSING** | Build-outs |
+| R-ZAM-027 | Administration | Timely reporting of issues | **MISSING** | Build-outs |
+| R-ZAM-028 | Finance | Timely disbursement of funds | **MISSING** | Build-outs |
+| R-ZAM-029 | Internal Audit | Pre-Audit of payments | **MISSING** | Build-outs |
+| R-ZAM-030 | Internal Audit | Compliance assurance | **MISSING** | Build-outs |
+| R-ZAM-031 | Internal Audit | BOQ comparison | **MISSING** | Build-outs |
+| R-ZAM-032 | Architect Team | Layout Finalization | **MISSING** | Build-outs |
+| R-ZAM-033 | Architect Team | Design preparation | **MISSING** | Build-outs |
+| R-ZAM-034 | Architect Team | BOQ Finalization | **MISSING** | Build-outs |
+| R-ZAM-035 | Architect Team | Timely site visits | **MISSING** | Build-outs |
+| R-ZAM-036 | Marketing | Branding related all requirements should be provided by marketing at initial stage | **MISSING** | Build-outs |
+| R-ZAM-037 | Legal Team | Contract creation | **MISSING** | Build-outs |
+
+**33 checklist responsibilities across 10 departments.** None is
+implemented: there is no build-out module. Three of them are procurement duties
+the core system already performs in another context — RFQ to vendors, comparative
+statements, procurement orders — and two more, asset tagging and work order
+generation, exist partly. They are still listed, because the checklist is a
+control document: the duty is to do it *for the build-out project*, evidenced.
+
 
 ---
 

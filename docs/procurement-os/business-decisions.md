@@ -16,7 +16,7 @@ exactly that case.
 
 | ID | Subject | Blocks | Status |
 |---|---|---|---|
-| BD-001 | Which Roles & Responsibilities are Zameen Media's | 34 matrix rows | **OPEN** |
+| BD-001 | Which Roles & Responsibilities are Zameen Media's | 34 matrix rows | **CLOSED** — answered from the document |
 | BD-002 | Asset vs consumable below PKR 15,000 | Treatment engine, Expense Book | **OPEN — sources contradict** |
 | BD-003 | What JEFFI is | Payment workflow | **OPEN — no definition in any ZAM source** |
 | BD-004 | Sage integration direction | Item/Vendor master ownership | **OPEN — no implementation to infer from** |
@@ -29,34 +29,43 @@ exactly that case.
 
 ---
 
-## BD-001 · Which Roles & Responsibilities belong to Zameen Media
+## BD-001 · Which Roles & Responsibilities belong to Zameen Media — **CLOSED**
 
-**ZAM/PUR/SOP-01.** Contains a Roles & Responsibilities section and a separate
-Checklist of Roles & Responsibilities.
+Answered by reading ZAM/PUR/SOP-01 rather than by asking. Zameen Media states its
+responsibilities in three places, and **none of them corresponds to the 34-row
+`R-###` series that came from the ZD SOP.**
 
-**Current register.** The `R-###` series holds 38 role duties. **34 of them were
-read from `ZD/PRO/SOP-01`** — duties such as "Review and approve Purchase Orders
-per Financial Authority Limits Policy", "Review Vendor Master Data annually",
-"Generate RFQ within 24 working hours of receipt of PR", "Obtain written
-acknowledgement from vendor against PO".
+| Location | What it contains |
+|---|---|
+| **§3 Responsibilities** | **Four clauses.** 3.1 Director/Sr Manager Procurement — resources, selection, pre-qualification, registration, monitoring performance of approved suppliers, and ensuring procurement follows the stipulated process. 3.2 Requesting departmental POCs — define specifications, quality, brand, frequency; **after delivery the concerned department head verifies specifications and signs the Material Inspection form**. 3.3 Manager Logistics — maintain the stock list and **minimum stock level derived from consumption history or POC advice**, keep receipt and issuance records, present them on demand. 3.4 Procurement team — process all invoices and ensure supporting documents **as per Annexure A** |
+| **ROLES & RESPONSIBILITIES** (p. 33) | Ten departments in prose — Sales, Administration, Architect, Procurement, IT, Legal, Finance, HR Operations, Marketing, Internal Audit. **Build-out scoped** |
+| **Checklist of Roles & Responsibilities** | The document's final heading, with its content entirely in two images (`image23.PNG`, `image24.PNG`): ten departments, **33 named responsibilities**, build-out scoped |
 
-**Current system.** None of the 34 is enforced as a Zameen Media duty, which is
-correct for now — but several read like controls Zameen Media would expect, and
-four of them (R-004, R-027, R-028, R-036) were previously carried at P0/P1.
+**Outcome.** Zameen Media has **4 procurement responsibilities, not 34.** The ZD
+series stays `FUTURE / ZD ONLY` and the in-scope count is unchanged at 147 plus a
+new `R-ZAM` series of 37 rows — 4 clauses and 33 checklist duties.
 
-**Impact.** If ZAM/PUR/SOP-01 states equivalents, these are in-scope
-requirements and the register understates Zameen Media's obligations by up to 34
-rows. If it does not, they stay `FUTURE / ZD ONLY` and the current 147 is right.
+**And the four clauses are not decoration.** Three of them name controls the
+system does not evidence:
 
-**Recommendation.** I re-read ZAM/PUR/SOP-01's Roles & Responsibilities section
-and its Checklist against this series and produce an `R-ZAM-###` series with the
-ZAM wording, citing the ZAM section for each. Duties with no ZAM counterpart stay
-in Appendix A. No ZD wording is carried across.
+- **§3.2** requires the *concerned department* to verify specifications and sign
+  the inspection form. Inspection today records the inspector, not the requesting
+  department's verification. Annexure 4 has a second signature block for exactly
+  this, and it is missing.
+- **§3.3** requires the minimum stock level to be **derived from consumption
+  history or POC advice**. It is currently a manual number with no derivation and
+  no named owner.
+- **§3.4** requires the Annexure A document set before an invoice goes to
+  finance. All 30 document types are still `optional`.
 
-**Question.** Confirm I should do that re-read now, before Phase 1 continues —
-it changes what "complete" means for this release.
+**§3.1** is the softest: the roles and permissions exist, but "monitor
+performance and evaluation of existing approved suppliers" leaves no evidence
+that monitoring happened. It becomes a dated control on the Control Calendar
+rather than an implication of holding a permission.
 
----
+The 33 checklist duties land with the build-out module, where they become the
+departmental task matrix the brief asks for — built from the document instead of
+invented.
 
 ## BD-002 · Asset vs consumable below PKR 15,000
 
