@@ -28,6 +28,7 @@ import {
   type ProcurementKind,
 } from "@/lib/kind";
 import { escalationChain } from "@/server/org";
+import { attest } from "@/server/attestation";
 
 /**
  * Purchase Requisition / ZD Material Demand service.
@@ -824,6 +825,50 @@ export async function decidePr(
     },
     db,
   );
+
+  // Annexure 1's signature block, recorded rather than implied.
+  //
+  // The form ends with the head of department's sign, stamp, date and time, and
+  // the SOP says of those last three that they are "compulsory to ensure
+  // compliance". A status change and a timestamp are not that: they say the
+  // requisition moved, not who put their name to it in what office. The
+  // attestation carries the designation held at the moment of signing, because
+  // offices change and the record must not.
+  await attest(
+    user,
+    {
+      documentType: "PR",
+      documentId: pr.id,
+      documentRef: pr.number,
+      attestationType: decision === "APPROVED" ? "APPROVED" : "REVIEWED",
+      decision:
+        decision === "APPROVED" ? "APPROVED" : decision === "REJECTED" ? "REJECTED" : "NOTED",
+      comment,
+      // What was signed, hashed — so a later change to the lines is detectable
+      // rather than merely unlikely.
+      signedContent: {
+        number: pr.number,
+        estimatedValue: pr.estimatedValue,
+        lines: pr.items.map((i) => ({
+          lineNo: i.lineNo,
+          description: i.description,
+          quantity: i.quantity,
+          unit: i.unit,
+          estimatedTotal: i.estimatedTotal,
+        })),
+      },
+    },
+    db,
+  );
+
+  if (decision === "APPROVED") {
+    // Annexure 1 "Approved By" — the column that recorded when, and never who.
+    await db.purchaseRequisition.update({
+      where: { id: pr.id },
+      data: { approvedById: user.id },
+    });
+  }
+
 
   if (decision === "REJECTED") {
     await transitionPr(user, prId, "REJECTED", { reason: comment }, db);

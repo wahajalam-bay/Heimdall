@@ -67,6 +67,9 @@ model User {
   grnsPosted         Grn[]                 @relation("GrnPostedBy")
   grnTreatmentsApproved GrnItem[]          @relation("GrnTreatmentApprover")
   manualComparativeEntries ComparativeManualEntry[] @relation("ManualEntryEnteredBy")
+  attestationsSigned     Attestation[]           @relation("AttestationSignedBy")
+  attestationsOnBehalfOf Attestation[]           @relation("AttestationOnBehalfOf")
+  prsApproved            PurchaseRequisition[]   @relation("PrApprovedBy")
   taxRulesCreated    TaxRule[]             @relation("TaxRuleCreatedBy")
   taxRulesApproved   TaxRule[]             @relation("TaxRuleApprovedBy")
   serviceAcceptancePocs      ServiceAcceptance[] @relation("ServiceAcceptancePoc")
@@ -630,6 +633,17 @@ model PurchaseRequisition {
   deliveryStoreId      String?
   deliveryStore        Store?   @relation(fields: [deliveryStoreId], references: [id])
   deliveryLocationNote String?
+  /// Annexure 1 "Req Location" — where the goods are actually wanted, which is
+  /// not always the store that receives them.
+  requiredLocation String?
+
+  /// Annexure 1 "Document Comments" — a note about the requisition as a whole,
+  /// distinct from the business justification for buying.
+  documentComments String?
+
+  /// Annexure 1 "Approved By". `approvedAt` recorded when, never who.
+  approvedById String?
+  approvedBy   User?   @relation("PrApprovedBy", fields: [approvedById], references: [id])
   requiredDate         DateTime
 
   /// LOW | NORMAL | HIGH | URGENT
@@ -711,6 +725,16 @@ model PurchaseRequisitionItem {
   procurementKind String @default("GOODS")
 
   notes       String?
+  /// Annexure 1 "Item Code". Catalogue items have one through `item.sku`; this
+  /// carries the code for something not yet in the catalogue, which is most of
+  /// what a requisition asks for.
+  itemCode String?
+
+  /// Annexure 1 "In Stock" — the free quantity at the moment the requisition was
+  /// raised. A snapshot, not a live figure: the point of the column is what the
+  /// requester could see when they decided to buy.
+  inStockAtRequest Float?
+  stockCheckedAt   DateTime?
 
   quoteItems QuoteItem[]
   poItems    PurchaseOrderItem[]
@@ -3625,4 +3649,64 @@ model ComparativeManualEntry {
   enteredAt   DateTime @default(now())
 
   @@index([comparativeId])
+}
+
+/// A signature, once, reusable.
+///
+/// The paper forms all end the same way: a name, a designation, a signature, a
+/// stamp, a date and a time. Annexure 1 says of the last three that "Stamps,
+/// Date, Time are compulsory to ensure compliance". The requisition, the cost
+/// analysis, the inspection note, the order, the committee minute, the voucher
+/// and the disposal file each want that block.
+///
+/// Adding six sets of signature columns to six tables is how a schema stops
+/// being reviewable. So the block lives here once, addressed by document type
+/// and id, and every form reads it the same way.
+///
+/// It records the *role at signing* rather than only the user, because a
+/// signature means something because of the office the signer held at the time
+/// — and offices change while records must not.
+model Attestation {
+  id String @id @default(cuid())
+
+  /// PR | COMPARATIVE | INSPECTION | GRN | PO | CPC_CASE | VOUCHER | DISPOSAL | SERVICE_ACCEPTANCE
+  documentType String
+  documentId   String
+  /// The document's own number, so an attestation is legible on its own.
+  documentRef  String?
+  /// Which version was signed. An approval points at what was actually approved.
+  documentVersion Int @default(1)
+
+  /// PREPARED | VERIFIED | REVIEWED | APPROVED | REJECTED | WITNESSED | ACKNOWLEDGED
+  attestationType String
+  /// APPROVED | REJECTED | NOTED — what the signer decided, where that differs
+  /// from the kind of attestation they were giving.
+  decision String?
+
+  signedById String
+  signedBy   User   @relation("AttestationSignedBy", fields: [signedById], references: [id])
+  /// The office held at the moment of signing, captured rather than joined.
+  roleAtSigning String?
+  designation   String?
+
+  /// Set when somebody signed for somebody else, under a recorded delegation.
+  onBehalfOfId String?
+  onBehalfOf   User?   @relation("AttestationOnBehalfOf", fields: [onBehalfOfId], references: [id])
+  delegationRef String?
+
+  /// The compulsory block. `stampRef` is what the physical stamp bore, for a
+  /// form that was signed on paper and scanned back in.
+  signedAt DateTime @default(now())
+  stampRef String?
+
+  comment String?
+  /// Hash of the document as signed, where one is available — so a later change
+  /// is detectable rather than merely improbable.
+  documentHash String?
+
+  ip        String?
+  userAgent String?
+
+  @@index([documentType, documentId])
+  @@index([signedById])
 }
