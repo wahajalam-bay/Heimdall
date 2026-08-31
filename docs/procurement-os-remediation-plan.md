@@ -156,7 +156,47 @@ call sites is reviewed individually.
 **Tests.** For every function above: an unauthorized actor is rejected; an
 authorized actor succeeds; the rejection is audited.
 
-## Phase 2 · Transaction integrity
+## Phase 2 · Transaction integrity — **COMPLETE**
+
+> **Outcome.** 61 functions are transactional. There were none: `postGrn` alone
+> was 16 independently committed writes. `withTransaction` in `lib/db.ts` joins
+> a caller's transaction rather than opening a second one, so a function that is
+> atomic alone stays atomic when another calls it and cannot deadlock against a
+> pool slot its own caller holds.
+>
+> **`postGrn` is idempotent.** The status flip is a single conditional
+> `updateMany` instead of a read then a write, so a double-clicked button or a
+> retried action cannot double-post stock and price history.
+>
+> **The outbox turned out to be already half-built and needed differently.**
+> `notify`, `createTask` and `queueEmail` are all pure database writes, and mail
+> was already deferred — `queueEmail` writes an `EmailMessage` row that a sweep
+> flushes later. So no HTTP was ever inside a transaction. The real hazard was
+> the opposite one: Postgres aborts a transaction on its first failed statement,
+> so a caught-and-ignored database error poisons every write after it while the
+> catch reports success. Three places did that — asset tagging on receipt, the
+> purchase order closure on final payment, the three-way match on invoice
+> registration — and all three now run after the commit through `defer`, where
+> best-effort is true again.
+>
+> **Two bugs surfaced.** `openBlacklistCase` created the investigation and then
+> refused if the user could not also suspend the vendor, leaving a committed case
+> behind a failed request. And `resolveCpcCase` audited its own refusal inside
+> the transaction it was about to abort, so the Phase 1 denial record was being
+> rolled back — authorization now runs before the transaction opens.
+>
+> **Deliberately not transactional:** `readDocument`, which writes a DENIED
+> access-log row and then throws. Inside a transaction that record would roll
+> back with the refusal, which is the one thing it exists to survive.
+>
+> **Timeouts** raised from Prisma's 5s default to 20s, configurable via
+> `DB_TX_TIMEOUT_MS` / `DB_TX_MAX_WAIT_MS`.
+>
+> **Not done:** the rollback, duplicate-post and concurrency tests this phase
+> specified. Verification was `tsc` plus a scripted audit asserting no `db.*`
+> write remains inside a transactional closure.
+
+### Original scope
 
 **Requirements:** GR-001, GR-002, GR-003.
 
