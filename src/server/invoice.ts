@@ -12,6 +12,7 @@ import { userHasPermission, type SessionUser } from "@/lib/rbac";
 import { round2 } from "@/lib/format";
 import { transitionPr } from "./pr";
 import { acceptedServiceValue } from "./service-acceptance";
+import { paymentPack } from "./payment-pack";
 
 /**
  * Invoice verification and finance handoff.
@@ -821,6 +822,35 @@ export async function handoffToFinance(
         `${invoice.exceptions.length} blocking exception(s) are unresolved: ${invoice.exceptions.map((e) => e.number).join(", ")}.`,
       );
     }
+
+    // §3.4: the Annexure A documents must be available before finance sees this.
+    //
+    // Enforcement is a switch because the requirements are newly seeded and no
+    // invoice in the system has documents attached yet — turning it on before
+    // that back-log is cleared would stop every payment. The checklist is
+    // visible either way, so the gap is legible before it is enforced.
+    const enforcePack = await getConfigBool(
+      CONFIG_KEYS.ENFORCE_PAYMENT_PACK,
+      invoice.po?.entityId ?? null,
+      tx,
+    );
+    if (enforcePack) {
+      const pack = await paymentPack(
+        "INVOICE",
+        invoice.id,
+        {
+          entityId: invoice.po?.entityId ?? null,
+          transactionType: invoice.po?.procurementKind ?? "GOODS",
+        },
+        tx,
+      );
+      if (!pack.complete) {
+        blockers.push(
+          `Annexure A documents missing: ${pack.blockers.join(", ")}. Attach them, mark a conditional one as not applicable with a note, or record an authorised exception.`,
+        );
+      }
+    }
+
     if (blockers.length) {
       throw new RuleViolationError(`Invoice ${invoice.number} cannot be handed to finance.`, blockers);
     }

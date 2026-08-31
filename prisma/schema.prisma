@@ -109,6 +109,8 @@ model User {
 
   serialUnitsHeld   SerialUnit[]     @relation("SerialCustodian")
   serialMovements   SerialMovement[] @relation("SerialMovementBy")
+  paymentPackVerifications PaymentPackItem[] @relation("PaymentPackVerifiedBy")
+  paymentPackExceptions    PaymentPackItem[] @relation("PaymentPackExceptionBy")
   @@index([email])
   @@map("users")
 }
@@ -214,6 +216,7 @@ model Entity {
   uoms          Uom[]
   itemCodeRules ItemCodeRule[]
 
+  paymentPackRequirements PaymentPackRequirement[]
   @@map("entities")
 }
 
@@ -2543,6 +2546,7 @@ model DocumentType {
 
   documents Document[]
 
+  paymentPackRequirements PaymentPackRequirement[]
   @@map("document_types")
 }
 
@@ -3813,4 +3817,103 @@ model SerialMovement {
   remarks       String?
 
   @@index([serialUnitId, performedAt])
+}
+
+/// What documents a transaction needs before money leaves.
+///
+/// `DocumentType.required` is a single global boolean, which cannot express what
+/// Annexure A actually says: the requisition, order, receipt and invoice are
+/// always needed, while the undertaking, the goods declaration and the tax
+/// exemption certificate are needed *when they apply*. A global flag forces a
+/// choice between demanding a GD on every payment or never demanding one, and
+/// the system chose never — all thirty types are optional today.
+///
+/// So the requirement is a row: this entity, this kind of transaction, this
+/// document, always or conditionally, with the condition stated in words
+/// somebody can check.
+model PaymentPackRequirement {
+  id String @id @default(cuid())
+
+  /// Null applies to every entity.
+  entityId String?
+  entity   Entity? @relation(fields: [entityId], references: [id])
+
+  /// GOODS | SERVICES | PETTY_CASH | ADVANCE | DISPOSAL | ALL
+  transactionType String @default("ALL")
+
+  documentTypeId String
+  documentType   DocumentType @relation(fields: [documentTypeId], references: [id])
+
+  /// ALWAYS — the payment cannot proceed without it.
+  /// CONDITIONAL — required only when `condition` holds; whoever assembles the
+  ///   pack says whether it applies, and that answer is recorded.
+  /// OPTIONAL — offered, never demanded.
+  requirement String @default("ALWAYS")
+
+  /// The condition in plain words, e.g. "imported goods" for a goods
+  /// declaration. Read by a person, not evaluated by the system — an
+  /// automatically-evaluated condition nobody can see is worse than a stated one
+  /// somebody answers.
+  condition String?
+
+  sequence Int     @default(0)
+  active   Boolean @default(true)
+
+  /// Where this requirement comes from, so it can be traced to the SOP.
+  sourceReference String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  packItems PaymentPackItem[]
+  @@unique([entityId, transactionType, documentTypeId])
+  @@index([transactionType, active])
+}
+
+/// One document's standing in a payment pack.
+///
+/// The checklist has to record more than presence. A conditional document that
+/// does not apply is satisfied; one that applies and is missing is a blocker;
+/// one that is present but unverified is not yet evidence. And a payment that
+/// proceeds without a mandatory document needs somebody's name against the
+/// exception, or the control is decorative.
+model PaymentPackItem {
+  id String @id @default(cuid())
+
+  /// The invoice or petty cash request the pack belongs to.
+  documentType String
+  documentId   String
+
+  requirementId String?
+  requirement   PaymentPackRequirement? @relation(fields: [requirementId], references: [id])
+
+  /// Copied from the requirement so the row stands alone in an audit.
+  documentTypeCode String
+  documentTypeName String
+  requirementKind  String @default("ALWAYS")
+
+  /// Whether the assembler says a conditional requirement applies here.
+  applicable    Boolean @default(true)
+  applicableNote String?
+
+  /// The attached document, once there is one.
+  attachedDocumentId String?
+  attachedAt         DateTime?
+
+  verifiedById String?
+  verifiedBy   User?     @relation("PaymentPackVerifiedBy", fields: [verifiedById], references: [id])
+  verifiedAt   DateTime?
+
+  /// Set when a mandatory document is waived. Both the reason and the person are
+  /// required — a waiver with neither is indistinguishable from an oversight.
+  exceptionReason       String?
+  exceptionApprovedById String?
+  exceptionApprovedBy   User?     @relation("PaymentPackExceptionBy", fields: [exceptionApprovedById], references: [id])
+  exceptionApprovedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([documentType, documentId, documentTypeCode])
+  @@index([documentType, documentId])
 }

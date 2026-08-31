@@ -19,6 +19,8 @@ export type ConfigDef = {
 };
 
 export const CONFIG_KEYS = {
+  // Payment document pack — see server/payment-pack.ts.
+  ENFORCE_PAYMENT_PACK: "invoice.enforce_payment_document_pack",
   // Inventory ageing bands and the near-expiry window.
   AGEING_BANDS: "inventory.ageing_bands",
   NEAR_EXPIRY_DAYS: "inventory.near_expiry_days",
@@ -1030,6 +1032,16 @@ export const CONFIG_DEFS: ConfigDef[] = [
     group: "Stores",
     valueType: "number",
     default: 60,
+  },
+
+  {
+    key: CONFIG_KEYS.ENFORCE_PAYMENT_PACK,
+    label: "Block finance handoff on a short document pack",
+    description:
+      "ZAM/PUR/SOP-01 §3.4 requires the Annexure A documents before an invoice goes to finance. With this on, a handoff is refused while a required document is neither attached, marked not-applicable with a note, nor released by an authorised exception. It ships OFF: the requirements are seeded and the checklist is visible, but no invoice in the system has documents attached yet, so turning it on before the back-log is dealt with would stop every payment. Switching it on is the go-live step for this control.",
+    group: "Finance",
+    valueType: "boolean",
+    default: false,
   },
 ];
 
