@@ -10,6 +10,7 @@ import { CONFIG_DEFS, setConfig } from "@/lib/config";
 import { writeAudit } from "@/lib/audit";
 import { flushOutbox } from "@/lib/mail";
 import { ForbiddenError, NotFoundError, toActionError, ValidationError, type ActionResult } from "@/lib/errors";
+import { assertNoRoleConflict } from "@/lib/sod";
 
 const blank = (v: FormDataEntryValue | null) => {
   const s = typeof v === "string" ? v.trim() : "";
@@ -148,6 +149,16 @@ export async function saveUserAction(_prev: ActionResult | null, formData: FormD
       primaryEntityId,
       active: bool(formData.get("active")),
     };
+
+    // Prohibited role combinations, if any are configured. Empty by default —
+    // the supplied SOPs state none, and the per-transaction separations in
+    // `lib/sod.ts` are what the source actually requires.
+    if (roleIds.length) {
+      const codes = (
+        await prisma.role.findMany({ where: { id: { in: roleIds } }, select: { code: true } })
+      ).map((r) => r.code);
+      await assertNoRoleConflict(codes, primaryEntityId ?? null);
+    }
 
     if (userId) {
       const before = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true, active: true } });

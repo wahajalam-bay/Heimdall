@@ -7,10 +7,13 @@ import { notify, createTask, cancelTasks } from "@/lib/notify";
 import { raiseException, autoResolveExceptions } from "@/lib/exceptions-service";
 import { startApproval, actOnApproval, getPendingApproval, type ApprovalDecision } from "@/lib/approvals";
 import { PERMISSIONS as P } from "@/lib/permissions";
-import { userHasPermission, type SessionUser } from "@/lib/rbac";
+import { SOD_RULES, assertSeparation } from "@/lib/sod";
+import { assertEntityAccess, userHasPermission, type SessionUser } from "@/lib/rbac";
+import { DOMAIN_ACTIONS, assertAuthority, type Actor, type Authority } from "@/lib/actor";
 import {
   PR_MODULE_BOUNDARY,
   PR_TRANSITIONS,
+  PR_TRANSITION_AUTHORITY,
   inRequisitionStage,
   requisitionComplete,
   type PrStatus,
@@ -399,16 +402,36 @@ export async function assertRequisitionComplete(
 }
 
 export async function transitionPr(
-  user: SessionUser | null,
+  actor: Actor,
   prId: string,
   to: PrStatus,
-  opts: { reason?: string | null; force?: boolean; extraData?: Record<string, unknown> } = {},
+  opts: {
+    reason?: string | null;
+    force?: boolean;
+    extraData?: Record<string, unknown>;
+    /**
+     * Set when this move is a consequence of an operation in another module
+     * that the actor was already authorized for — posting a GRN, verifying an
+     * invoice, a committee decision. The originating permission named here is
+     * re-verified against the actor, so a caller cannot assert an authority the
+     * actor does not hold.
+     */
+    authority?: Authority;
+  } = {},
   db: DbClient = prisma,
 ) {
   const pr = await db.purchaseRequisition.findUnique({ where: { id: prId } });
   if (!pr) throw new NotFoundError("Requisition");
   const from = pr.status as PrStatus;
   if (from === to) return pr;
+
+  // Who may make this move. Previously absent: the state machine was validated
+  // and the mover was not, so anyone who reached this function could advance a
+  // requisition. Entity scope is checked too — a requisition in an entity the
+  // actor cannot see is not theirs to move.
+  const authority: Authority = opts.authority ?? { permission: PR_TRANSITION_AUTHORITY[to] ?? [] };
+  assertAuthority(actor, DOMAIN_ACTIONS.PR_TRANSITION, authority, { ownerId: pr.requesterId });
+  assertEntityAccess(actor, pr.entityId);
 
   if (!opts.force) {
     const allowed = PR_TRANSITIONS[from] ?? [];
@@ -439,7 +462,7 @@ export async function transitionPr(
       changes: { status: { from, to } },
       reason: opts.reason ?? null,
       caseKey: pr.number,
-      actor: user,
+      actor,
     },
     db,
   );
@@ -459,7 +482,7 @@ export async function transitionPr(
         newValue: { handedTo: "PURCHASE_ORDER_MODULE", estimatedValue: pr.estimatedValue },
         reason: "The requisition is approved. Sourcing and the purchase order begin here.",
         caseKey: pr.number,
-        actor: user,
+        actor,
       },
       db,
     );
@@ -529,7 +552,13 @@ export async function submitPr(user: SessionUser, prId: string, db: DbClient = p
   const estimatedValue = round2(pr.items.reduce((a, i) => a + i.estimatedTotal, 0));
   await db.purchaseRequisition.update({ where: { id: prId }, data: { estimatedValue } });
 
-  await transitionPr(user, prId, "SUBMITTED", {}, db);
+  await transitionPr(
+    user,
+    prId,
+    "SUBMITTED",
+    { authority: { ownRecord: "Submitting a requisition", orPermission: [P.PR_SUBMIT] } },
+    db,
+  );
 
   const deptApprovalRequired = await getConfigBool(CONFIG_KEYS.DEPT_APPROVAL_REQUIRED, pr.entityId, db);
   const primaryCategoryId = pr.items[0]?.categoryId ?? null;
@@ -553,9 +582,20 @@ export async function submitPr(user: SessionUser, prId: string, db: DbClient = p
   );
 
   if (approval.autoApproved || !deptApprovalRequired) {
-    await transitionPr(user, prId, "UNDER_DEPARTMENT_APPROVAL", { force: true }, db);
-    await transitionPr(user, prId, "APPROVED", {}, db);
-    await transitionPr(user, prId, "PROCUREMENT_REVIEW", {}, db);
+    // The approval engine returned no applicable approver, or departmental
+    // approval is switched off for this entity. The requisition advances on the
+    // engine's decision, not on the submitter's authority — which is why the
+    // grounds are named rather than left implicit. Whether a requisition should
+    // be able to reach APPROVED with no human approver at all is recorded as a
+    // policy conflict; this code preserves the configured behaviour and makes
+    // it visible in the audit trail instead of silently changing it.
+    const engineDecision: Authority = {
+      cascade: "approval engine: no applicable approver",
+      from: [P.PR_SUBMIT, P.PR_CREATE, P.PR_APPROVE],
+    };
+    await transitionPr(user, prId, "UNDER_DEPARTMENT_APPROVAL", { force: true, authority: engineDecision }, db);
+    await transitionPr(user, prId, "APPROVED", { authority: engineDecision }, db);
+    await transitionPr(user, prId, "PROCUREMENT_REVIEW", { authority: engineDecision }, db);
     await notify(
       {
         roleCodes: ["PROCUREMENT_OFFICER", "BUYER", "PROCUREMENT_SENIOR_MANAGER"],
@@ -571,7 +611,13 @@ export async function submitPr(user: SessionUser, prId: string, db: DbClient = p
       db,
     );
   } else {
-    await transitionPr(user, prId, "UNDER_DEPARTMENT_APPROVAL", {}, db);
+    await transitionPr(
+      user,
+      prId,
+      "UNDER_DEPARTMENT_APPROVAL",
+      { authority: { cascade: "requisition submitted", from: [P.PR_SUBMIT, P.PR_CREATE] } },
+      db,
+    );
   }
 
   return { approval, estimatedValue };
@@ -599,6 +645,15 @@ export async function decidePr(
   };
   if (!userHasPermission(user, ...permMap[decision])) {
     throw new ForbiddenError(`You do not have permission to ${decision.toLowerCase()} requisitions.`);
+  }
+  if (decision === "APPROVED") {
+    await assertSeparation(
+      user,
+      SOD_RULES.PR_RAISE_APPROVE,
+      pr.requesterId,
+      { entityId: pr.entityId, documentType: "PurchaseRequisition", documentId: pr.id, documentRef: pr.number },
+      db,
+    );
   }
 
   const instance = await getPendingApproval(
@@ -788,7 +843,18 @@ export async function releaseHold(
   if (!userHasPermission(user, P.PR_HOLD)) {
     throw new ForbiddenError("You do not have permission to release requisitions from hold.");
   }
-  return transitionPr(user, prId, to, { reason, force: true, extraData: { holdReason: null } }, db);
+  return transitionPr(
+    user,
+    prId,
+    to,
+    {
+      reason,
+      force: true,
+      extraData: { holdReason: null },
+      authority: { cascade: "releasing a requisition from hold", from: [P.PR_HOLD] },
+    },
+    db,
+  );
 }
 
 /** PR list scoping: users without PR_VIEW_ALL only see their own or their department's. */

@@ -85,6 +85,7 @@ import { availableQuantity } from "../src/server/inventory";
 import { currentApprover, sessionFor, withPermission, withPermissions, withoutPermissions } from "./lib/actors";
 import { objectExists, putObject, storageDescription } from "../src/lib/storage";
 import { buildCsv, buildJpeg, buildPdf } from "./lib/artefacts";
+import { systemActor } from "@/lib/actor";
 
 /* ── Reporting ────────────────────────────────────────────── */
 
@@ -584,7 +585,7 @@ async function driveCase(spec: CaseSpec) {
     await decidePo(approver, po.id, "APPROVED", "Terms and pricing verified against the comparative.", prisma);
   }
   await issuePo(poCreator, po.id, prisma);
-  await recordSavingsForPo(po.id, prisma).catch(() => undefined);
+  await recordSavingsForPo(systemActor("SEED"), po.id, prisma).catch(() => undefined);
   if (spec.outcome === "PO_ISSUED") {
     note(`${pr.number} → ${po.number} issued to ${chosen.vendor.name}, awaiting delivery`);
     return;
@@ -1191,7 +1192,7 @@ async function driveVendorGovernance() {
     note(`${issue.number} raised against ${late.vendor.name} and resolved`);
   }
 
-  await recomputeAllVendorPerformance(12, prisma);
+  await recomputeAllVendorPerformance(systemActor("SEED"), 12, prisma);
   note("Vendor performance recomputed from recorded transactions");
 }
 

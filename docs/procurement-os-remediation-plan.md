@@ -53,7 +53,68 @@ phase 8 gates phases 9–18 because those consume the engines it builds.
 24 requirements. These are defects in controls that already exist on paper, plus
 two internal inconsistencies the system introduced itself.
 
-## Phase 1 · Domain authorization sweep
+## Phase 1 · Domain authorization sweep — **COMPLETE**
+
+> **Outcome.** 113 mutating exported functions across the 24 `src/server/*.ts`
+> modules; **18 had no authorization check anywhere in their body**, and all 18
+> now do. A test in `tests/authorization.test.ts` re-runs the sweep against the
+> source on every suite run, so a new unchecked mutation fails there rather than
+> in production.
+>
+> **Two of the eight functions named in this plan were misdiagnosed in Phase 0.**
+> `createPettyCash` (`pettycash.ts:68`) and `createGatePass` (`receiving.ts:41`)
+> already enforced `PETTY_CASH_CREATE` and `GATE_PASS_CREATE`. The detection pass
+> that produced the Phase 0 list truncated function bodies at the first brace,
+> which for a multi-line signature with an inline object type is inside the
+> parameter list. The matrix rows (PC-102, RC-001) have been corrected.
+>
+> **The real exposure was worse than the list suggested.** `resolveCpcCase` — the
+> committee decision that approves the award, releases the requisition to PO
+> preparation and marks the comparative approved — was reachable by any signed-in
+> user, because `resolveCaseAction` gated on `requireUser()` alone. The same was
+> true of `raiseCpcCaseAction`, `raiseInspectionAction` and `tagFromGrnAction`.
+>
+> **`transitionPr` was the largest single hole**: it validated the state machine
+> and never the mover, so anyone who reached it could advance a requisition to
+> any adjacent state — and `force: true`, used at 20 of its 30 call sites,
+> skipped the state machine too. It now requires the authority for the state
+> being *entered* (`PR_TRANSITION_AUTHORITY` in `lib/domain.ts`) plus entity
+> access, and `force` no longer touches authorization.
+>
+> **How the 30 internal callers were handled** — with an authority mechanism, not
+> a bypass. `lib/actor.ts` defines three grounds, and there is no branch in
+> `assertAuthority` that returns without testing something:
+> `{ permission }` (the actor holds it), `{ cascade, from }` (this step follows
+> from an operation the actor *was* authorized for, and that originating
+> permission is re-verified here), and `{ ownRecord, orPermission }` (the actor
+> owns the row, checked against the owner id the authorizing function loaded
+> itself). System principals — scheduler, migration, seed — carry an empty
+> permission list and a finite list of named domain actions, so a permission-based
+> check on one *fails*; only its declared grant admits it.
+>
+> **Also delivered:** the segregation-of-duties matrix (`lib/sod.ts`) with three
+> source-cited per-transaction rules, each entity-configurable and audited when
+> blocked *or* when waived by configuration; role-assignment conflict checking,
+> empty by default because neither SOP names a pair (ES-025); and the closure of
+> a document-metadata leak in `listDocuments`, which returned the name, filename,
+> size, type and uploader of every document on a case regardless of whether the
+> reader could open it.
+>
+> **New findings raised:** PC-027 (a requisition can reach APPROVED with no human
+> approver — preserved, but now travelling on a declared and auditable authority),
+> PC-028 (starting sourcing required only the `pr.view_all` read permission —
+> tightened), ES-025 (prohibited role combinations).
+>
+> **Two permissions added:** `cpc.case_raise` and `inspection.schedule`, both
+> synced to the database via `scripts/sync-rbac.ts` (2 permissions, 16 grants).
+>
+> **Deferred, with reason:** a per-target-state authority map for *purchase
+> orders*. `transitionPo` is module-private and every exported function in
+> `po.ts` authorizes before calling it, so the marginal exposure today is nil;
+> it belongs with Phase 14. `Grn.postedById` does not exist, so the invoice
+> separation keys on `receivedById` — noted on E-007 for Phase 11.
+
+### Original scope
 
 **Requirements:** PC-102, RC-001, RC-004, CP-006 (partly), E-007, E-008, R-004
 (partly), plus the full sweep the brief mandates.

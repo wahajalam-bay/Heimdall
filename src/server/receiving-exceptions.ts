@@ -4,6 +4,7 @@ import { round2 } from "@/lib/format";
 import { CONFIG_KEYS, getConfigNumber } from "@/lib/config";
 import { ForbiddenError, NotFoundError, RuleViolationError, ValidationError } from "@/lib/errors";
 import { PERMISSIONS as P } from "@/lib/permissions";
+import { DOMAIN_ACTIONS, assertAuthority, type Actor, type Authority } from "@/lib/actor";
 import { userHasPermission, type SessionUser } from "@/lib/rbac";
 import { writeAudit } from "@/lib/audit";
 import { createTask, completeTasks } from "@/lib/notify";
@@ -40,10 +41,17 @@ export type VarianceInput = {
 
 /** Records a difference. Never called to make one go away. */
 export async function recordVariance(
+  actor: Actor,
   input: VarianceInput,
-  createdById: string | null,
   db: DbClient = prisma,
+  /**
+   * Reconciliation runs as part of posting a receipt, so the poster's grounds
+   * are named rather than requiring them to also hold `variance.resolve`.
+   */
+  authority: Authority = { permission: [P.VARIANCE_RESOLVE, P.GRN_POST] },
 ) {
+  assertAuthority(actor, DOMAIN_ACTIONS.VARIANCE_RECORD, authority);
+  const createdById = actor.id;
   const variance = round2(
     input.type === "QUANTITY"
       ? (input.grnQuantity ?? 0) - (input.poQuantity ?? 0)
@@ -89,7 +97,12 @@ export async function recordVariance(
  * Differences inside the configured tolerance are still recorded — a tolerance
  * decides whether somebody is asked to act, not whether the difference happened.
  */
-export async function reconcileGrnToPo(grnId: string, actorId: string | null, db: DbClient = prisma) {
+export async function reconcileGrnToPo(
+  actor: Actor,
+  grnId: string,
+  db: DbClient = prisma,
+  authority: Authority = { permission: [P.VARIANCE_RESOLVE, P.GRN_POST] },
+) {
   const grn = await db.grn.findUnique({
     where: { id: grnId },
     include: {
@@ -121,6 +134,7 @@ export async function reconcileGrnToPo(grnId: string, actorId: string | null, db
 
     const pct = Math.abs((diff / ordered) * 100);
     const row = await recordVariance(
+      actor,
       {
         poId: grn.po.id,
         grnId: grn.id,
@@ -135,8 +149,8 @@ export async function reconcileGrnToPo(grnId: string, actorId: string | null, db
             ? `Within the ${tolerance}% tolerance; recorded for the record rather than for action.`
             : `Line ${line.lineNo} (${line.description}) differs by ${diff} against ${ordered} ordered.`,
       },
-      actorId,
       db,
+      authority,
     );
     created.push(row.number);
 
@@ -258,6 +272,10 @@ export async function recordRejection(
       },
       db,
       user,
+      {
+        cascade: "goods rejected after receipt",
+        from: [P.GRN_CREATE, P.INSPECTION_PERFORM, P.RECEIVE_GOODS],
+      },
     );
     adjusted = true;
   }

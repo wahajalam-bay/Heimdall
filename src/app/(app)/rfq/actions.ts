@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requirePermission, requireUser } from "@/lib/auth";
 import { toActionError, ValidationError, type ActionResult } from "@/lib/errors";
 import { COMPLIANCE_LEVELS, QUOTE_CHANNELS } from "@/lib/domain";
 import {
@@ -22,6 +22,7 @@ import {
 } from "@/server/sourcing";
 import { createCpcCase } from "@/server/cpc";
 import { recordTraderCase } from "@/server/vendors";
+import { PERMISSIONS as P } from "@/lib/permissions";
 
 const blank = (v: FormDataEntryValue | null) => {
   const s = typeof v === "string" ? v.trim() : "";
@@ -342,7 +343,7 @@ export async function recommendVendorAction(
 
 export async function raiseCpcCaseAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
   try {
-    const user = await requireUser();
+    const user = await requirePermission(P.CPC_CASE_RAISE, P.CPC_MANAGE);
     const comparativeId = String(formData.get("comparativeId") ?? "");
     const kase = await createCpcCase(user, {
       comparativeId,

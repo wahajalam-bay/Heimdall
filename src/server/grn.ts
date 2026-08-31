@@ -350,11 +350,14 @@ export async function postGrn(user: SessionUser, grnId: string, db: DbClient = p
     }
   }
 
-  await tagAssetsFromGrn(user, grn.id, db).catch(() => {
+  // Posting a receipt is what creates the asset record; the store user who
+  // posts it need not also hold `asset.manage`, so the grounds are named.
+  const postGrounds = { cascade: "goods receipt posted", from: [P.GRN_POST] } as const;
+  await tagAssetsFromGrn(user, grn.id, db, postGrounds).catch(() => {
     /* asset tagging must not block the inventory posting */
   });
 
-  const fulfilment = await recomputePoFulfilment(grn.poId, user, db);
+  const fulfilment = await recomputePoFulfilment(grn.poId, user, db, postGrounds);
   await completeTasks("GRN", grnId, user.id, db);
   if (grn.deliveryId) await completeTasks("DELIVERY", grn.deliveryId, user.id, db);
 
@@ -367,7 +370,7 @@ export async function postGrn(user: SessionUser, grnId: string, db: DbClient = p
   await autoResolveExceptions("PO", grn.poId, ["MISSING_GRN"], `GRN ${grn.number} posted`, db);
 
   if (grn.po.prId && fulfilment.allComplete) {
-    await transitionPr(user, grn.po.prId, "GRN_COMPLETED", { force: true }, db);
+    await transitionPr(user, grn.po.prId, "GRN_COMPLETED", { force: true, authority: postGrounds }, db);
     await createTask(
       {
         title: `Verify vendor invoice for ${grn.po.number}`,
@@ -418,7 +421,7 @@ export async function postGrn(user: SessionUser, grnId: string, db: DbClient = p
   // Squaring the receipt off against the order does not make the difference
   // vanish: it records it, typed and owned, so the order can close while the
   // shortfall or overage remains answerable.
-  const variances = await reconcileGrnToPo(grn.id, user.id, db);
+  const variances = await reconcileGrnToPo(user, grn.id, db, postGrounds);
 
   await writeAudit(
     {
@@ -481,6 +484,7 @@ export async function cancelGrn(user: SessionUser, grnId: string, reason: string
         },
         db,
         user,
+        { cascade: "goods receipt cancelled", from: [P.GRN_CANCEL] },
       );
     }
   }
@@ -489,7 +493,10 @@ export async function cancelGrn(user: SessionUser, grnId: string, reason: string
     where: { id: grnId },
     data: { status: "CANCELLED", remarks: `${grn.remarks ?? ""}\nCancelled: ${reason}`.trim() },
   });
-  await recomputePoFulfilment(grn.poId, user, db);
+  await recomputePoFulfilment(grn.poId, user, db, {
+    cascade: "goods receipt cancelled",
+    from: [P.GRN_CANCEL],
+  });
 
   await raiseException(
     {

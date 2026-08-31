@@ -211,7 +211,34 @@ export type DocumentSummary = {
   isCurrent: boolean;
   /** False when the caller may see that it exists but not open it. */
   viewable: boolean;
+  /**
+   * True when the descriptive fields above have been withheld because the
+   * caller is not authorised to open the document.
+   *
+   * A filename is not neutral. "Vendor bank mandate — Al-Karam.pdf" on a live
+   * tender tells a competitor's contact who is bidding and what stage they have
+   * reached, and it does so without anybody opening anything. So the row still
+   * appears — a case that hides the existence of its own attachments is worse —
+   * but it carries no name, no filename, no size and no uploader.
+   */
+  redacted: boolean;
 };
+
+/** Strips everything descriptive, keeping only what makes the row legible. */
+function redact(d: DocumentSummary): DocumentSummary {
+  return {
+    ...d,
+    name: "Restricted document",
+    originalFilename: "",
+    mimeType: "application/octet-stream",
+    sizeBytes: 0,
+    // The id survives so that an attempt to fetch it is refused *and logged* by
+    // `readDocument` rather than 404-ing anonymously.
+    documentTypeName: null,
+    uploadedByName: "—",
+    redacted: true,
+  };
+}
 
 /** Documents for a business object, or for a whole procurement case. */
 export async function listDocuments(
@@ -230,23 +257,27 @@ export async function listDocuments(
     orderBy: [{ uploadedAt: "desc" }],
     include: { uploadedBy: { select: { name: true } }, documentType: { select: { name: true } } },
   });
-  return docs.map((d) => ({
-    id: d.id,
-    name: d.name,
-    originalFilename: d.originalFilename,
-    mimeType: d.mimeType,
-    sizeBytes: d.sizeBytes,
-    version: d.version,
-    category: d.category,
-    confidentiality: d.confidentiality,
-    linkedType: d.linkedType,
-    linkedId: d.linkedId,
-    uploadedAt: d.uploadedAt,
-    uploadedByName: d.uploadedBy.name,
-    documentTypeName: d.documentType?.name ?? null,
-    isCurrent: d.isCurrent,
-    viewable: canViewDocument(user, d),
-  }));
+  return docs.map((d) => {
+    const summary: DocumentSummary = {
+      id: d.id,
+      name: d.name,
+      originalFilename: d.originalFilename,
+      mimeType: d.mimeType,
+      sizeBytes: d.sizeBytes,
+      version: d.version,
+      category: d.category,
+      confidentiality: d.confidentiality,
+      linkedType: d.linkedType,
+      linkedId: d.linkedId,
+      uploadedAt: d.uploadedAt,
+      uploadedByName: d.uploadedBy.name,
+      documentTypeName: d.documentType?.name ?? null,
+      isCurrent: d.isCurrent,
+      viewable: canViewDocument(user, d),
+      redacted: false,
+    };
+    return summary.viewable ? summary : redact(summary);
+  });
 }
 
 /** Streams a document after re-checking access and logging the attempt. */

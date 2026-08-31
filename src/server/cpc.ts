@@ -5,7 +5,8 @@ import { ForbiddenError, NotFoundError, RuleViolationError, ValidationError } fr
 import { writeAudit } from "@/lib/audit";
 import { notify, createTask, completeTasks } from "@/lib/notify";
 import { PERMISSIONS as P } from "@/lib/permissions";
-import { userHasPermission, type SessionUser } from "@/lib/rbac";
+import { assertEntityAccess, userHasPermission, type SessionUser } from "@/lib/rbac";
+import { DOMAIN_ACTIONS, assertAuthority, type Actor, type Authority } from "@/lib/actor";
 import { transitionPr } from "./pr";
 import { round2 } from "@/lib/format";
 
@@ -131,7 +132,13 @@ async function resolveMembers(
 }
 
 /** Next scheduled or newly created meeting for the configured cadence. */
-export async function ensureUpcomingMeeting(entityId: string, db: DbClient = prisma) {
+export async function ensureUpcomingMeeting(
+  actor: Actor,
+  entityId: string,
+  db: DbClient = prisma,
+  authority: Authority = { permission: [P.CPC_MANAGE] },
+) {
+  assertAuthority(actor, DOMAIN_ACTIONS.CPC_MEETING_ENSURE, authority);
   const existing = await db.cpcMeeting.findFirst({
     where: { entityId, status: "SCHEDULED", scheduledAt: { gte: new Date() } },
     orderBy: { scheduledAt: "asc" },
@@ -171,6 +178,11 @@ export async function createCpcCase(
   input: { comparativeId: string; recommendation?: string | null; riskNotes?: string | null; scheduleMeeting?: boolean },
   db: DbClient = prisma,
 ) {
+  // Putting a case to the committee is a procurement act, and distinct from
+  // deciding one — see `CPC_CASE_RAISE` vs `CPC_DECIDE`.
+  assertAuthority(user, DOMAIN_ACTIONS.CPC_CASE_CREATE, {
+    permission: [P.CPC_CASE_RAISE, P.CPC_MANAGE],
+  });
   const comparative = await db.comparative.findUnique({
     where: { id: input.comparativeId },
     include: { pr: true, lines: { include: { vendor: true } } },
@@ -190,7 +202,10 @@ export async function createCpcCase(
   const number = await nextNumber(SEQ.CPC_CASE, db);
   const members = await resolveMembers(comparative.prId, db);
 
-  const meeting = input.scheduleMeeting === false ? null : await ensureUpcomingMeeting(comparative.pr.entityId, db);
+  const meeting = input.scheduleMeeting === false ? null : await ensureUpcomingMeeting(user, comparative.pr.entityId, db, {
+          cascade: "case raised for the committee",
+          from: [P.CPC_CASE_RAISE, P.CPC_MANAGE],
+        });
 
   const kase = await db.cpcCase.create({
     data: {
@@ -377,11 +392,41 @@ export async function resolveCpcCase(
   comment: string | null,
   db: DbClient = prisma,
 ) {
+  // The committee's decision is the single most consequential act in the
+  // system: it approves the award, releases the requisition to purchase order
+  // preparation and marks the comparative approved. It was previously reachable
+  // by any signed-in user, because the only check on the path was `requireUser`
+  // in the server action. Roster membership and quorum are enforced with the
+  // committee module; this is the authorization floor beneath it.
+  //
+  // The refusal is recorded. An attempt to decide a committee case without the
+  // authority to do so is worth knowing about whether or not it succeeded, and
+  // an exception that reaches only the browser console tells nobody.
   const kase = await db.cpcCase.findUnique({
     where: { id: caseId },
     include: { pr: true, comparative: { include: { lines: { include: { vendor: true } } } } },
   });
   if (!kase) throw new NotFoundError("CPC case");
+
+  try {
+    assertAuthority(user, DOMAIN_ACTIONS.CPC_CASE_RESOLVE, { permission: [P.CPC_DECIDE] });
+    assertEntityAccess(user, kase.pr.entityId);
+  } catch (e) {
+    await writeAudit(
+      {
+        entityType: "CpcCase",
+        entityId: kase.id,
+        entityRef: kase.number,
+        action: "CPC_DECISION_REFUSED",
+        newValue: { attemptedOutcome: outcome, requires: P.CPC_DECIDE },
+        reason: e instanceof Error ? e.message : "Not authorised to resolve this case.",
+        caseKey: kase.pr.number,
+        actor: user,
+      },
+      db,
+    );
+    throw e;
+  }
 
   const updated = await db.cpcCase.update({
     where: { id: caseId },
@@ -443,7 +488,17 @@ export async function resolveCpcCase(
     );
   } else if (outcome === "RETURNED" || outcome === "CLARIFICATION") {
     // Back to sourcing so procurement can re-quote or clarify.
-    await transitionPr(user, kase.prId, "SOURCING", { reason: comment, force: true }, db);
+    await transitionPr(
+      user,
+      kase.prId,
+      "SOURCING",
+      {
+        reason: comment,
+        force: true,
+        authority: { cascade: "committee returned the case for re-sourcing", from: [P.CPC_DECIDE] },
+      },
+      db,
+    );
     await createTask(
       {
         title: `CPC returned ${kase.number} — action required`,

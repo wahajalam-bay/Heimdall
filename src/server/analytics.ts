@@ -3,6 +3,8 @@ import { CONFIG_KEYS, getConfigNumber } from "@/lib/config";
 import { PO_OPEN_STATUSES } from "@/lib/domain";
 import { round2, safeDiv } from "@/lib/format";
 import { nullableEntityScope } from "@/lib/rbac";
+import { PERMISSIONS as P } from "@/lib/permissions";
+import { DOMAIN_ACTIONS, assertAuthority, type Actor, type Authority } from "@/lib/actor";
 
 /**
  * Procurement analytics. All figures derive from live transactions — nothing is
@@ -439,7 +441,13 @@ export async function savingsRows(f: AnalyticsFilter, db: DbClient = prisma): Pr
  * Records realised savings for a PO, derived from the comparative baselines.
  * Called at PO creation so savings reflect actual awards.
  */
-export async function recordSavingsForPo(poId: string, db: DbClient = prisma) {
+export async function recordSavingsForPo(
+  actor: Actor,
+  poId: string,
+  db: DbClient = prisma,
+  authority: Authority = { permission: [P.PO_CREATE, P.PO_EDIT, P.ANALYTICS_VIEW] },
+) {
+  assertAuthority(actor, DOMAIN_ACTIONS.SAVINGS_RECORD, authority);
   const po = await db.purchaseOrder.findUnique({
     where: { id: poId },
     include: {

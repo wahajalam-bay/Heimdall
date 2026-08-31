@@ -19,6 +19,11 @@ export type ConfigDef = {
 };
 
 export const CONFIG_KEYS = {
+  // Segregation of duties — see lib/sod.ts for what each one separates.
+  SOD_COST_ANALYSIS_PREPARE_VERIFY: "sod.cost_analysis_prepare_verify",
+  SOD_PR_RAISE_APPROVE: "sod.pr_raise_approve",
+  SOD_GRN_POST_INVOICE_APPROVE: "sod.grn_post_invoice_approve",
+  SOD_PROHIBITED_ROLE_COMBINATIONS: "sod.prohibited_role_combinations",
   CPC_THRESHOLD: "procurement.cpc_threshold_amount",
   CPC_ENABLED: "procurement.cpc_enabled",
   CPC_MEETING_DAY: "procurement.cpc_meeting_day",
@@ -603,6 +608,47 @@ export const CONFIG_DEFS: ConfigDef[] = [
     group: "Disposal",
     valueType: "number",
     default: 100000,
+  },
+
+  /* ── Segregation of duties ──────────────────────────────────────────────
+   * One entry per stated separation, entity-overridable. Each defaults to
+   * enforced because that is what the source documents say; switching one off
+   * is a recorded decision rather than a silent gap. */
+  {
+    key: CONFIG_KEYS.SOD_COST_ANALYSIS_PREPARE_VERIFY,
+    label: "Cost analysis: preparer cannot verify",
+    description:
+      "Annexure 3 carries Prepared By and Verified By as two signatures. With this on, the person who prepared a cost analysis cannot also verify it.",
+    group: "Segregation of duties",
+    valueType: "boolean",
+    default: true,
+  },
+  {
+    key: CONFIG_KEYS.SOD_PR_RAISE_APPROVE,
+    label: "Requisition: requester cannot approve",
+    description:
+      "Departmental approval is assent given to the requester. With this on, nobody approves a requisition they raised themselves.",
+    group: "Segregation of duties",
+    valueType: "boolean",
+    default: true,
+  },
+  {
+    key: CONFIG_KEYS.SOD_GRN_POST_INVOICE_APPROVE,
+    label: "Invoice: receipt poster cannot approve payment",
+    description:
+      "Keeps the three-way match an independent check: the person who posted the goods receipt does not also approve the invoice matched against it.",
+    group: "Segregation of duties",
+    valueType: "boolean",
+    default: true,
+  },
+  {
+    key: CONFIG_KEYS.SOD_PROHIBITED_ROLE_COMBINATIONS,
+    label: "Prohibited role combinations",
+    description:
+      'Role pairs nobody may hold at once, as JSON: [{"roles":["A","B"],"reason":"..."}]. EMPTY BY DEFAULT — the supplied SOPs state no such combination, and inventing one would lock people out of work they do today. Populate it when the business states one.',
+    group: "Segregation of duties",
+    valueType: "json",
+    default: [],
   },
 ];
 

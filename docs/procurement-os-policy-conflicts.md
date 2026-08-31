@@ -430,14 +430,93 @@ between them is supplied.
 
 ---
 
+## PC-027 · A requisition can reach APPROVED with no human approver
+
+**Type:** `DECISION REQUIRED` — system behaviour with no source authority
+
+
+**What the system does.** `submitPr` asks the approval engine for an approver. If
+the engine returns none — no rule matched the entity, department, category,
+procurement type and amount — or if `approval.department_approval_required` is
+off for the entity, the requisition is driven straight through
+UNDER_DEPARTMENT_APPROVAL to APPROVED and on to PROCUREMENT_REVIEW **in the same
+call, on the submitter's own authority**. A requester with no approval permission
+whatsoever ends up with an approved requisition.
+
+**What the source says.** Neither SOP contemplates this. ZAM §3.1 and the ZD
+equivalent both describe departmental approval as a step somebody performs. No
+passage says what happens when no approver can be identified, and no passage
+authorises proceeding without one.
+
+**Why it survived Phase 1.** Removing it would have broken every seeded flow and
+any live entity whose approval matrix is incomplete — the brief forbids
+weakening working functionality, and this *is* the working behaviour. So the
+transition now travels on a declared authority, `cascade: "approval engine: no
+applicable approver"`, which is written into the audit trail. The behaviour is
+unchanged; it is no longer invisible. Searching the audit log for that phrase
+lists every requisition that was approved by nobody.
+
+**The three options.**
+
+1. **Refuse.** No approver identified means the requisition cannot be submitted,
+   and the submitter is told which rule is missing. Safest, and will block work
+   the day an approval matrix has a gap.
+2. **Escalate.** Fall back to the line manager from the organogram, then upward
+   until somebody with `pr.approve` is found. Uses data that already exists, and
+   turns a silent auto-approval into a real approval.
+3. **Keep, bounded.** Auto-approve only below a stated value, and raise an
+   exception every time. Preserves throughput and puts a ceiling on it.
+
+**Recommendation.** Option 2, with option 1 as the fallback when the chain runs
+out — the organogram loaded in commit `ebdfc0a` already gives every one of the 24
+people a reporting line, so the data to do it is present.
+
+**Blocks:** PR-002, AP-001. **Needs:** a decision, and ES-001 for option 3's
+threshold.
+
+---
+
+## PC-028 · Starting sourcing required only a read permission
+
+**Type:** `CONFIGURABLE — RESOLVED IN PHASE 1`, recorded because it changed behaviour
+
+**What the system did.** `startSourcing` admitted anybody holding **either**
+`rfq.issue` **or** `pr.view_all`. The second is a read permission — it is what
+lets somebody see requisitions outside their own department. So a read-only
+holder of `pr.view_all`, including the audit role, could move a requisition into
+SOURCING.
+
+**What changed.** `transitionPr` now requires the authority for the state being
+entered, and entering SOURCING requires `rfq.issue`. The looser check in
+`startSourcing` no longer decides the outcome.
+
+**Who this affects.** Any account holding `pr.view_all` without `rfq.issue`:
+`AUDIT_USER`, `FINANCE_APPROVER`, `MANAGEMENT_COMMITTEE`. None of them should be
+starting a sourcing exercise, so this is recorded as a fix rather than a
+regression — but it is a behaviour change and somebody should confirm no live
+workflow depended on it.
+
+**Recommendation.** Accept. If any of those roles genuinely needs to start
+sourcing, grant it `rfq.issue` explicitly rather than reinstating the read-based
+route.
+
+---
+
 ## Summary
 
 | Status | Count |
 |---|---|
-| `DECISION REQUIRED` | 14 |
+| `DECISION REQUIRED` | 18 |
 | `SOURCE CLARIFICATION REQUIRED` | 5 |
 | `CONFIGURABLE — PENDING VALUES` | 4 |
-| **Total** | **23** |
+| `CONFIGURABLE — RESOLVED IN PHASE 1` | 1 |
+| **Total** | **28** |
+
+> **Correction.** The Phase 0 version of this table read 14 / 5 / 4 = 23 against
+> 26 entries. It was wrong: the `DECISION REQUIRED` count was short by four and
+> the total by three. The figures above are counted from the entries themselves
+> and are re-counted by script on every edit. The practical difference is that
+> **18 conflicts need a management decision, not 14.**
 
 Three of these — **PC-002, PC-003, PC-004** — are contradictions between a
 document's narrative text and its own embedded annexure image, and would not have

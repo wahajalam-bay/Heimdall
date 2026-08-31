@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requirePermission, requireUser } from "@/lib/auth";
 import { toActionError, ValidationError, type ActionResult } from "@/lib/errors";
 import { DISCREPANCY_TYPES } from "@/lib/domain";
 import {
@@ -23,6 +23,7 @@ import {
   recordRejection,
   resolveVariance,
 } from "@/server/receiving-exceptions";
+import { PERMISSIONS as P } from "@/lib/permissions";
 
 const blank = (v: FormDataEntryValue | null) => {
   const s = typeof v === "string" ? v.trim() : "";
@@ -220,7 +221,7 @@ export async function assignInspectorAction(formData: FormData): Promise<ActionR
 
 export async function raiseInspectionAction(formData: FormData): Promise<ActionResult> {
   try {
-    const user = await requireUser();
+    const user = await requirePermission(P.INSPECTION_SCHEDULE, P.INSPECTION_PERFORM);
     const deliveryId = String(formData.get("deliveryId") ?? "");
     const delivery = await prisma.delivery.findUnique({
       where: { id: deliveryId },

@@ -7,6 +7,7 @@ import { notify, createTask, completeTasks } from "@/lib/notify";
 import { raiseException, autoResolveExceptions } from "@/lib/exceptions-service";
 import { startApproval, actOnApproval, getPendingApproval, type ApprovalDecision } from "@/lib/approvals";
 import { PERMISSIONS as P } from "@/lib/permissions";
+import { SOD_RULES, assertSeparation } from "@/lib/sod";
 import { userHasPermission, type SessionUser } from "@/lib/rbac";
 import { round2 } from "@/lib/format";
 import { transitionPr } from "./pr";
@@ -332,7 +333,13 @@ export async function registerInvoice(user: SessionUser, input: InvoiceInput, db
   if (po.prId) {
     const pr = await db.purchaseRequisition.findUnique({ where: { id: po.prId } });
     if (pr && ["GRN_COMPLETED", "FULLY_RECEIVED", "PARTIALLY_RECEIVED"].includes(pr.status)) {
-      await transitionPr(user, po.prId, "INVOICE_VERIFICATION", { force: true }, db);
+      await transitionPr(
+        user,
+        po.prId,
+        "INVOICE_VERIFICATION",
+        { force: true, authority: { cascade: "vendor invoice registered", from: [P.INVOICE_CREATE] } },
+        db,
+      );
     }
   }
 
@@ -633,6 +640,35 @@ export async function decideInvoice(
     include: { po: { include: { pr: true } }, vendor: true },
   });
   if (!invoice) throw new NotFoundError("Invoice");
+
+  // The match is only a check if somebody other than the receipt's author makes
+  // it. Every posted receipt on the order is considered, not just the latest —
+  // a part-delivered order has several, and any one of them being the approver's
+  // own work defeats the same control.
+  if (decision === "APPROVED" && invoice.poId) {
+    // `Grn` records who *received* the goods but not who posted the receipt —
+    // that is only in the audit trail, so the receiver is the closest recorded
+    // counterpart. Adding `postedById` to the row is scheduled with the
+    // receiving module so this rule can name the poster exactly.
+    const posted = await db.grn.findMany({
+      where: { poId: invoice.poId, status: "POSTED" },
+      select: { id: true, number: true, receivedById: true },
+    });
+    for (const g of posted) {
+      await assertSeparation(
+        user,
+        SOD_RULES.GRN_POST_INVOICE_APPROVE,
+        g.receivedById,
+        {
+          entityId: invoice.po?.entityId ?? null,
+          documentType: "Invoice",
+          documentId: invoice.id,
+          documentRef: invoice.number,
+        },
+        db,
+      );
+    }
+  }
   const instance = await getPendingApproval("INVOICE", invoiceId, db);
   if (!instance) throw new RuleViolationError(`Invoice ${invoice.number} has no approval pending.`);
 

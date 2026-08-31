@@ -271,14 +271,19 @@ describe("issuing stock that sits in batches", () => {
     const issuer = await userWithPermission(P.STORE_ISSUE);
     // Asked of the ledger directly: nothing is written when it is refused.
     const error = await expectRejection(
-      postMovement("ISSUE", {
-        itemId: bucket.itemId,
-        storeId: bucket.storeId,
-        quantity: round2(free + 25),
-        unit: bucket.item.unit,
-        source: { kind: "ISSUE", id: "over-issue-check", ref: "OVER-ISSUE-CHECK" },
-        performedById: issuer.id,
-      }),
+      postMovement(
+        "ISSUE",
+        {
+          itemId: bucket.itemId,
+          storeId: bucket.storeId,
+          quantity: round2(free + 25),
+          unit: bucket.item.unit,
+          source: { kind: "ISSUE", id: "over-issue-check", ref: "OVER-ISSUE-CHECK" },
+          performedById: issuer.id,
+        },
+        undefined,
+        issuer,
+      ),
     );
     expect(error.message).toMatch(/insufficient/i);
     expect(error.message).toContain(bucket.item.sku);

@@ -6,7 +6,8 @@ import { writeAudit } from "@/lib/audit";
 import { notify, createTask, completeTasks } from "@/lib/notify";
 import { raiseException } from "@/lib/exceptions-service";
 import { PERMISSIONS as P } from "@/lib/permissions";
-import { userHasPermission, type SessionUser } from "@/lib/rbac";
+import { DOMAIN_ACTIONS, assertAuthority } from "@/lib/actor";
+import { assertEntityAccess, userHasPermission, type SessionUser } from "@/lib/rbac";
 import type { DiscrepancyType } from "@/lib/domain";
 import { round2 } from "@/lib/format";
 
@@ -543,6 +544,11 @@ export async function scheduleInspection(
   input: { deliveryId: string; poId: string; poItemIds: string[]; inspectorId?: string | null },
   db: DbClient = prisma,
 ) {
+  // Booking an inspection commits somebody else's time and gates the receipt.
+  // The server action behind it only required a signed-in user.
+  assertAuthority(user, DOMAIN_ACTIONS.INSPECTION_SCHEDULE, {
+    permission: [P.INSPECTION_SCHEDULE, P.INSPECTION_PERFORM],
+  });
   const delivery = await db.delivery.findUnique({
     where: { id: input.deliveryId },
     include: {
@@ -552,6 +558,7 @@ export async function scheduleInspection(
     },
   });
   if (!delivery) throw new NotFoundError("Delivery");
+  assertEntityAccess(user, delivery.po.entityId);
 
   const poItems = await db.purchaseOrderItem.findMany({
     where: { id: { in: input.poItemIds } },

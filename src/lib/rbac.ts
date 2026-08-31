@@ -23,6 +23,12 @@ export type SessionUser = {
   roleNames: string[];
   permissions: string[];
   entityIds: string[];
+  /**
+   * Set only on in-process system principals (see `lib/actor.ts`). Nothing
+   * decodes this from a cookie, header or form field, so a request cannot
+   * present itself as the scheduler.
+   */
+  system?: string;
 };
 
 export function userHasPermission(user: SessionUser, ...codes: string[]): boolean {
@@ -44,6 +50,11 @@ export function assertPermission(user: SessionUser, ...codes: string[]) {
 /** Cross-entity readers (analytics-wide roles, system admin) bypass entity scoping. */
 export function canAccessEntity(user: SessionUser, entityId: string | null | undefined): boolean {
   if (!entityId) return true;
+  // Entity scoping is a visibility rule about people: it keeps one entity's
+  // commercial detail out of another entity's screens. A system principal has
+  // no screens. Its limit is the action grant checked by `assertAuthority`,
+  // which is narrower than any human's.
+  if (user.system) return true;
   if (user.permissions.includes(PERMISSIONS.ANALYTICS_VIEW_ALL_ENTITIES)) return true;
   return user.entityIds.includes(entityId);
 }
@@ -56,6 +67,7 @@ export function assertEntityAccess(user: SessionUser, entityId: string | null | 
 
 /** Entity ids a user may read; null means "no restriction". */
 export function visibleEntityIds(user: SessionUser): string[] | null {
+  if (user.system) return null;
   if (user.permissions.includes(PERMISSIONS.ANALYTICS_VIEW_ALL_ENTITIES)) return null;
   return user.entityIds;
 }

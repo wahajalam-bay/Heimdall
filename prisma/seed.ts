@@ -83,6 +83,7 @@ import {
 } from "../src/server/vendors";
 import { createDisposalCase, advanceDisposal, addDisposalBid, updateAsset } from "../src/server/assets";
 import { recordSavingsForPo } from "../src/server/analytics";
+import { systemActor } from "@/lib/actor";
 
 const prisma = new PrismaClient();
 const PASSWORD = "Passw0rd!";
@@ -1069,7 +1070,7 @@ async function main() {
   const { seedFlows } = await import("./seed-flows");
   await seedFlows();
 
-  await recomputeAllVendorPerformance(12, prisma);
+  await recomputeAllVendorPerformance(systemActor("SEED"), 12, prisma);
   await sweepMissingGrns(prisma);
   log("Rollups", "vendor performance recomputed, missing-GRN sweep run");
 

@@ -324,14 +324,27 @@ while any row below is outstanding.
 
 ---
 
+## ES-025 · Prohibited role combinations
+
+| Field | Value |
+|---|---|
+| Referenced at | ZD §2.1.4 ii — "Employees should not hold **conflicting roles** that leave them open to accusations of unethical behaviour" |
+| What depends on it | The role-assignment conflict check. The mechanism is built and runs on every role grant (`assertNoRoleConflict`), but its list is empty. |
+| What the system does now | Enforces the three **per-transaction** separations the source does state (see `lib/sod.ts`), and accepts any role combination. |
+| Risk of proceeding without it | **Low, and deliberately so.** Guessing pairs is the greater risk: 22 roles produce 231 possible pairs, and several combinations that *look* conflicting are how the organisation works today — a head of department legitimately raises requisitions for their own team and legitimately approves that team's requisitions. Blocking that would stop real work on an invented rule. The per-transaction rules already stop the actual abuse, which is one person occupying both sides of one document. |
+| What I need | The named role pairs nobody may hold at once, with the reason for each. |
+| Status | `NOT SUPPLIED` |
+
+---
+
 ## Summary
 
 | Status | Count |
 |---|---|
-| `NOT SUPPLIED` | 19 |
+| `NOT SUPPLIED` | 20 |
 | `PARTIALLY INFERABLE` | 4 |
 | `SUPPLIED` | 1 |
-| **Total** | **24** |
+| **Total** | **25** |
 
 ### The four that block the most work
 

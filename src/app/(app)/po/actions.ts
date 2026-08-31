@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { PERMISSIONS as P } from "@/lib/permissions";
 import { toActionError, ValidationError, type ActionResult } from "@/lib/errors";
 import {
   cancelPo,
@@ -51,7 +52,10 @@ export async function createPoAction(_prev: ActionResult | null, formData: FormD
       collateralNotes: advanceRequired ? blank(formData.get("collateralNotes")) : null,
     });
 
-    await recordSavingsForPo(po.id).catch(() => null);
+    await recordSavingsForPo(user, po.id, undefined, {
+      cascade: "purchase order created",
+      from: [P.PO_CREATE],
+    }).catch(() => null);
 
     if (formData.get("submitNow") === "true") {
       await submitPoForApproval(user, po.id);

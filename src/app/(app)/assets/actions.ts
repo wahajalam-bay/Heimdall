@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requirePermission, requireUser } from "@/lib/auth";
 import { toActionError, ValidationError, type ActionResult } from "@/lib/errors";
 import type { AssetStatus, DisposalStage } from "@/lib/domain";
 import {
@@ -13,6 +13,7 @@ import {
   updateAsset,
   type DisposalItemInput,
 } from "@/server/assets";
+import { PERMISSIONS as P } from "@/lib/permissions";
 
 const blank = (v: FormDataEntryValue | null) => {
   const s = typeof v === "string" ? v.trim() : "";
@@ -55,7 +56,7 @@ export async function updateAssetAction(_prev: ActionResult | null, formData: Fo
 
 export async function tagFromGrnAction(formData: FormData): Promise<ActionResult> {
   try {
-    const user = await requireUser();
+    const user = await requirePermission(P.ASSET_MANAGE);
     const grnId = String(formData.get("grnId") ?? "");
     const assets = await tagAssetsFromGrn(user, grnId);
     revalidatePath("/assets");

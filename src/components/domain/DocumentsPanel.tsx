@@ -128,7 +128,10 @@ export async function DocumentsPanel({
                             {d.name}
                           </a>
                         ) : (
-                          <span className="truncate text-[0.8125rem] text-[var(--c-text-tertiary)]" title="You are not authorised to open this document">
+                          <span
+                            className="truncate text-[0.8125rem] text-[var(--c-text-tertiary)] italic"
+                            title="You are not authorised to open this document, so its name and filename are withheld."
+                          >
                             {d.name}
                           </span>
                         )}
@@ -140,13 +143,23 @@ export async function DocumentsPanel({
                         {!d.viewable && <Badge tone="warning">restricted</Badge>}
                       </span>
                       <span className="mt-0.5 block text-2xs text-[var(--c-text-tertiary)]">
-                        {d.originalFilename} · {formatBytes(d.sizeBytes)}
-                        {d.documentTypeName ? ` · ${d.documentTypeName}` : ""}
+                        {d.redacted ? (
+                          "Details withheld"
+                        ) : (
+                          <>
+                            {d.originalFilename} · {formatBytes(d.sizeBytes)}
+                            {d.documentTypeName ? ` · ${d.documentTypeName}` : ""}
+                          </>
+                        )}
                         {caseKey ? ` · on ${humanize(d.linkedType)}` : ""}
                       </span>
                     </span>
                     <span className="shrink-0 text-right">
-                      <UserChip name={d.uploadedByName} size={18} />
+                      {d.redacted ? (
+                        <span className="text-2xs text-[var(--c-text-tertiary)]">Uploader withheld</span>
+                      ) : (
+                        <UserChip name={d.uploadedByName} size={18} />
+                      )}
                       <span className="mt-0.5 block text-2xs text-[var(--c-text-tertiary)]">{fmtDateTime(d.uploadedAt)}</span>
                     </span>
                     {d.viewable && (

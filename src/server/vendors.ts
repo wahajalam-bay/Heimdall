@@ -6,6 +6,7 @@ import { writeAudit, diffFields } from "@/lib/audit";
 import { notify, createTask, completeTasks } from "@/lib/notify";
 import { raiseException } from "@/lib/exceptions-service";
 import { PERMISSIONS as P } from "@/lib/permissions";
+import { DOMAIN_ACTIONS, assertAuthority, type Actor, type Authority } from "@/lib/actor";
 import { userHasPermission, type SessionUser } from "@/lib/rbac";
 import type { BlacklistStage, VendorStatus } from "@/lib/domain";
 import { round2, safeDiv } from "@/lib/format";
@@ -422,11 +423,14 @@ export async function decideVendorApproval(
  * timeliness, acceptance quality, rejections, price variance and issues.
  */
 export async function computeVendorPerformance(
+  actor: Actor,
   vendorId: string,
   periodStart: Date,
   periodEnd: Date,
   db: DbClient = prisma,
+  authority: Authority = { permission: [P.VENDOR_EVALUATE, P.VENDOR_APPROVE] },
 ) {
+  assertAuthority(actor, DOMAIN_ACTIONS.VENDOR_PERFORMANCE_COMPUTE, authority);
   const [pos, deliveries, grnItems, invoiceIssues, issues] = await Promise.all([
     db.purchaseOrder.findMany({
       where: {
@@ -571,12 +575,12 @@ export async function computeVendorPerformance(
 }
 
 /** Recomputes performance for every vendor over a rolling window. */
-export async function recomputeAllVendorPerformance(months = 12, db: DbClient = prisma) {
+export async function recomputeAllVendorPerformance(actor: Actor, months = 12, db: DbClient = prisma) {
   const end = new Date();
   const start = new Date(end.getTime() - months * 30 * 86400000);
   const vendors = await db.vendor.findMany({ select: { id: true } });
   for (const v of vendors) {
-    await computeVendorPerformance(v.id, start, end, db);
+    await computeVendorPerformance(actor, v.id, start, end, db);
   }
   return vendors.length;
 }

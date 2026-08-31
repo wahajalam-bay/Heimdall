@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
 import { PERMISSIONS as P } from "@/lib/permissions";
 import { userHasPermission } from "@/lib/rbac";
-import { canViewDocument, readDocument } from "@/server/documents";
+import { canViewDocument, listDocuments, readDocument } from "@/server/documents";
 import { expectRejection, userWithPermission, userWithoutPermission, without } from "./helpers";
 
 /**
@@ -194,5 +194,85 @@ describe("audit trail", () => {
       prisma.invoice.count(),
     ]);
     expect(logs).toBeGreaterThan(prs + pos + grns + invoices);
+  });
+});
+
+/**
+ * A listing is an access path too.
+ *
+ * The content of a restricted document was already protected. Its *description*
+ * was not: the list returned the name, the original filename, the size, the
+ * document type and the uploader to anybody who could see the case. A filename
+ * on a live tender is commercially sensitive on its own, so the row survives and
+ * the description does not.
+ */
+describe("document listings withhold what the reader may not open", () => {
+  it("returns no name, filename, size or uploader for a document the reader cannot open", async () => {
+    const doc = await prisma.document.findFirst({
+      where: { confidentiality: { in: ["CONFIDENTIAL", "RESTRICTED"] }, archived: false, isCurrent: true },
+      select: { id: true, name: true, originalFilename: true, linkedType: true, linkedId: true, uploadedById: true },
+    });
+    if (!doc) return;
+
+    const outsider = await userWithoutPermission(P.DOCUMENT_VIEW_CONFIDENTIAL, P.DOCUMENT_VIEW_RESTRICTED);
+    // Ownership legitimately grants access, so the uploader proves nothing here.
+    if (outsider.id === doc.uploadedById) return;
+
+    const rows = await listDocuments(outsider, {
+      linkedType: doc.linkedType as never,
+      linkedId: doc.linkedId,
+      includeSuperseded: true,
+    });
+    const row = rows.find((r) => r.id === doc.id);
+    if (!row) return;
+
+    expect(row.viewable).toBe(false);
+    expect(row.redacted).toBe(true);
+    expect(row.name).not.toBe(doc.name);
+    expect(row.originalFilename).toBe("");
+    expect(row.sizeBytes).toBe(0);
+    expect(row.documentTypeName).toBeNull();
+    expect(row.uploadedByName).toBe("—");
+  });
+
+  it("still shows that the document exists, so a case cannot hide its own attachments", async () => {
+    const doc = await prisma.document.findFirst({
+      where: { confidentiality: { in: ["CONFIDENTIAL", "RESTRICTED"] }, archived: false, isCurrent: true },
+      select: { id: true, linkedType: true, linkedId: true, confidentiality: true, uploadedById: true },
+    });
+    if (!doc) return;
+    const outsider = await userWithoutPermission(P.DOCUMENT_VIEW_CONFIDENTIAL, P.DOCUMENT_VIEW_RESTRICTED);
+    if (outsider.id === doc.uploadedById) return;
+
+    const rows = await listDocuments(outsider, {
+      linkedType: doc.linkedType as never,
+      linkedId: doc.linkedId,
+      includeSuperseded: true,
+    });
+    const row = rows.find((r) => r.id === doc.id);
+    if (!row) return;
+    // The id survives so a fetch attempt is refused and logged rather than
+    // 404-ing anonymously, and the confidentiality label explains the withholding.
+    expect(row.id).toBe(doc.id);
+    expect(row.confidentiality).toBe(doc.confidentiality);
+  });
+
+  it("returns the full description to a reader who is authorised", async () => {
+    const doc = await prisma.document.findFirst({
+      where: { confidentiality: "INTERNAL", archived: false, isCurrent: true },
+      select: { id: true, name: true, originalFilename: true, linkedType: true, linkedId: true },
+    });
+    if (!doc) return;
+    const reader = await userWithPermission(P.DOCUMENT_VIEW);
+    const rows = await listDocuments(reader, {
+      linkedType: doc.linkedType as never,
+      linkedId: doc.linkedId,
+      includeSuperseded: true,
+    });
+    const row = rows.find((r) => r.id === doc.id);
+    if (!row || !row.viewable) return;
+    expect(row.redacted).toBe(false);
+    expect(row.name).toBe(doc.name);
+    expect(row.originalFilename).toBe(doc.originalFilename);
   });
 });

@@ -11,7 +11,7 @@ import {
 } from "@/server/requirements";
 import { freeQuantity, releaseReservation, reserveStock } from "@/server/reservations";
 import { allocate, requisitionCoverage, unallocatedQuantity } from "@/server/allocations";
-import { sessionFor, without } from "./helpers";
+import { sessionFor, userWithPermission, without } from "./helpers";
 
 /**
  * The inventory-first rule.
@@ -272,7 +272,7 @@ describe("stock reservations", () => {
     const bucket = await stockedBucket();
     const before = await freeQuantity(bucket.itemId, bucket.storeId);
 
-    const hold = await reserveStock({
+    const hold = await reserveStock(user, {
       itemId: bucket.itemId,
       storeId: bucket.storeId,
       quantity: 1,
@@ -285,7 +285,7 @@ describe("stock reservations", () => {
     expect(during.physical).toBeCloseTo(before.physical, 2);
     expect(during.available).toBeCloseTo(before.available - 1, 2);
 
-    await releaseReservation(hold.id, user.id, "Test release");
+    await releaseReservation(user, hold.id, "Test release");
     const after = await freeQuantity(bucket.itemId, bucket.storeId);
     expect(after.available).toBeCloseTo(before.available, 2);
   });
@@ -295,7 +295,7 @@ describe("stock reservations", () => {
     const bucket = await stockedBucket();
     const free = await freeQuantity(bucket.itemId, bucket.storeId);
     await expect(
-      reserveStock({
+      reserveStock(user, {
         itemId: bucket.itemId,
         storeId: bucket.storeId,
         quantity: free.available + 5,
@@ -308,7 +308,7 @@ describe("stock reservations", () => {
   it("records a reservation in the ledger so the drop is explainable", async () => {
     const user = await sessionFor(ACTOR);
     const bucket = await stockedBucket();
-    const hold = await reserveStock({
+    const hold = await reserveStock(user, {
       itemId: bucket.itemId,
       storeId: bucket.storeId,
       quantity: 1,
@@ -321,7 +321,7 @@ describe("stock reservations", () => {
     });
     expect(entry).toBeTruthy();
     expect(entry!.sourceType).toBe("REQUIREMENT");
-    await releaseReservation(hold.id, user.id, "Ledger test done");
+    await releaseReservation(user, hold.id, "Ledger test done");
   });
 });
 
@@ -344,6 +344,7 @@ describe("requisition to order allocation", () => {
     if (!alloc) return;
     await expect(
       allocate(
+        await userWithPermission(P.PO_CREATE),
         [
           {
             prId: alloc.prId,
@@ -354,7 +355,6 @@ describe("requisition to order allocation", () => {
             unit: alloc.unit,
           },
         ],
-        null,
       ),
     ).rejects.toThrow(/left to order/i);
   });

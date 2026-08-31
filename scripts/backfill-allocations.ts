@@ -5,9 +5,10 @@
  */
 import { prisma } from "../src/lib/db";
 import { backfillAllocations } from "../src/server/allocations";
+import { systemActor } from "@/lib/actor";
 
 async function main() {
-  const result = await backfillAllocations();
+  const result = await backfillAllocations(systemActor("MIGRATION"));
   console.log(`\nScanned ${result.scanned} order line(s) carrying a requisition line.`);
   console.log(`  created  ${result.created} allocation(s)`);
   console.log(`  skipped  ${result.skipped} (no requisition could be resolved)`);

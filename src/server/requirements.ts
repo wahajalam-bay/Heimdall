@@ -531,6 +531,7 @@ export async function decideFulfilment(
       for (const x of stockLines) {
         if (!x.line.itemId) continue;
         await reserveStock(
+          user,
           {
             itemId: x.line.itemId,
             storeId: issuingStoreId,
@@ -543,6 +544,7 @@ export async function decideFulfilment(
             expiresAt,
           },
           db,
+          { cascade: "fulfilment decided from stock", from: [P.REQUIREMENT_DECIDE] },
         );
         reservedLines += 1;
       }
@@ -685,10 +687,11 @@ export async function cancelRequirement(
 
   // Anything held for it goes back on the shelf.
   const released = await releaseFor(
+    user,
     { requirementItemIds: requirement.items.map((i) => i.id) },
-    user.id,
     `Requirement ${requirement.number} cancelled`,
     db,
+    { cascade: "requirement cancelled", from: [P.REQUIREMENT_CANCEL] },
   );
 
   const updated = await db.requirement.update({

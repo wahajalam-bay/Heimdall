@@ -2,6 +2,7 @@ import { prisma, type DbClient } from "@/lib/db";
 import { round2 } from "@/lib/format";
 import { ForbiddenError, NotFoundError, RuleViolationError, ValidationError } from "@/lib/errors";
 import { PERMISSIONS as P } from "@/lib/permissions";
+import { SOD_RULES, assertSeparation } from "@/lib/sod";
 import { userHasPermission, type SessionUser } from "@/lib/rbac";
 import { writeAudit } from "@/lib/audit";
 import { primaryPoc } from "@/server/org";
@@ -341,12 +342,16 @@ export async function verifyCostAnalysis(
   }
   const c = await db.comparative.findUnique({
     where: { id: comparativeId },
-    select: { id: true, number: true, preparedById: true, verifiedById: true },
+    select: { id: true, number: true, preparedById: true, verifiedById: true, prId: true, pr: { select: { entityId: true } } },
   });
   if (!c) throw new NotFoundError("Comparative");
-  if (c.preparedById === user.id) {
-    throw new RuleViolationError("A form cannot be verified by the person who prepared it.");
-  }
+  await assertSeparation(
+    user,
+    SOD_RULES.COST_ANALYSIS_PREPARE_VERIFY,
+    c.preparedById,
+    { entityId: c.pr?.entityId ?? null, documentType: "Comparative", documentId: c.id, documentRef: c.number },
+    db,
+  );
   if (c.verifiedById) throw new RuleViolationError(`${c.number} has already been verified.`);
 
   const form = await costAnalysis(comparativeId, db);

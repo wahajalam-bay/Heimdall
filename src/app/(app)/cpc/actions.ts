@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
+import { requirePermission, requireUser } from "@/lib/auth";
 import { ForbiddenError, toActionError, ValidationError, type ActionResult } from "@/lib/errors";
 import { castCpcDecision, recordMinutes, resolveCpcCase, scheduleMeeting, type CpcVote } from "@/server/cpc";
 import { userHasPermission } from "@/lib/rbac";
@@ -57,7 +57,7 @@ export async function castVoteAction(_prev: ActionResult | null, formData: FormD
 
 export async function resolveCaseAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
   try {
-    const user = await requireUser();
+    const user = await requirePermission(P.CPC_DECIDE);
     const caseId = String(formData.get("caseId") ?? "");
     const outcome = String(formData.get("outcome") ?? "") as
       | "APPROVED"

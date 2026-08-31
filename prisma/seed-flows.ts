@@ -74,6 +74,7 @@ import {
 import { createDisposalCase, advanceDisposal, addDisposalBid, updateAsset } from "../src/server/assets";
 import { recordSavingsForPo } from "../src/server/analytics";
 import { recordTraderCase } from "../src/server/vendors";
+import { systemActor } from "@/lib/actor";
 
 const U = (email: string) => users[email];
 
@@ -501,7 +502,7 @@ async function flowLaptops() {
     "Funding confirmed against ZM-CAPEX-IT-2026.",
   ]);
   await issuePo(director, po.id, prisma);
-  await recordSavingsForPo(po.id, prisma);
+  await recordSavingsForPo(systemActor("SEED"), po.id, prisma);
 
   // Delivery
   const gp = await createGatePass(
@@ -989,7 +990,7 @@ async function flowSteelMd() {
     "Advance and collateral arrangement confirmed by finance.",
   ]);
   await issuePo(director, po.id, prisma);
-  await recordSavingsForPo(po.id, prisma);
+  await recordSavingsForPo(systemActor("SEED"), po.id, prisma);
   await prisma.purchaseOrder.update({ where: { id: po.id }, data: { advanceStatus: "PAID" } });
 
   // ── Short delivery: 90 of 100 ton ──
@@ -1343,7 +1344,7 @@ async function flowOfficeSupplies() {
   await submitPoForApproval(officer, po.id, prisma);
   await approvePoChain(po.id, "ZM", ["Approved — routine monthly replenishment."]);
   await issuePo(U("asim.javed@zameen.com"), po.id, prisma);
-  await recordSavingsForPo(po.id, prisma);
+  await recordSavingsForPo(systemActor("SEED"), po.id, prisma);
 
   const poItems = await prisma.purchaseOrderItem.findMany({ where: { poId: po.id }, orderBy: { lineNo: "asc" } });
   const gp = await createGatePass(
@@ -1656,7 +1657,7 @@ async function flowAirConditioners() {
   await submitPoForApproval(officer, po.id, prisma);
   await approvePoChain(po.id, "ZM", ["Approved.", "Approved for issue — good seasonal timing."]);
   await issuePo(director, po.id, prisma);
-  await recordSavingsForPo(po.id, prisma);
+  await recordSavingsForPo(systemActor("SEED"), po.id, prisma);
 
   const poItems = await prisma.purchaseOrderItem.findMany({ where: { poId: po.id } });
   const gp = await createGatePass(
@@ -2279,7 +2280,7 @@ async function flowOverdueCement() {
   await submitPoForApproval(officer, po.id, prisma);
   await approvePoChain(po.id, "ZD", ["Approved.", "Approved for issue."]);
   await issuePo(director, po.id, prisma);
-  await recordSavingsForPo(po.id, prisma);
+  await recordSavingsForPo(systemActor("SEED"), po.id, prisma);
   await prisma.purchaseOrder.update({ where: { id: po.id }, data: { issuedAt: D(14), deliveryDate: D(9) } });
 
   await backdateCase(pr.number, 16);
@@ -2822,8 +2823,8 @@ async function flowCpcMeetings() {
   const chair = U("kamran.rasheed@zameen.com");
   const officer = U("hira.aslam@zameen.com");
 
-  await ensureUpcomingMeeting(entityId.ZM, prisma);
-  await ensureUpcomingMeeting(entityId.ZD, prisma);
+  await ensureUpcomingMeeting(systemActor("SEED"), entityId.ZM, prisma);
+  await ensureUpcomingMeeting(systemActor("SEED"), entityId.ZD, prisma);
 
   const past = await scheduleMeeting(
     chair,

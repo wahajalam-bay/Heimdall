@@ -5,6 +5,7 @@ import { ForbiddenError, NotFoundError, RuleViolationError, ValidationError } fr
 import { writeAudit } from "@/lib/audit";
 import { notify, createTask, completeTasks } from "@/lib/notify";
 import { PERMISSIONS as P } from "@/lib/permissions";
+import { DOMAIN_ACTIONS, assertAuthority, type Actor, type Authority } from "@/lib/actor";
 import { userHasPermission, type SessionUser } from "@/lib/rbac";
 import type { AssetStatus, DisposalStage } from "@/lib/domain";
 import { round2 } from "@/lib/format";
@@ -21,7 +22,18 @@ import { postMovement } from "./inventory";
  * category demands a tag). One asset per unit so custody can be tracked
  * individually.
  */
-export async function tagAssetsFromGrn(user: SessionUser, grnId: string, db: DbClient = prisma) {
+export async function tagAssetsFromGrn(
+  actor: Actor,
+  grnId: string,
+  db: DbClient = prisma,
+  /**
+   * Tagging normally happens as a consequence of posting the receipt, and the
+   * store user who posts it does not necessarily hold `asset.manage`. Callers
+   * in that position name the receiving permission that authorized them.
+   */
+  authority: Authority = { permission: [P.ASSET_MANAGE] },
+) {
+  assertAuthority(actor, DOMAIN_ACTIONS.ASSET_TAG_FROM_GRN, authority);
   const grn = await db.grn.findUnique({
     where: { id: grnId },
     include: {
@@ -83,7 +95,7 @@ export async function tagAssetsFromGrn(user: SessionUser, grnId: string, db: DbC
           toLocation: grn.store.name,
           reference: grn.number,
           notes: `Tagged on receipt against ${grn.po.number}`,
-          performedById: user.id,
+          performedById: actor.id,
         },
       });
       created.push(asset.tag);
@@ -99,7 +111,7 @@ export async function tagAssetsFromGrn(user: SessionUser, grnId: string, db: DbC
         action: "ASSETS_TAGGED",
         newValue: { tags: created },
         caseKey: grn.po.pr?.number ?? null,
-        actor: user,
+        actor,
       },
       db,
     );
@@ -466,6 +478,10 @@ export async function advanceDisposal(
           },
           db,
           user,
+          {
+            cascade: `disposal case moved to ${to}`,
+            from: [P.DISPOSAL_APPROVE, P.DISPOSAL_MANAGEMENT_APPROVE],
+          },
         ).catch(() => {
           /* stock may already be zero for items written off outside the ledger */
         });

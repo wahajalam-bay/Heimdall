@@ -4,6 +4,8 @@
  * write path validates against these lists.
  */
 
+import { PERMISSIONS } from "./permissions";
+
 export const ENTITY_CODES = { ZM: "ZM", ZD: "ZD" } as const;
 
 // ── Procurement types ────────────────────────────────────────
@@ -159,6 +161,45 @@ export const PR_LIFECYCLE: PrStatus[] = [
 export const PR_TERMINAL_STATUSES: PrStatus[] = ["CLOSED", "REJECTED", "CANCELLED"];
 
 /** Allowed PR transitions. Anything not listed is rejected server-side. */
+/**
+ * Which permission entitles an actor to move a requisition *into* a state.
+ *
+ * The state machine above says which moves are legal; this says who may make
+ * them. They are separate questions and were previously only half-answered —
+ * `transitionPr` validated the move and never the mover, so any signed-in user
+ * who reached it could advance a requisition to any adjacent state.
+ *
+ * Keyed on the target state because that is what the move means: entering
+ * APPROVED *is* approving, entering PO_ISSUED *is* issuing. Several of these
+ * states are normally reached as a consequence of an operation in another
+ * module — posting a GRN, verifying an invoice — and those callers declare a
+ * cascade whose originating permission is re-verified instead (see
+ * `lib/actor.ts`). The entry here is the authority required to make the move
+ * *directly*, which is the case this map has to get right.
+ */
+export const PR_TRANSITION_AUTHORITY: Record<PrStatus, readonly string[]> = {
+  DRAFT: [PERMISSIONS.PR_EDIT, PERMISSIONS.PR_CREATE],
+  SUBMITTED: [PERMISSIONS.PR_SUBMIT, PERMISSIONS.PR_CREATE],
+  UNDER_DEPARTMENT_APPROVAL: [PERMISSIONS.PR_APPROVE, PERMISSIONS.PR_SUBMIT],
+  APPROVED: [PERMISSIONS.PR_APPROVE],
+  PROCUREMENT_REVIEW: [PERMISSIONS.PR_APPROVE, PERMISSIONS.RFQ_ISSUE],
+  SOURCING: [PERMISSIONS.RFQ_ISSUE],
+  CPC_REVIEW: [PERMISSIONS.CPC_CASE_RAISE, PERMISSIONS.CPC_MANAGE],
+  PO_PREPARATION: [PERMISSIONS.PO_CREATE, PERMISSIONS.CPC_DECIDE],
+  PO_APPROVED: [PERMISSIONS.PO_APPROVE],
+  PO_ISSUED: [PERMISSIONS.PO_ISSUE],
+  PARTIALLY_RECEIVED: [PERMISSIONS.GRN_POST],
+  FULLY_RECEIVED: [PERMISSIONS.GRN_POST],
+  GRN_COMPLETED: [PERMISSIONS.GRN_POST],
+  INVOICE_VERIFICATION: [PERMISSIONS.INVOICE_VERIFY],
+  FINANCE_HANDOFF: [PERMISSIONS.FINANCE_HANDOFF],
+  CLOSED: [PERMISSIONS.PO_CLOSE, PERMISSIONS.PR_CANCEL],
+  REJECTED: [PERMISSIONS.PR_REJECT, PERMISSIONS.PR_APPROVE, PERMISSIONS.CPC_DECIDE],
+  RETURNED: [PERMISSIONS.PR_RETURN, PERMISSIONS.PR_APPROVE],
+  CANCELLED: [PERMISSIONS.PR_CANCEL],
+  ON_HOLD: [PERMISSIONS.PR_HOLD],
+};
+
 export const PR_TRANSITIONS: Record<PrStatus, PrStatus[]> = {
   DRAFT: ["SUBMITTED", "CANCELLED"],
   SUBMITTED: ["UNDER_DEPARTMENT_APPROVAL", "RETURNED", "REJECTED", "CANCELLED", "ON_HOLD"],

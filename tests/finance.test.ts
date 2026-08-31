@@ -9,7 +9,7 @@ import { convertQuantity, deriveItemCode, pocFor, setDepartmentPoc } from "@/ser
 import { advanceReturn, recordVariance, resolveVariance } from "@/server/receiving-exceptions";
 import { assertRequisitionComplete } from "@/server/pr";
 import { PR_STATUSES, inRequisitionStage, requisitionComplete } from "@/lib/domain";
-import { sessionFor, without } from "./helpers";
+import { sessionFor, userWithPermission, without } from "./helpers";
 
 /**
  * The finance chain and the receiving exceptions.
@@ -175,6 +175,7 @@ describe("receiving exceptions", () => {
     if (!po) return;
     const before = await prisma.poVariance.count({ where: { poId: po.id } });
     const v = await recordVariance(
+      await userWithPermission(P.VARIANCE_RESOLVE),
       {
         poId: po.id,
         type: "QUANTITY",
@@ -185,7 +186,6 @@ describe("receiving exceptions", () => {
         reasonCode: "SHORT_SUPPLY",
         reason: "Test variance",
       },
-      null,
     );
     expect(v.variance).toBe(-5);
     expect(v.variancePct).toBeCloseTo(-5, 2);
@@ -200,10 +200,13 @@ describe("receiving exceptions", () => {
   it("demands a resolution before a variance can be closed", async () => {
     const user = await sessionFor(ADMIN);
     const po = await prisma.purchaseOrder.findFirstOrThrow({ select: { id: true } });
-    const v = await recordVariance(
-      { poId: po.id, type: "QUANTITY", poQuantity: 10, grnQuantity: 9, reasonCode: "SHORT_SUPPLY" },
-      null,
-    );
+    const v = await recordVariance(user, {
+      poId: po.id,
+      type: "QUANTITY",
+      poQuantity: 10,
+      grnQuantity: 9,
+      reasonCode: "SHORT_SUPPLY",
+    });
     try {
       await expect(
         resolveVariance(user, { varianceId: v.id, status: "ACCEPTED", resolution: "  " }),

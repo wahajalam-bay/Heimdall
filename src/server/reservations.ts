@@ -2,6 +2,8 @@ import { prisma, type DbClient } from "@/lib/db";
 import { nextNumber, SEQ } from "@/lib/numbering";
 import { round2 } from "@/lib/format";
 import { RuleViolationError } from "@/lib/errors";
+import { PERMISSIONS as P } from "@/lib/permissions";
+import { DOMAIN_ACTIONS, assertAuthority, type Actor, type Authority } from "@/lib/actor";
 
 /**
  * Stock reservations.
@@ -59,7 +61,13 @@ export type ReserveInput = {
  * to go negative — an over-promise found here costs an error message, and found
  * at the counter costs a delivery.
  */
-export async function reserveStock(input: ReserveInput, db: DbClient = prisma) {
+export async function reserveStock(
+  actor: Actor,
+  input: ReserveInput,
+  db: DbClient = prisma,
+  authority: Authority = { permission: [P.INVENTORY_RESERVE] },
+) {
+  assertAuthority(actor, DOMAIN_ACTIONS.RESERVATION_CREATE, authority);
   if (input.quantity <= 0) throw new RuleViolationError("Reserved quantity must be greater than zero.");
 
   const buckets = await bucketsFor(input.itemId, input.storeId, db);
@@ -120,11 +128,14 @@ export async function reserveStock(input: ReserveInput, db: DbClient = prisma) {
 
 /** Gives the quantity back. Used when a requirement is cancelled or re-decided. */
 export async function releaseReservation(
+  actor: Actor,
   reservationId: string,
-  performedById: string,
   reason: string | null = null,
   db: DbClient = prisma,
+  authority: Authority = { permission: [P.INVENTORY_RESERVE] },
 ) {
+  assertAuthority(actor, DOMAIN_ACTIONS.RESERVATION_RELEASE, authority);
+  const performedById = actor.id;
   const res = await db.inventoryReservation.findUnique({ where: { id: reservationId } });
   if (!res || res.status !== "ACTIVE") return null;
 
@@ -177,10 +188,13 @@ export async function releaseReservation(
  * that the reservation itself was holding.
  */
 export async function consumeReservation(
+  actor: Actor,
   reservationId: string,
-  performedById: string,
   db: DbClient = prisma,
+  authority: Authority = { permission: [P.INVENTORY_RESERVE] },
 ) {
+  assertAuthority(actor, DOMAIN_ACTIONS.RESERVATION_CONSUME, authority);
+  const performedById = actor.id;
   const res = await db.inventoryReservation.findUnique({ where: { id: reservationId } });
   if (!res || res.status !== "ACTIVE") return null;
 
@@ -207,10 +221,11 @@ export async function consumeReservation(
 
 /** Releases every active hold attached to a requirement line or a requisition. */
 export async function releaseFor(
+  actor: Actor,
   where: { requirementItemIds?: string[]; storeIssueId?: string },
-  performedById: string,
   reason: string,
   db: DbClient = prisma,
+  authority: Authority = { permission: [P.INVENTORY_RESERVE] },
 ) {
   const active = await db.inventoryReservation.findMany({
     where: {
@@ -220,7 +235,7 @@ export async function releaseFor(
     },
     select: { id: true },
   });
-  for (const r of active) await releaseReservation(r.id, performedById, reason, db);
+  for (const r of active) await releaseReservation(actor, r.id, reason, db, authority);
   return active.length;
 }
 
@@ -231,13 +246,13 @@ export async function releaseFor(
  * an approved requisition; the expiry exists for the ones created at the moment a
  * requirement was decided and then abandoned.
  */
-export async function expireStaleReservations(performedById: string, db: DbClient = prisma) {
+export async function expireStaleReservations(actor: Actor, db: DbClient = prisma) {
   const stale = await db.inventoryReservation.findMany({
     where: { status: "ACTIVE", expiresAt: { not: null, lt: new Date() } },
     select: { id: true },
   });
   for (const r of stale) {
-    await releaseReservation(r.id, performedById, "Reservation expired without being issued", db);
+    await releaseReservation(actor, r.id, "Reservation expired without being issued", db);
   }
   return stale.length;
 }

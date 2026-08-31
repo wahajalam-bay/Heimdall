@@ -1,6 +1,8 @@
 import { prisma, type DbClient } from "@/lib/db";
 import { round2 } from "@/lib/format";
 import { RuleViolationError } from "@/lib/errors";
+import { PERMISSIONS as P } from "@/lib/permissions";
+import { DOMAIN_ACTIONS, assertAuthority, type Actor, type Authority } from "@/lib/actor";
 
 /**
  * What each order actually took from each requisition line.
@@ -28,10 +30,13 @@ export type AllocationInput = {
 
 /** Records what an order took, refusing to place more than the line still has. */
 export async function allocate(
+  actor: Actor,
   inputs: AllocationInput[],
-  createdById: string | null,
   db: DbClient = prisma,
+  authority: Authority = { permission: [P.PO_CREATE, P.PO_EDIT] },
 ) {
+  assertAuthority(actor, DOMAIN_ACTIONS.ALLOCATION_APPLY, authority);
+  const createdById = actor.id;
   for (const a of inputs) {
     if (a.quantity <= 0) continue;
     const remaining = await unallocatedQuantity(a.prItemId, db, a.poId);
@@ -183,7 +188,8 @@ export async function orderSources(poId: string, db: DbClient = prisma) {
  * history is recoverable exactly rather than estimated — which matters, because a
  * coverage figure built from a guess is worse than none.
  */
-export async function backfillAllocations(db: DbClient = prisma) {
+export async function backfillAllocations(actor: Actor, db: DbClient = prisma) {
+  assertAuthority(actor, DOMAIN_ACTIONS.ALLOCATION_BACKFILL, { permission: [P.MASTER_MANAGE] });
   const items = await db.purchaseOrderItem.findMany({
     where: { prItemId: { not: null } },
     select: {

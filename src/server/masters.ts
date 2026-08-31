@@ -3,6 +3,7 @@ import { round2 } from "@/lib/format";
 import { CONFIG_KEYS, getConfigBool } from "@/lib/config";
 import { ForbiddenError, NotFoundError, RuleViolationError, ValidationError } from "@/lib/errors";
 import { PERMISSIONS as P } from "@/lib/permissions";
+import { DOMAIN_ACTIONS, assertAuthority, type Actor, type Authority } from "@/lib/actor";
 import { userHasPermission, type SessionUser } from "@/lib/rbac";
 import { writeAudit } from "@/lib/audit";
 import { nextNumber } from "@/lib/numbering";
@@ -439,7 +440,10 @@ export async function insuranceExposure(
 }
 
 /** Marks cover that has run out, so the exposure report is not a manual read. */
-export async function lapseExpiredPolicies(db: DbClient = prisma) {
+export async function lapseExpiredPolicies(actor: Actor, db: DbClient = prisma) {
+  assertAuthority(actor, DOMAIN_ACTIONS.POLICY_LAPSE_EXPIRED, {
+    permission: [P.ASSET_INSURANCE_MANAGE, P.MASTER_MANAGE],
+  });
   const result = await db.assetInsurance.updateMany({
     where: { status: "ACTIVE", endDate: { lt: new Date() } },
     data: { status: "LAPSED" },

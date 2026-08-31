@@ -198,13 +198,13 @@ export async function reinstateVendorAction(formData: FormData): Promise<ActionR
 
 export async function recomputePerformanceAction(formData: FormData): Promise<ActionResult> {
   try {
-    await requirePermission(P.VENDOR_EVALUATE, P.VENDOR_APPROVE, P.ANALYTICS_VIEW);
+    const user = await requirePermission(P.VENDOR_EVALUATE, P.VENDOR_APPROVE);
     const vendorId = blank(formData.get("vendorId"));
     const months = num(formData.get("months")) ?? 12;
     if (vendorId) {
       const end = new Date();
       const start = new Date(end.getTime() - months * 30 * 86400000);
-      const perf = await computeVendorPerformance(vendorId, start, end);
+      const perf = await computeVendorPerformance(user, vendorId, start, end);
       touch(vendorId);
       revalidatePath("/vendors/performance");
       return {
@@ -213,7 +213,7 @@ export async function recomputePerformanceAction(formData: FormData): Promise<Ac
         message: `Performance recomputed — score ${perf.score.toFixed(1)}, on-time ${perf.onTimePercent.toFixed(1)}%.`,
       };
     }
-    const count = await recomputeAllVendorPerformance(months);
+    const count = await recomputeAllVendorPerformance(user, months);
     revalidatePath("/vendors/performance");
     revalidatePath("/vendors");
     return { ok: true, data: null, message: `Performance recomputed for ${count} vendors.` };

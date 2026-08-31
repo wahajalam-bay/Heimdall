@@ -52,30 +52,60 @@ export const ACTORS = {
   admin: "system.admin@zameen.com",
 } as const;
 
+/**
+ * The permission map for every active account, read once.
+ *
+ * Resolving it per call meant loading every user with their roles and each
+ * role's permissions on every lookup. An authorisation suite makes hundreds of
+ * lookups, and at that point the tests are slow enough not to be run — which is
+ * a worse outcome than any single assertion.
+ */
+let permissionMap: Promise<Array<{ email: string; permissions: Set<string> }>> | null = null;
+
+function allUserPermissions() {
+  permissionMap ??= prisma.user
+    .findMany({
+      where: { active: true },
+      select: {
+        email: true,
+        roles: { select: { role: { select: { permissions: { select: { permission: { select: { code: true } } } } } } } },
+      },
+    })
+    .then((users) =>
+      users.map((u) => ({
+        email: u.email,
+        permissions: new Set(u.roles.flatMap((ur) => ur.role.permissions.map((rp) => rp.permission.code))),
+      })),
+    );
+  return permissionMap;
+}
+
+const sessionCache = new Map<string, Promise<SessionUser>>();
+
+/** `sessionFor`, memoised. Sessions are immutable, so re-reading them is waste. */
+function cachedSession(email: string): Promise<SessionUser> {
+  let s = sessionCache.get(email);
+  if (!s) {
+    s = sessionFor(email);
+    sessionCache.set(email, s);
+  }
+  return s;
+}
+
 /** Resolves a seeded user holding a permission, so tests do not hard-code names. */
 export async function userWithPermission(code: string, exclude: string[] = []): Promise<SessionUser> {
-  const users = await prisma.user.findMany({
-    where: { active: true, email: { notIn: exclude } },
-    include: { roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } },
-  });
-  const match = users.find((u) =>
-    u.roles.some((ur) => ur.role.permissions.some((rp) => rp.permission.code === code)),
-  );
+  const users = await allUserPermissions();
+  const match = users.find((u) => !exclude.includes(u.email) && u.permissions.has(code));
   if (!match) throw new Error(`No seeded user holds the "${code}" permission.`);
-  return sessionFor(match.email);
+  return cachedSession(match.email);
 }
 
 /** Resolves a seeded user holding none of the given permissions. */
 export async function userWithoutPermission(...codes: string[]): Promise<SessionUser> {
-  const users = await prisma.user.findMany({
-    where: { active: true },
-    include: { roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } },
-  });
-  const match = users.find(
-    (u) => !u.roles.some((ur) => ur.role.permissions.some((rp) => codes.includes(rp.permission.code))),
-  );
+  const users = await allUserPermissions();
+  const match = users.find((u) => !codes.some((c) => u.permissions.has(c)));
   if (!match) throw new Error(`Every seeded user holds one of: ${codes.join(", ")}.`);
-  return sessionFor(match.email);
+  return cachedSession(match.email);
 }
 
 /** Asserts a promise rejects, and returns the error for further inspection. */

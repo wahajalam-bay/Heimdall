@@ -77,6 +77,9 @@ export const PERMISSIONS = {
 
   // CPC
   CPC_VIEW: "cpc.view",
+  /// Raises a case for the committee. Distinct from deciding one: procurement
+  /// puts the case up, the committee resolves it.
+  CPC_CASE_RAISE: "cpc.case_raise",
   CPC_DECIDE: "cpc.decide",
   CPC_MANAGE: "cpc.manage",
 
@@ -103,6 +106,9 @@ export const PERMISSIONS = {
   RECEIVING_VIEW: "receiving.view",
   INSPECTION_VIEW: "inspection.view",
   INSPECTION_PERFORM: "inspection.perform",
+  /// Books an inspection against a delivery. Separate from performing it, so
+  /// receiving can raise one without being able to record its result.
+  INSPECTION_SCHEDULE: "inspection.schedule",
   GRN_VIEW: "grn.view",
   GRN_CREATE: "grn.create",
   GRN_POST: "grn.post",
@@ -226,6 +232,7 @@ export const PERMISSION_META: Record<string, PermMeta> = {
   [PERMISSIONS.NEGOTIATE]: { group: "Sourcing", name: "Record negotiation rounds" },
   [PERMISSIONS.VENDOR_SELECT]: { group: "Sourcing", name: "Select awarded vendor" },
   [PERMISSIONS.CPC_VIEW]: { group: "CPC", name: "View CPC cases" },
+  [PERMISSIONS.CPC_CASE_RAISE]: { group: "CPC", name: "Raise a case for the committee" },
   [PERMISSIONS.CPC_DECIDE]: { group: "CPC", name: "Cast CPC decision" },
   [PERMISSIONS.CPC_MANAGE]: { group: "CPC", name: "Manage CPC meetings & agenda" },
   [PERMISSIONS.PO_VIEW]: { group: "Purchase Orders", name: "View purchase orders" },
@@ -246,6 +253,7 @@ export const PERMISSION_META: Record<string, PermMeta> = {
   [PERMISSIONS.RECEIVING_VIEW]: { group: "Operations", name: "View deliveries" },
   [PERMISSIONS.INSPECTION_VIEW]: { group: "Operations", name: "View inspections" },
   [PERMISSIONS.INSPECTION_PERFORM]: { group: "Operations", name: "Perform technical inspection" },
+  [PERMISSIONS.INSPECTION_SCHEDULE]: { group: "Operations", name: "Schedule an inspection" },
   [PERMISSIONS.GRN_VIEW]: { group: "Operations", name: "View GRNs" },
   [PERMISSIONS.GRN_CREATE]: { group: "Operations", name: "Create GRN" },
   [PERMISSIONS.GRN_POST]: { group: "Operations", name: "Post GRN to inventory" },
@@ -362,6 +370,8 @@ const PROCUREMENT_CORE = [
   P.INVENTORY_VIEW,
   P.RECEIVING_VIEW,
   P.INSPECTION_VIEW,
+  P.INSPECTION_SCHEDULE,
+  P.CPC_CASE_RAISE,
   P.INVOICE_VIEW,
   P.INVOICE_CREATE,
   P.INVOICE_VERIFY,
@@ -608,6 +618,7 @@ export const ROLE_DEFINITIONS: Array<{
     rank: 30,
     permissions: [
       P.INSPECTION_VIEW,
+      P.INSPECTION_SCHEDULE,
       P.INSPECTION_PERFORM,
       P.RECEIVING_VIEW,
       P.GRN_VIEW,
@@ -636,6 +647,7 @@ export const ROLE_DEFINITIONS: Array<{
       P.DOCUMENT_VIEW,
       P.DOCUMENT_UPLOAD,
       P.INSPECTION_VIEW,
+      P.INSPECTION_SCHEDULE,
       P.EXCEPTION_VIEW,
       P.SR_VIEW,
       P.SR_ISSUE,
@@ -684,6 +696,7 @@ export const ROLE_DEFINITIONS: Array<{
       P.DOCUMENT_VIEW,
       P.DOCUMENT_UPLOAD,
       P.INSPECTION_VIEW,
+      P.INSPECTION_SCHEDULE,
       P.EXCEPTION_VIEW,
       P.EXCEPTION_MANAGE,
       P.ANALYTICS_VIEW,
@@ -719,6 +732,7 @@ export const ROLE_DEFINITIONS: Array<{
       P.DOCUMENT_VIEW,
       P.DOCUMENT_UPLOAD,
       P.INSPECTION_VIEW,
+      P.INSPECTION_SCHEDULE,
       P.EXCEPTION_VIEW,
       P.EXCEPTION_MANAGE,
       P.ANALYTICS_VIEW,
@@ -747,6 +761,7 @@ export const ROLE_DEFINITIONS: Array<{
       P.DOCUMENT_VIEW,
       P.DOCUMENT_UPLOAD,
       P.INSPECTION_VIEW,
+      P.INSPECTION_SCHEDULE,
       P.EXCEPTION_VIEW,
     ],
   },
@@ -762,6 +777,7 @@ export const ROLE_DEFINITIONS: Array<{
       P.RECEIVE_GOODS,
       P.RECEIVING_VIEW,
       P.GRN_VIEW,
+      P.INSPECTION_SCHEDULE,
       P.GRN_CREATE,
       P.PO_VIEW,
       P.INVENTORY_VIEW,

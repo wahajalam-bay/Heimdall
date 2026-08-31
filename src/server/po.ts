@@ -7,7 +7,8 @@ import { notify, createTask, completeTasks, cancelTasks } from "@/lib/notify";
 import { raiseException } from "@/lib/exceptions-service";
 import { startApproval, actOnApproval, getPendingApproval, type ApprovalDecision } from "@/lib/approvals";
 import { PERMISSIONS as P } from "@/lib/permissions";
-import { userHasPermission, type SessionUser } from "@/lib/rbac";
+import { assertEntityAccess, userHasPermission, type SessionUser } from "@/lib/rbac";
+import { DOMAIN_ACTIONS, assertAuthority, type Actor, type Authority } from "@/lib/actor";
 import { PO_LIFECYCLE, requisitionComplete, type PoStatus } from "@/lib/domain";
 import { round2 } from "@/lib/format";
 import { transitionPr, assertRequisitionComplete } from "./pr";
@@ -276,6 +277,7 @@ export async function createPoFromCase(user: SessionUser, input: PoInput, db: Db
     select: { items: { select: { id: true, prItemId: true, quantity: true, unit: true } } },
   });
   await allocate(
+    user,
     created.items
       .filter((i) => i.prItemId)
       .map((i) => ({
@@ -286,8 +288,8 @@ export async function createPoFromCase(user: SessionUser, input: PoInput, db: Db
         quantity: i.quantity,
         unit: i.unit,
       })),
-    user.id,
     db,
+    { cascade: "purchase order created from the approved case", from: [P.PO_CREATE] },
   );
 
   if (pr.status !== "PO_PREPARATION") {
@@ -319,13 +321,26 @@ export async function createPoFromCase(user: SessionUser, input: PoInput, db: Db
   return po;
 }
 
+/**
+ * Module-private: every exported function in this file authorizes before
+ * calling it, which is why it carries no authority map of its own. Callers
+ * that are themselves cascades pass `authority` so the grounds are re-verified
+ * on the way through. A per-target-state authority map for purchase orders is
+ * scheduled with the purchase order module rebuild.
+ */
 async function transitionPo(
-  user: SessionUser | null,
+  actor: Actor,
   poId: string,
   to: PoStatus,
-  opts: { reason?: string | null; force?: boolean; extra?: Record<string, unknown> } = {},
+  opts: {
+    reason?: string | null;
+    force?: boolean;
+    extra?: Record<string, unknown>;
+    authority?: Authority;
+  } = {},
   db: DbClient = prisma,
 ) {
+  if (opts.authority) assertAuthority(actor, DOMAIN_ACTIONS.PO_FULFILMENT_RECOMPUTE, opts.authority);
   const po = await db.purchaseOrder.findUnique({ where: { id: poId }, include: { pr: true } });
   if (!po) throw new NotFoundError("Purchase order");
   const from = po.status as PoStatus;
@@ -356,7 +371,7 @@ async function transitionPo(
       changes: { status: { from, to } },
       reason: opts.reason ?? null,
       caseKey: po.pr?.number ?? null,
-      actor: user,
+      actor,
     },
     db,
   );
@@ -440,7 +455,21 @@ export async function submitPoForApproval(user: SessionUser, poId: string, db: D
 
   if (approval.autoApproved) {
     await transitionPo(user, poId, "APPROVED", { reason: "No approval rule matched — auto-approved" }, db);
-    if (po.prId) await transitionPr(user, po.prId, "PO_APPROVED", { force: true }, db);
+    if (po.prId) {
+      await transitionPr(
+        user,
+        po.prId,
+        "PO_APPROVED",
+        {
+          force: true,
+          authority: {
+            cascade: "approval engine: no applicable purchase order approver",
+            from: [P.PO_CREATE, P.PO_EDIT, P.PO_APPROVE],
+          },
+        },
+        db,
+      );
+    }
   } else {
     await transitionPo(user, poId, "PENDING_APPROVAL", {}, db);
   }
@@ -477,7 +506,19 @@ export async function decidePo(
 
   if (decision === "REJECTED") {
     await transitionPo(user, poId, "CANCELLED", { reason: comment }, db);
-    if (po.prId) await transitionPr(user, po.prId, "SOURCING", { reason: comment, force: true }, db);
+    if (po.prId) {
+      await transitionPr(
+        user,
+        po.prId,
+        "SOURCING",
+        {
+          reason: comment,
+          force: true,
+          authority: { cascade: "purchase order rejected, returned for re-sourcing", from: [P.PO_APPROVE] },
+        },
+        db,
+      );
+    }
   } else if (decision === "RETURNED" || decision === "CLARIFICATION_REQUESTED") {
     await transitionPo(user, poId, "DRAFT", { reason: comment }, db);
     await createTask(
@@ -616,12 +657,24 @@ export async function issuePo(user: SessionUser, poId: string, db: DbClient = pr
  * Recomputes received/pending quantities from posted GRNs and moves the PO (and
  * the PR) to the right state. Called after every GRN post or cancellation.
  */
-export async function recomputePoFulfilment(poId: string, user: SessionUser | null, db: DbClient = prisma) {
+export async function recomputePoFulfilment(
+  poId: string,
+  actor: Actor,
+  db: DbClient = prisma,
+  /**
+   * Recomputation is a consequence of posting or cancelling a receipt, and the
+   * store user who does that holds no purchase-order permission. Callers name
+   * the receiving permission that authorized them; it is re-verified here.
+   */
+  authority: Authority = { permission: [P.PO_EDIT, P.PO_APPROVE] },
+) {
+  assertAuthority(actor, DOMAIN_ACTIONS.PO_FULFILMENT_RECOMPUTE, authority);
   const po = await db.purchaseOrder.findUnique({
     where: { id: poId },
     include: { items: true, pr: true },
   });
   if (!po) throw new NotFoundError("Purchase order");
+  assertEntityAccess(actor, po.entityId);
 
   const grnLines = await db.grnItem.findMany({
     where: { grn: { poId, status: "POSTED" } },
@@ -658,13 +711,13 @@ export async function recomputePoFulfilment(poId: string, user: SessionUser | nu
   else if (anyReceived) target = "PARTIALLY_RECEIVED";
 
   if (target && !["CLOSED", "CANCELLED"].includes(po.status)) {
-    await transitionPo(user, poId, target, { force: true }, db);
+    await transitionPo(actor, poId, target, { force: true, authority }, db);
     if (po.prId) {
       await transitionPr(
-        user,
+        actor,
         po.prId,
         target === "FULLY_RECEIVED" ? "FULLY_RECEIVED" : "PARTIALLY_RECEIVED",
-        { force: true },
+        { force: true, authority },
         db,
       );
     }

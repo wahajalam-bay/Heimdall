@@ -3,6 +3,8 @@ import { nextNumber, SEQ } from "@/lib/numbering";
 import { RuleViolationError, NotFoundError } from "@/lib/errors";
 import { writeAudit, type AuditActor } from "@/lib/audit";
 import { round2 } from "@/lib/format";
+import { PERMISSIONS as P } from "@/lib/permissions";
+import { DOMAIN_ACTIONS, assertAuthority, type Actor, type Authority } from "@/lib/actor";
 
 /**
  * Inventory ledger.
@@ -44,6 +46,25 @@ export type InventoryTransactionRow = Awaited<ReturnType<DbClient["inventoryTran
 const INBOUND = new Set(["RECEIPT", "TRANSFER_IN", "RETURN"]);
 const OUTBOUND = new Set(["ISSUE", "TRANSFER_OUT", "DISPOSAL"]);
 
+/**
+ * Which permission entitles an actor to move stock in each direction.
+ *
+ * Every stock write in the system funnels through `postMovement`, which made it
+ * the single most valuable place to enforce and the one place that enforced
+ * nothing. Callers that arrive as a consequence of an authorized operation
+ * elsewhere — posting a receipt, issuing against a requisition, disposing of an
+ * asset — name their grounds instead, and those are re-verified.
+ */
+export const MOVEMENT_AUTHORITY: Record<string, readonly string[]> = {
+  RECEIPT: [P.GRN_POST, P.RECEIVE_GOODS, P.INVENTORY_ADJUST],
+  ISSUE: [P.STORE_ISSUE],
+  TRANSFER_OUT: [P.STORE_TRANSFER],
+  TRANSFER_IN: [P.STORE_TRANSFER, P.RECEIVE_GOODS],
+  ADJUSTMENT: [P.INVENTORY_ADJUST],
+  RETURN: [P.RETURN_CREATE, P.RECEIVE_GOODS, P.INVENTORY_ADJUST],
+  DISPOSAL: [P.DISPOSAL_APPROVE, P.DISPOSAL_MANAGEMENT_APPROVE],
+};
+
 export type MovementType =
   | "RECEIPT"
   | "ISSUE"
@@ -68,7 +89,8 @@ async function allocateOutbound(
   type: MovementType,
   input: MovementInput,
   db: DbClient,
-  actor?: AuditActor | null,
+  actor: Actor,
+  authority: Authority,
 ): Promise<InventoryTransactionRow | null> {
   const buckets = await db.inventoryItem.findMany({
     where: { itemId: input.itemId, storeId: input.storeId },
@@ -115,6 +137,7 @@ async function allocateOutbound(
       },
       db,
       actor,
+      authority,
     );
     remaining = round2(remaining - take);
   }
@@ -129,8 +152,14 @@ export async function postMovement(
   type: MovementType,
   input: MovementInput,
   db: DbClient = prisma,
-  actor?: AuditActor | null,
+  actor: Actor,
+  /**
+   * Grounds, when this movement follows from an authorized operation in another
+   * module. Omitted, the actor must hold the movement's own permission.
+   */
+  authority: Authority = { permission: MOVEMENT_AUTHORITY[type] ?? [] },
 ): Promise<InventoryTransactionRow> {
+  assertAuthority(actor, DOMAIN_ACTIONS.INVENTORY_MOVEMENT_POST, authority);
   if (input.quantity <= 0 && type !== "ADJUSTMENT") {
     throw new RuleViolationError("Movement quantity must be greater than zero.");
   }
@@ -146,7 +175,7 @@ export async function postMovement(
   // which the person holding the broken item does not know.
   const outboundAdjustment = type === "ADJUSTMENT" && input.quantity < 0;
   if ((OUTBOUND.has(type) || outboundAdjustment) && key.batchNumber === null && key.serialNumber === null) {
-    const allocated = await allocateOutbound(type, input, db, actor);
+    const allocated = await allocateOutbound(type, input, db, actor, authority);
     if (allocated) return allocated;
   }
 

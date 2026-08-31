@@ -11,11 +11,12 @@
 import { prisma } from "../src/lib/db";
 import { recomputeAllVendorPerformance } from "../src/server/vendors";
 import { sweepMissingGrns } from "../src/server/grn";
+import { systemActor } from "@/lib/actor";
 
 async function main() {
   console.log("\nRecomputing rollups\n");
 
-  await recomputeAllVendorPerformance(12, prisma);
+  await recomputeAllVendorPerformance(systemActor("SCHEDULER"), 12, prisma);
   const scored = await prisma.vendorPerformance.count();
   console.log(`  vendor performance recomputed — ${scored} period record(s)`);
 

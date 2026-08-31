@@ -190,7 +190,10 @@ export async function decideStoreIssue(
       data: { status: "REJECTED", rejectReason: input.reason, remarks: input.reason },
     });
     // Stock held for a requisition nobody approved goes back on the shelf.
-    await releaseFor({ storeIssueId: issue.id }, user.id, `Requisition ${issue.number} rejected`, db);
+    await releaseFor(user, { storeIssueId: issue.id }, `Requisition ${issue.number} rejected`, db, {
+      cascade: "store requisition rejected",
+      from: [P.SR_APPROVE, P.SR_APPROVE_HOD, P.STORE_ISSUE_APPROVE],
+    });
     await completeTasks("STORE_ISSUE", issue.id, user.id, db);
     await writeAudit(
       {
@@ -346,7 +349,12 @@ export async function issueStock(
     where: { storeIssueId: issue.id, status: "ACTIVE" },
     select: { id: true },
   });
-  for (const h of held) await consumeReservation(h.id, user.id, db);
+  for (const h of held) {
+    await consumeReservation(user, h.id, db, {
+      cascade: "stock issued against the requisition",
+      from: [P.STORE_ISSUE, P.SR_ISSUE],
+    });
+  }
 
   let anyIssued = false;
   let allIssued = true;
@@ -473,7 +481,10 @@ export async function returnStoreRequisition(
     where: { id: issue.id },
     data: { status: "RETURNED", returnReason: input.reason.trim() },
   });
-  await releaseFor({ storeIssueId: issue.id }, user.id, `Requisition ${issue.number} returned`, db);
+  await releaseFor(user, { storeIssueId: issue.id }, `Requisition ${issue.number} returned`, db, {
+    cascade: "store requisition returned",
+    from: [P.SR_APPROVE, P.SR_APPROVE_HOD, P.STORE_ISSUE_APPROVE],
+  });
   await completeTasks("STORE_ISSUE", issue.id, user.id, db);
   await writeAudit(
     {
@@ -564,7 +575,10 @@ export async function closeStoreRequisition(
     where: { id: issue.id },
     data: { status: "CLOSED", closedAt: new Date(), remarks: input.reason ?? issue.remarks },
   });
-  await releaseFor({ storeIssueId: issue.id }, user.id, `Requisition ${issue.number} closed`, db);
+  await releaseFor(user, { storeIssueId: issue.id }, `Requisition ${issue.number} closed`, db, {
+    cascade: "store requisition closed",
+    from: [P.SR_ISSUE, P.STORE_ISSUE],
+  });
   await completeTasks("STORE_ISSUE", issue.id, user.id, db);
   await writeAudit(
     {
