@@ -66,6 +66,7 @@ model User {
   grns               Grn[]                 @relation("GrnReceivedBy")
   grnsPosted         Grn[]                 @relation("GrnPostedBy")
   grnTreatmentsApproved GrnItem[]          @relation("GrnTreatmentApprover")
+  manualComparativeEntries ComparativeManualEntry[] @relation("ManualEntryEnteredBy")
   taxRulesCreated    TaxRule[]             @relation("TaxRuleCreatedBy")
   taxRulesApproved   TaxRule[]             @relation("TaxRuleApprovedBy")
   serviceAcceptancePocs      ServiceAcceptance[] @relation("ServiceAcceptancePoc")
@@ -912,6 +913,7 @@ model Comparative {
   updatedAt      DateTime @updatedAt
 
   lines          ComparativeLine[]
+  manualEntries  ComparativeManualEntry[]
   cpcCases       CpcCase[]
   savingsRecords SavingsRecord[]
 
@@ -2105,6 +2107,7 @@ model Vendor {
 
   returns VendorReturn[]
 
+  manualComparativeEntries ComparativeManualEntry[]
   @@index([status])
   @@map("vendors")
 }
@@ -3482,6 +3485,7 @@ model TaxRule {
   updatedAt    DateTime  @updatedAt
 
   poItems PurchaseOrderItem[]
+  manualEntries ComparativeManualEntry[]
 
   @@index([code, effectiveFrom])
   @@index([entityId, active])
@@ -3562,4 +3566,63 @@ model ServiceAcceptanceItem {
 
   @@unique([serviceAcceptanceId, lineNo])
   @@index([poItemId])
+}
+
+/// A cost-comparison option entered by hand.
+///
+/// Not every comparison source is a formal quotation. A published price list, a
+/// verbal quote over the phone, a rate from a framework contract, the price the
+/// same thing cost last month — all are legitimate comparison evidence, and
+/// requiring each to exist as a `VendorQuote` first meant either faking a
+/// quotation or leaving the comparison thinner than it really was.
+///
+/// This is a **separate model on purpose.** A manual entry must never be
+/// mistaken for something a vendor submitted, so it does not occupy the same
+/// rows as `ComparativeLine`: it carries its own source, its own evidence
+/// reference and its own reason for being entered by hand, and it is labelled
+/// MANUAL wherever it is shown. A comparison built partly on a price list is
+/// still useful — but only if a reader can see that is what it is.
+model ComparativeManualEntry {
+  id            String      @id @default(cuid())
+  comparativeId String
+  comparative   Comparative @relation(fields: [comparativeId], references: [id], onDelete: Cascade)
+
+  /// A registered vendor where the price came from one, otherwise free text.
+  vendorId   String?
+  vendor     Vendor? @relation(fields: [vendorId], references: [id])
+  sourceName String
+
+  /// PRICE_LIST | VERBAL | EMAIL | RATE_CONTRACT | PRIOR_PURCHASE | MARKET_SURVEY | OTHER
+  sourceType String @default("OTHER")
+
+  description String
+  unit        String
+  quantity    Float
+  rate        Float
+  grossValue  Float
+
+  /// The tax treatment as understood at entry, and the rule if one applies.
+  taxRuleId String?
+  taxRule   TaxRule? @relation(fields: [taxRuleId], references: [id])
+  taxRate   Float?
+  taxAmount Float    @default(0)
+  taxNote   String?
+  netValue  Float    @default(0)
+
+  deliveryTerms String?
+  paymentTerms  String?
+  validUntil    DateTime?
+
+  /// Where the price can be checked — a price list date, an email, a call log.
+  evidenceRef String?
+
+  /// Why this was entered by hand rather than obtained as a quotation. Required:
+  /// it is the difference between thin evidence and undocumented evidence.
+  reason String
+
+  enteredById String
+  enteredBy   User     @relation("ManualEntryEnteredBy", fields: [enteredById], references: [id])
+  enteredAt   DateTime @default(now())
+
+  @@index([comparativeId])
 }

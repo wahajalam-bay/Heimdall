@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { prisma } from "@/lib/db";
 import { pageContext } from "@/lib/page";
 import { PERMISSIONS as P } from "@/lib/permissions";
 import { userHasPermission } from "@/lib/rbac";
@@ -6,8 +7,11 @@ import { AccessDenied } from "@/components/ui/guard";
 import { Badge, BlockedNotice, InlineAlert, PageHeader } from "@/components/ui/primitives";
 import { Breadcrumbs } from "@/components/ui/nav";
 import { costAnalysis, costAnalysisGaps } from "@/server/cost-analysis";
+import { manualComparisons } from "@/server/manual-comparison";
+import { applicableTaxRules } from "@/server/tax";
+import { MANUAL_SOURCE_TYPES } from "@/lib/domain";
 import { fmtDate, money, qty } from "@/lib/format";
-import { CostAnalysisForm, VerifyForm } from "./forms";
+import { CostAnalysisForm, ManualComparisonForm, VerifyForm } from "./forms";
 
 export const metadata = { title: "Cost Analysis Form" };
 export const dynamic = "force-dynamic";
@@ -22,12 +26,29 @@ export const dynamic = "force-dynamic";
  */
 export default async function CostAnalysisPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { user, authorized } = await pageContext(P.COMPARATIVE_VIEW);
+  const { user, ctx, authorized } = await pageContext(P.COMPARATIVE_VIEW);
   if (!authorized) {
     return <AccessDenied title="Cost Analysis Form" message="You do not have permission to view comparatives." />;
   }
 
   const form = await costAnalysis(id);
+  const manual = await manualComparisons(id);
+  // Only offered while the sheet can still change — a comparison that moves
+  // after approval is not the comparison that was approved.
+  const canAddManual =
+    !["APPROVED", "CANCELLED"].includes(form.status) &&
+    userHasPermission(ctx.user, P.QUOTE_ENTER, P.COMPARATIVE_CREATE);
+  const [manualVendors, manualTaxRules] = canAddManual
+    ? await Promise.all([
+        prisma.vendor.findMany({
+          where: { status: { in: ["APPROVED", "CONDITIONAL"] } },
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+          take: 200,
+        }),
+        applicableTaxRules({ entityId: ctx.entityId }),
+      ])
+    : [[], []];
   const gaps = costAnalysisGaps(form);
   const canEdit = userHasPermission(user, P.COMPARATIVE_CREATE);
   const canVerify = userHasPermission(user, P.COMPARATIVE_VERIFY);
@@ -257,6 +278,98 @@ export default async function CostAnalysisPage({ params }: { params: Promise<{ i
             </table>
           </div>
         </section>
+
+        {/* Manual comparison options — labelled, never mistaken for a quotation */}
+        {manual.length > 0 && (
+          <section>
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <h3 className="label">Manual comparison options</h3>
+              <Badge tone="warning">MANUAL — not vendor-submitted</Badge>
+            </div>
+            <p className="mb-2 text-2xs leading-5 text-[var(--c-text-tertiary)]">
+              Entered by hand from a price list, a rate contract, a prior purchase or a verbal indication. These widen
+              the comparison but cannot be awarded against — an award needs a price the vendor actually offered.
+            </p>
+            <div className="table-wrap">
+              <table className="dt">
+                <thead>
+                  <tr>
+                    <th style={{ minWidth: "11rem" }}>Source</th>
+                    <th style={{ minWidth: "12rem" }}>Description</th>
+                    <th style={{ width: "6rem" }} className="text-right">
+                      Rate
+                    </th>
+                    <th style={{ width: "6rem" }} className="text-right">
+                      Qty
+                    </th>
+                    <th style={{ width: "8rem" }} className="text-right">
+                      Gross
+                    </th>
+                    <th style={{ width: "7rem" }} className="text-right">
+                      Tax
+                    </th>
+                    <th style={{ width: "8rem" }} className="text-right">
+                      Net
+                    </th>
+                    <th style={{ minWidth: "12rem" }}>Why entered by hand</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {manual.map((m) => (
+                    <tr key={m.id}>
+                      <td>
+                        {m.vendor?.name ?? m.sourceName}
+                        <span className="mt-0.5 block text-2xs text-[var(--c-text-tertiary)]">
+                          {MANUAL_SOURCE_TYPES.find((t) => t.code === m.sourceType)?.label ?? m.sourceType}
+                          {m.evidenceRef ? ` · ${m.evidenceRef}` : ""}
+                        </span>
+                      </td>
+                      <td>{m.description}</td>
+                      <td className="tnum text-right">{money(m.rate)}</td>
+                      <td className="tnum text-right">
+                        {m.quantity} {m.unit}
+                      </td>
+                      <td className="tnum text-right">{money(m.grossValue)}</td>
+                      <td className="tnum text-right">
+                        {m.taxRate === null ? (
+                          <span className="text-[var(--c-text-tertiary)]">unset</span>
+                        ) : (
+                          <>
+                            {money(m.taxAmount)}
+                            <span className="block text-2xs text-[var(--c-text-tertiary)]">
+                              {m.taxRule?.code ?? ""} {m.taxRate}%
+                            </span>
+                          </>
+                        )}
+                      </td>
+                      <td className="tnum text-right font-500">{money(m.netValue)}</td>
+                      <td className="text-2xs leading-5">
+                        {m.reason}
+                        <span className="mt-0.5 block text-[var(--c-text-tertiary)]">
+                          {m.enteredBy.name} · {fmtDate(m.enteredAt)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {canAddManual && (
+          <ManualComparisonForm
+            comparativeId={id}
+            vendors={manualVendors}
+            taxRules={(manualTaxRules as Array<{ id: string; code: string; name: string; percent: number }>).map((t) => ({
+              id: t.id,
+              code: t.code,
+              name: t.name,
+              percent: t.percent,
+            }))}
+            units={[...new Set(form.items.map((i) => i.unit))].filter(Boolean)}
+          />
+        )}
 
         {/* Award and compliance */}
         <section className="grid gap-4 lg:grid-cols-2">

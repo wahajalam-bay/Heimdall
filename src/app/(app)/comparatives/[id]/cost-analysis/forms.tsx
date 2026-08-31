@@ -3,7 +3,13 @@
 import { ActionButton, ActionForm } from "@/components/ui/forms";
 import { Field, FormSection, Select, TextArea } from "@/components/ui/field";
 import type { CostAnalysis } from "@/server/cost-analysis";
-import { saveCostAnalysisAction, verifyCostAnalysisAction } from "./actions";
+import { SectionCard } from "@/components/ui/primitives";
+import { MANUAL_SOURCE_TYPES } from "@/lib/domain";
+import {
+  addManualComparisonAction,
+  saveCostAnalysisAction,
+  verifyCostAnalysisAction,
+} from "./actions";
 
 /**
  * Answering what the form asks.
@@ -181,5 +187,149 @@ export function VerifyForm({ comparativeId, disabled }: { comparativeId: string;
       disabledReason="Answer everything the form asks before verifying it."
       confirm="Verify this cost analysis form? Your name is recorded as the second signature."
     />
+  );
+}
+
+
+/**
+ * Adding a comparison option that is not a vendor quotation.
+ *
+ * The reason field is required and it is not bureaucracy: a price from a call
+ * carries less weight than a price from a submitted quotation, and a reader can
+ * only judge that if the sheet says which it is.
+ */
+export function ManualComparisonForm({
+  comparativeId,
+  vendors,
+  taxRules,
+  units,
+}: {
+  comparativeId: string;
+  vendors: Array<{ id: string; name: string }>;
+  taxRules: Array<{ id: string; code: string; name: string; percent: number }>;
+  units: string[];
+}) {
+  return (
+    <SectionCard
+      title="Add a manual comparison option"
+      description="For a price list, a rate contract, a prior purchase or a verbal indication — anything that is real evidence but not a submitted quotation. It appears on the sheet labelled MANUAL and cannot be awarded against."
+    >
+      <ActionForm
+        action={addManualComparisonAction}
+        layout="bare"
+        hiddenFields={{ comparativeId }}
+        submitLabel="Add option"
+        resetOnSuccess
+      >
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Field label="Source" name="sourceName" hint="Who or what quoted this price.">
+            <input className="field" name="sourceName" required maxLength={120} placeholder="Al-Karam Traders" />
+          </Field>
+
+          <Field label="Registered vendor" name="vendorId" hint="Optional — link it where the source is a known vendor.">
+            <select className="field" name="vendorId" defaultValue="">
+              <option value="">Not a registered vendor</option>
+              {vendors.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Kind of source" name="sourceType">
+            <select className="field" name="sourceType" defaultValue="PRICE_LIST">
+              {MANUAL_SOURCE_TYPES.map((t) => (
+                <option key={t.code} value={t.code}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Description" name="description" span>
+            <input
+              className="field"
+              name="description"
+              required
+              maxLength={200}
+              placeholder="What this price is for"
+            />
+          </Field>
+
+          <Field label="Unit" name="unit">
+            <select className="field" name="unit" defaultValue={units[0] ?? "EA"}>
+              {units.map((u) => (
+                <option key={u} value={u}>
+                  {u}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Quantity" name="quantity">
+            <input className="field" name="quantity" type="number" step="0.01" min="0.01" required />
+          </Field>
+
+          <Field label="Rate" name="rate" hint="Per unit, before tax.">
+            <input className="field" name="rate" type="number" step="0.01" min="0" required />
+          </Field>
+
+          <Field
+            label="Tax"
+            name="taxRuleId"
+            hint={
+              taxRules.length
+                ? "From the tax master."
+                : "No tax rates are configured, so tax shows as unset on the sheet."
+            }
+          >
+            <select className="field" name="taxRuleId" defaultValue="">
+              <option value="">No tax / unset</option>
+              {taxRules.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.code} — {t.percent}%
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Delivery terms" name="deliveryTerms">
+            <input className="field" name="deliveryTerms" maxLength={120} />
+          </Field>
+
+          <Field label="Payment terms" name="paymentTerms">
+            <input className="field" name="paymentTerms" maxLength={120} />
+          </Field>
+
+          <Field label="Price valid until" name="validUntil">
+            <input className="field" name="validUntil" type="date" />
+          </Field>
+
+          <Field
+            label="Evidence reference"
+            name="evidenceRef"
+            hint="Where this can be checked — a price list date, an email, a call log."
+          >
+            <input className="field" name="evidenceRef" maxLength={160} />
+          </Field>
+
+          <Field
+            label="Why entered by hand"
+            name="reason"
+            span
+            hint="Required. A reader needs to know why this is not a quotation before deciding how much weight it carries."
+          >
+            <textarea
+              className="field"
+              name="reason"
+              rows={2}
+              required
+              placeholder="e.g. Vendor declined to quote formally for a single unit; price taken from their published November list."
+            />
+          </Field>
+        </div>
+      </ActionForm>
+    </SectionCard>
   );
 }

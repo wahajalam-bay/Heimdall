@@ -773,3 +773,22 @@ export const PRIORITY_TONE: Record<string, BadgeTone> = {
   HIGH: "warning",
   URGENT: "danger",
 };
+
+/**
+ * Kinds of manual cost-comparison source.
+ *
+ * Lives here rather than beside the service that writes them, because the entry
+ * form is a client component and the service imports Prisma — pulling that into
+ * the browser bundle to read a list of labels would be a poor trade.
+ */
+export const MANUAL_SOURCE_TYPES = [
+  { code: "PRICE_LIST", label: "Published price list" },
+  { code: "RATE_CONTRACT", label: "Rate / framework contract" },
+  { code: "PRIOR_PURCHASE", label: "Price of a prior purchase" },
+  { code: "EMAIL", label: "Emailed indication" },
+  { code: "VERBAL", label: "Verbal or telephone quote" },
+  { code: "MARKET_SURVEY", label: "Market survey" },
+  { code: "OTHER", label: "Other" },
+] as const;
+
+export type ManualSourceType = (typeof MANUAL_SOURCE_TYPES)[number]["code"];
