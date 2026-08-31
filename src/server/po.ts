@@ -11,6 +11,7 @@ import { assertEntityAccess, userHasPermission, type SessionUser } from "@/lib/r
 import { DOMAIN_ACTIONS, assertAuthority, type Actor, type Authority } from "@/lib/actor";
 import { PO_LIFECYCLE, PO_TRANSITION_AUTHORITY, requisitionComplete, type PoStatus } from "@/lib/domain";
 import { round2 } from "@/lib/format";
+import { assertHomogeneousKind, kindFromProcurementType, type ProcurementKind } from "@/lib/kind";
 import { transitionPr, assertRequisitionComplete } from "./pr";
 import { checkVendorEligibility, effectiveQuoteTotal } from "./sourcing";
 import { allocate } from "./allocations";
@@ -207,12 +208,23 @@ export async function createPoFromCase(user: SessionUser, input: PoInput, db: Db
       advanceAmount = round2((total * pct) / 100);
     }
 
+    // Goods and services diverge after issuance, so the order takes the
+    // requisition's kind and its lines are checked against it. A service line on
+    // a goods order would reach receiving with nothing to receive.
+    const kind = (pr.procurementKind ?? kindFromProcurementType(pr.procurementType)) as ProcurementKind;
+    assertHomogeneousKind(kind, lines, `Purchase order for ${pr.number}`);
+
     const number = await nextNumber(SEQ.PO, tx);
     const po = await tx.purchaseOrder.create({
       data: {
         number,
         entityId: pr.entityId,
         prId: pr.id,
+        // The order is the same kind as the requisition it comes from. Goods and
+        // services take different routes from here — a goods order is received
+        // and inspected, a service order is accepted by the requesting
+        // department — so an order that mixed them could not be completed.
+        procurementKind: kind,
         // The expenditure treatment is decided at the requisition and must not be
         // re-decided here; finance reads it off the receipt without walking back
         // up the chain.

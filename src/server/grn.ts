@@ -332,6 +332,53 @@ export async function postGrn(user: SessionUser, grnId: string, db: DbClient = p
     }
     const posted = await tx.grn.findUniqueOrThrow({ where: { id: grnId } });
 
+    // The cumulative cap, re-checked at the moment of posting.
+    //
+    // `createGrn` already refuses a draft that exceeds what remains outstanding,
+    // but it measures the remainder from `poItem.acceptedQty`, which counts only
+    // *posted* receipts. Two drafts raised against the same 40 outstanding
+    // therefore both pass, and nothing stopped both from posting — 100 ordered
+    // could become 140 received.
+    //
+    // Here the sum is taken inside the transaction that is doing the posting, so
+    // the second one sees the first and is refused. This is the control the SOP
+    // means by never receiving above the order: it holds at the point the stock
+    // actually moves, not only at data entry.
+    const alreadyPosted = await tx.grnItem.groupBy({
+      by: ["poItemId"],
+      where: { grn: { poId: grn.poId, status: "POSTED" }, grnId: { not: grnId } },
+      _sum: { acceptedQty: true },
+    });
+    const postedByPoItem = new Map(
+      alreadyPosted.map((r) => [r.poItemId, r._sum.acceptedQty ?? 0]),
+    );
+    const orderLines = await tx.purchaseOrderItem.findMany({
+      where: { poId: grn.poId },
+      select: { id: true, lineNo: true, description: true, unit: true, quantity: true },
+    });
+    const orderByItem = new Map(orderLines.map((l) => [l.id, l]));
+
+    const breaches: string[] = [];
+    for (const li of grn.items) {
+      if (li.acceptedQty <= 0) continue;
+      const order = orderByItem.get(li.poItemId);
+      if (!order) continue;
+      const before = round2(postedByPoItem.get(li.poItemId) ?? 0);
+      const after = round2(before + li.acceptedQty);
+      if (after > order.quantity + 1e-9) {
+        breaches.push(
+          `line ${order.lineNo} (${order.description}): ${order.quantity} ${order.unit} ordered, ` +
+            `${before} ${order.unit} already received, and this receipt adds ${round2(li.acceptedQty)} — ${round2(after - order.quantity)} ${order.unit} too many`,
+        );
+      }
+    }
+    if (breaches.length) {
+      throw new RuleViolationError(
+        `${grn.number} would take more into inventory than ${grn.po.number} ordered: ${breaches.join("; ")}. ` +
+          "Receiving above the order needs a purchase order amendment, not a larger receipt.",
+      );
+    }
+
     for (const li of grn.items) {
       if (li.acceptedQty <= 0) continue;
 

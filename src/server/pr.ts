@@ -20,6 +20,13 @@ import {
   type Disposition,
 } from "@/lib/domain";
 import { round2 } from "@/lib/format";
+import {
+  PROCUREMENT_KIND_LABELS,
+  assertHomogeneousKind,
+  kindFromProcurementType,
+  kindOfLines,
+  type ProcurementKind,
+} from "@/lib/kind";
 import { escalationChain } from "@/server/org";
 
 /**
@@ -42,12 +49,22 @@ export type PrItemInput = {
   requiredDate?: Date | null;
   disposition?: Disposition;
   notes?: string | null;
+  /** GOODS or SERVICES. Omitted, the requisition's kind applies. */
+  procurementKind?: ProcurementKind;
 };
 
 export type PrInput = {
   entityId: string;
   departmentId: string;
   procurementType: string;
+  /**
+   * GOODS or SERVICES. Omitted, it is derived from `procurementType` — which
+   * only distinguishes the two for a SERVICE requisition, so anything else
+   * defaults to goods and is corrected by the line kinds below.
+   */
+  procurementKind?: ProcurementKind;
+  /** A sibling requisition raised from the same business need. */
+  linkedPrId?: string | null;
   title: string;
   justification?: string | null;
   projectId?: string | null;
@@ -194,6 +211,15 @@ export async function createPr(user: SessionUser, input: PrInput, db: DbClient =
 
   const items = computeItemTotals(input.items);
   const estimatedValue = round2(items.reduce((a, i) => a + i.estimatedTotal, 0));
+  // Goods and services diverge after the order and never rejoin, so a
+  // requisition is one or the other. Where the caller has not said, the kind is
+  // taken from the lines; where the lines disagree, the requisition is refused
+  // rather than quietly filed as whichever kind came first.
+  const lineKind = kindOfLines(items);
+  const kind: ProcurementKind =
+    input.procurementKind ?? lineKind ?? kindFromProcurementType(input.procurementType);
+  assertHomogeneousKind(kind, items, `This ${PROCUREMENT_KIND_LABELS[kind].toLowerCase()} requisition`);
+
   const number = await nextNumber(prefixForProcurementType(input.procurementType), db);
 
   const deliveryStoreId =
@@ -224,9 +250,12 @@ export async function createPr(user: SessionUser, input: PrInput, db: DbClient =
       drawingReference: input.drawingReference ?? null,
       technicalNotes: input.technicalNotes ?? null,
       status: "DRAFT",
+      procurementKind: kind,
+      linkedPrId: input.linkedPrId ?? null,
       items: {
         create: items.map((it) => ({
           lineNo: it.lineNo,
+          procurementKind: it.procurementKind ?? kind,
           itemId: it.itemId ?? null,
           categoryId: it.categoryId,
           description: it.description.trim(),

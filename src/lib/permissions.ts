@@ -103,6 +103,12 @@ export const PERMISSIONS = {
   GATE_PASS_VIEW: "gate_pass.view",
   GATE_PASS_CREATE: "gate_pass.create",
   RECEIVE_GOODS: "receiving.record",
+  /// Confirms a service was performed. The services counterpart to recording a
+  /// receipt, and the act that releases the vendor's invoice.
+  SERVICE_ACCEPT: "service.accept",
+  /// Confirms a service assigned to somebody else's point of contact. Held by
+  /// the few who can act for a department that is unavailable.
+  SERVICE_ACCEPT_ANY: "service.accept_any",
   RECEIVING_VIEW: "receiving.view",
   INSPECTION_VIEW: "inspection.view",
   INSPECTION_PERFORM: "inspection.perform",
@@ -250,6 +256,8 @@ export const PERMISSION_META: Record<string, PermMeta> = {
   [PERMISSIONS.GATE_PASS_VIEW]: { group: "Operations", name: "View gate passes" },
   [PERMISSIONS.GATE_PASS_CREATE]: { group: "Operations", name: "Record inward gate pass" },
   [PERMISSIONS.RECEIVE_GOODS]: { group: "Operations", name: "Record goods receiving" },
+  [PERMISSIONS.SERVICE_ACCEPT]: { group: "Operations", name: "Record service acceptance" },
+  [PERMISSIONS.SERVICE_ACCEPT_ANY]: { group: "Operations", name: "Confirm any service acceptance" },
   [PERMISSIONS.RECEIVING_VIEW]: { group: "Operations", name: "View deliveries" },
   [PERMISSIONS.INSPECTION_VIEW]: { group: "Operations", name: "View inspections" },
   [PERMISSIONS.INSPECTION_PERFORM]: { group: "Operations", name: "Perform technical inspection" },
@@ -328,6 +336,7 @@ const REQUESTER_BASE = [
   P.PETTY_CASH_CREATE,
   P.INVENTORY_VIEW,
   P.STORE_ISSUE,
+  P.SERVICE_ACCEPT,
 ];
 
 const PROCUREMENT_CORE = [
@@ -371,6 +380,7 @@ const PROCUREMENT_CORE = [
   P.RECEIVING_VIEW,
   P.INSPECTION_VIEW,
   P.INSPECTION_SCHEDULE,
+  P.SERVICE_ACCEPT,
   P.CPC_CASE_RAISE,
   P.INVOICE_VIEW,
   P.INVOICE_CREATE,

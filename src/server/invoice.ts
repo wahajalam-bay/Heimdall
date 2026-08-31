@@ -11,6 +11,7 @@ import { SOD_RULES, assertSeparation } from "@/lib/sod";
 import { userHasPermission, type SessionUser } from "@/lib/rbac";
 import { round2 } from "@/lib/format";
 import { transitionPr } from "./pr";
+import { acceptedServiceValue } from "./service-acceptance";
 
 /**
  * Invoice verification and finance handoff.
@@ -89,21 +90,45 @@ export async function runThreeWayMatch(invoiceId: string, db: DbClient = prisma)
     );
   }
 
-  const postedGrns = invoice.po?.grns ?? [];
-  const grnPresent = postedGrns.length > 0;
-  if (requireGrn && !grnPresent) {
-    failures.push(
-      "No posted GRN exists for this purchase order — goods are not recorded as received into inventory, so the invoice is not payable.",
-    );
-  }
+  // What the invoice is matched against depends on what was bought.
+  //
+  // For goods the evidence is a posted receipt: something arrived and was taken
+  // into stock. For a service there is nothing to receive, and demanding a GRN
+  // would make every service invoice unpayable. The evidence there is the
+  // acceptance the requesting department confirmed — ZAM/PUR/SOP-01 §3.2 puts
+  // that verification with them, and it is the same question the receipt answers:
+  // did we get what we are being billed for.
+  const isService = invoice.po?.procurementKind === "SERVICES";
 
-  // Accepted quantity per PO line across all posted GRNs.
+  const postedGrns = invoice.po?.grns ?? [];
   const acceptedByPoItem = new Map<string, number>();
-  for (const g of postedGrns) {
-    for (const gi of g.items) {
-      acceptedByPoItem.set(gi.poItemId, round2((acceptedByPoItem.get(gi.poItemId) ?? 0) + gi.acceptedQty));
+  let evidencePresent: boolean;
+
+  if (isService) {
+    const accepted = await acceptedServiceValue(invoice.poId!, db);
+    for (const [poItemId, v] of accepted) acceptedByPoItem.set(poItemId, v.qty);
+    evidencePresent = accepted.size > 0;
+    if (requireGrn && !evidencePresent) {
+      failures.push(
+        "No confirmed service acceptance exists for this purchase order — nobody has stated that the work was performed, so the invoice is not payable.",
+      );
+    }
+  } else {
+    evidencePresent = postedGrns.length > 0;
+    if (requireGrn && !evidencePresent) {
+      failures.push(
+        "No posted GRN exists for this purchase order — goods are not recorded as received into inventory, so the invoice is not payable.",
+      );
+    }
+    // Accepted quantity per PO line across all posted GRNs.
+    for (const g of postedGrns) {
+      for (const gi of g.items) {
+        acceptedByPoItem.set(gi.poItemId, round2((acceptedByPoItem.get(gi.poItemId) ?? 0) + gi.acceptedQty));
+      }
     }
   }
+
+  const grnPresent = evidencePresent;
 
   // Quantity already invoiced on other invoices, so duplicates are caught.
   const otherInvoiceLines = await db.invoiceItem.findMany({

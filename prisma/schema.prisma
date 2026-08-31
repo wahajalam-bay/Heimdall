@@ -65,6 +65,11 @@ model User {
   inspections        Inspection[]          @relation("InspectionInspector")
   grns               Grn[]                 @relation("GrnReceivedBy")
   grnsPosted         Grn[]                 @relation("GrnPostedBy")
+  taxRulesCreated    TaxRule[]             @relation("TaxRuleCreatedBy")
+  taxRulesApproved   TaxRule[]             @relation("TaxRuleApprovedBy")
+  serviceAcceptancePocs      ServiceAcceptance[] @relation("ServiceAcceptancePoc")
+  serviceAcceptancesConfirmed ServiceAcceptance[] @relation("ServiceAcceptanceConfirmedBy")
+  serviceAcceptancesCreated   ServiceAcceptance[] @relation("ServiceAcceptanceCreatedBy")
   invoicesVerified   Invoice[]             @relation("InvoiceVerifiedBy")
   vendorEvaluations  VendorEvaluation[]
   cpcMemberships     CpcCaseMember[]
@@ -164,6 +169,8 @@ model UserRole {
 model Entity {
   id        String   @id @default(cuid())
   code      String   @unique
+  taxRules           TaxRule[]
+  serviceAcceptances ServiceAcceptance[]
   name      String
   legalName String?
   currency  String   @default("PKR")
@@ -589,6 +596,25 @@ model PurchaseRequisition {
 
   /// MONTHLY_RECURRING | ON_DEMAND | MATERIAL_DEMAND | SERVICE
   procurementType      String
+  /// GOODS | SERVICES
+  ///
+  /// Orthogonal to `procurementType`, which mixes cadence with kind — SERVICE
+  /// sits there beside ON_DEMAND, so a monthly requisition for grocery and a
+  /// monthly requisition for cleaning could not be told apart. This says which
+  /// of the two procurement treatments applies, and nothing else.
+  ///
+  /// Goods take the receiving path: gate pass, delivery, inspection, GRN,
+  /// inventory. Services take service acceptance and never touch inventory.
+  procurementKind String @default("GOODS")
+
+  /// The policy that governed this transaction, snapshotted at the point of
+  /// decision. A later change to configuration must never rewrite what was
+  /// decided under the old rules.
+  policyDocument String? @default("ZAM/PUR/SOP-01")
+  policyVersion  String? @default("01")
+  /// JSON: the effective configuration values that applied.
+  policySnapshot String?
+
   title                String
   justification        String?
   projectId            String?
@@ -636,6 +662,17 @@ model PurchaseRequisition {
   exceptions     Exception[]
 
   requirementId String?
+  /// A sibling requisition raised from the same business need.
+  ///
+  /// One need can require both goods and a service — genset oil, and the oil
+  /// testing that goes with it. They must follow separate procurement treatment,
+  /// so they are separate requisitions, but they have to stay visible together.
+  /// Where the need came through Requirements, `requirementId` already links
+  /// them; this covers the case where it did not.
+  linkedPrId String?
+  linkedPr   PurchaseRequisition?  @relation("LinkedProcurement", fields: [linkedPrId], references: [id])
+  linkedBy   PurchaseRequisition[] @relation("LinkedProcurement")
+
   requirement   Requirement?     @relation(fields: [requirementId], references: [id])
   allocations   PrPoAllocation[]
 
@@ -667,6 +704,10 @@ model PurchaseRequisitionItem {
 
   /// INVENTORY | CONSUMABLE | EXPENSE | ASSET | PROJECT_MATERIAL
   disposition String  @default("INVENTORY")
+  /// GOODS | SERVICES — per line, so a requisition can be checked for being
+  /// one kind or the other rather than trusted to be.
+  procurementKind String @default("GOODS")
+
   notes       String?
 
   quoteItems QuoteItem[]
@@ -1064,6 +1105,26 @@ model PurchaseOrder {
   currency        String @default("PKR")
   subtotal        Float  @default(0)
   taxAmount       Float  @default(0)
+  serviceAcceptances ServiceAcceptance[]
+  /// GOODS | SERVICES
+  ///
+  /// Orthogonal to `procurementType`, which mixes cadence with kind — SERVICE
+  /// sits there beside ON_DEMAND, so a monthly requisition for grocery and a
+  /// monthly requisition for cleaning could not be told apart. This says which
+  /// of the two procurement treatments applies, and nothing else.
+  ///
+  /// Goods take the receiving path: gate pass, delivery, inspection, GRN,
+  /// inventory. Services take service acceptance and never touch inventory.
+  procurementKind String @default("GOODS")
+
+  /// The policy that governed this transaction, snapshotted at the point of
+  /// decision. A later change to configuration must never rewrite what was
+  /// decided under the old rules.
+  policyDocument String? @default("ZAM/PUR/SOP-01")
+  policyVersion  String? @default("01")
+  /// JSON: the effective configuration values that applied.
+  policySnapshot String?
+
   deliveryCharges Float  @default(0)
   otherCharges    Float  @default(0)
   discount        Float  @default(0)
@@ -1134,6 +1195,21 @@ model PurchaseOrderItem {
 
   /// INVENTORY | CONSUMABLE | EXPENSE | ASSET | PROJECT_MATERIAL
   disposition        String  @default("INVENTORY")
+  /// GOODS | SERVICES. A goods order must not silently carry a service line.
+  procurementKind String @default("GOODS")
+
+  /// The tax rule applied to this line, and a snapshot of it.
+  ///
+  /// Goods and services can carry different taxes, so tax is a line-level
+  /// concern. The snapshot is what makes a historical order stay correct after
+  /// the Tax Master changes: the percentage that was applied is stored here, not
+  /// looked up again at read time.
+  taxRuleId       String?
+  taxRule         TaxRule? @relation(fields: [taxRuleId], references: [id])
+  /// JSON: { code, name, percent, withholding, appliesTo, effectiveFrom }
+  taxRuleSnapshot String?
+  serviceAcceptanceItems ServiceAcceptanceItem[]
+
   requiresInspection Boolean @default(false)
 
   receivedQty Float @default(0)
@@ -3332,4 +3408,134 @@ model AssetInsurance {
   @@index([assetId])
   @@index([endDate])
   @@map("asset_insurance")
+}
+
+/// Tax Master.
+///
+/// ZAM/PUR/SOP-01 §4.8 defers to "the Income Tax Ordinance currently applicable
+/// in Pakistan" and the payment flow routes computation to KPMG, so the SOP
+/// states no percentage. The meeting requirement is a dropdown of applicable
+/// Government of Pakistan taxes — which means the rates are data, entered and
+/// approved by the business, never a literal in code.
+///
+/// Effective-dated: a rate change creates a new row rather than editing the old
+/// one, so a transaction settled last year keeps the rate that governed it.
+model TaxRule {
+  id   String @id @default(cuid())
+  code String
+  name String
+
+  /// GOODS | SERVICES | BOTH — goods and services can be taxed differently.
+  appliesTo String @default("BOTH")
+
+  /// PERCENT | FIXED — `percent` carries the figure either way.
+  method  String @default("PERCENT")
+  percent Float
+
+  /// Withholding rather than an addition to the invoice value.
+  withholding Boolean @default(false)
+
+  /// FILER | NON_FILER | ANY — some rates depend on the vendor's tax status.
+  vendorTaxStatus String @default("ANY")
+
+  /// Null applies to every entity.
+  entityId String?
+  entity   Entity? @relation(fields: [entityId], references: [id])
+
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  active        Boolean   @default(true)
+
+  /// Where the rate comes from — the SRO, circular or ordinance clause.
+  sourceReference String?
+
+  createdById  String
+  createdBy    User      @relation("TaxRuleCreatedBy", fields: [createdById], references: [id])
+  approvedById String?
+  approvedBy   User?     @relation("TaxRuleApprovedBy", fields: [approvedById], references: [id])
+  approvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  poItems PurchaseOrderItem[]
+
+  @@index([code, effectiveFrom])
+  @@index([entityId, active])
+}
+
+/// Service acceptance — the services counterpart to a goods receipt.
+///
+/// A service has nothing to put on a shelf, so forcing it through inventory
+/// produces a fiction. What a service needs instead is somebody accountable
+/// saying the work was done: the concerned point of contact confirms it, states
+/// what proportion is accepted, and that acceptance is what makes the invoice
+/// payable.
+model ServiceAcceptance {
+  id     String @id @default(cuid())
+  number String @unique
+
+  poId String
+  po   PurchaseOrder @relation(fields: [poId], references: [id])
+
+  entityId String
+  entity   Entity @relation(fields: [entityId], references: [id])
+
+  /// DRAFT | SUBMITTED | ACCEPTED | PARTIALLY_ACCEPTED | REJECTED | CANCELLED
+  status String @default("DRAFT")
+
+  /// The period the work covers, for a recurring or milestone service.
+  serviceFrom DateTime?
+  serviceTo   DateTime?
+
+  /// The point of contact whose confirmation the SOP requires — §3.2 puts
+  /// verification with the requesting department, not with procurement.
+  pocUserId String?
+  pocUser   User?   @relation("ServiceAcceptancePoc", fields: [pocUserId], references: [id])
+
+  confirmedById String?
+  confirmedBy   User?     @relation("ServiceAcceptanceConfirmedBy", fields: [confirmedById], references: [id])
+  confirmedAt   DateTime?
+
+  /// Why, when anything less than the full value is accepted.
+  remarks         String?
+  rejectionReason String?
+
+  acceptedValue Float @default(0)
+  orderedValue  Float @default(0)
+
+  createdById String
+  createdBy   User     @relation("ServiceAcceptanceCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items ServiceAcceptanceItem[]
+
+  @@index([poId, status])
+  @@index([entityId, status])
+}
+
+model ServiceAcceptanceItem {
+  id                  String            @id @default(cuid())
+  serviceAcceptanceId String
+  serviceAcceptance   ServiceAcceptance @relation(fields: [serviceAcceptanceId], references: [id], onDelete: Cascade)
+
+  poItemId String
+  poItem   PurchaseOrderItem @relation(fields: [poItemId], references: [id])
+
+  lineNo      Int
+  description String
+  unit        String
+
+  orderedQty  Float
+  acceptedQty Float @default(0)
+  rejectedQty Float @default(0)
+  unitPrice   Float
+  acceptedValue Float @default(0)
+
+  /// Evidence the work was performed — a report reference, a photograph, a log.
+  evidenceRef String?
+  remarks     String?
+
+  @@unique([serviceAcceptanceId, lineNo])
+  @@index([poItemId])
 }

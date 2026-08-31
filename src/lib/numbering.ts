@@ -16,6 +16,7 @@ export const SEQ = {
   COMPARATIVE: "CMP",
   PO: "PO",
   GATE_PASS: "GP",
+  SERVICE_ACCEPTANCE: "SAC",
   DELIVERY: "DLV",
   INSPECTION: "INSP",
   GRN: "GRN",
