@@ -1263,28 +1263,74 @@ export async function recordTraderCase(
   );
 }
 
-/** Vendors whose scheduled re-evaluation is overdue. */
+/**
+ * Vendors whose scheduled re-evaluation is overdue.
+ *
+ * PC-001. ZAM §5.9 requires evaluation every three months; ZD §5.9 and §2.3.3 i
+ * require it annually. Both are explicit for their own entity, and this function
+ * used to read a single global interval — which is precisely how ZAM's quarterly
+ * cycle disappeared behind ZD's annual one.
+ *
+ * A vendor is not entity-scoped: the same vendor trades with both companies. So
+ * a shared vendor has to satisfy **both** policies, and the cadence that applies
+ * to it is the strictest one among the entities it has actually traded with. A
+ * vendor that has sold to ZAM is therefore due every three months, whether or
+ * not it has also sold to ZD.
+ */
 export async function vendorsDueForReevaluation(db: DbClient = prisma) {
-  const months = await getConfigNumber(CONFIG_KEYS.VENDOR_REEVALUATION_MONTHS, null, db);
-  const cutoff = new Date(Date.now() - months * 30 * 86400000);
+  const entities = await db.entity.findMany({ where: { active: true }, select: { id: true, code: true } });
+
+  const intervalByEntity = new Map<string, number>();
+  for (const e of entities) {
+    intervalByEntity.set(
+      e.id,
+      await getConfigNumber(CONFIG_KEYS.POLICY_VENDOR_EVALUATION_INTERVAL_MONTHS, e.id, db),
+    );
+  }
+  const fallback = await getConfigNumber(CONFIG_KEYS.POLICY_VENDOR_EVALUATION_INTERVAL_MONTHS, null, db);
+
   const vendors = await db.vendor.findMany({
     where: { status: { in: ["APPROVED", "CONDITIONAL"] } },
-    include: { evaluations: { orderBy: { evaluatedAt: "desc" }, take: 1 } },
+    include: {
+      evaluations: { orderBy: { evaluatedAt: "desc" }, take: 1 },
+      // One query for the whole set rather than one per vendor: the entities a
+      // vendor has traded with, read from its orders.
+      purchaseOrders: { select: { entityId: true }, distinct: ["entityId"] },
+    },
   });
+
+  const now = Date.now();
   return vendors
-    .filter((v) => {
+    .map((v) => {
+      const traded = v.purchaseOrders.map((p) => p.entityId).filter(Boolean);
+      const intervals = traded
+        .map((id) => intervalByEntity.get(id))
+        .filter((n): n is number => typeof n === "number" && n > 0);
+      const months = intervals.length ? Math.min(...intervals) : fallback;
       const last = v.evaluations[0]?.evaluatedAt ?? v.approvedAt ?? v.createdAt;
-      return last < cutoff;
+      const dueAt = new Date(last);
+      dueAt.setMonth(dueAt.getMonth() + months);
+      return {
+        id: v.id,
+        code: v.code,
+        name: v.name,
+        status: v.status,
+        lastEvaluatedAt: last,
+        currentScore: v.currentScore,
+        maxScore: v.maxScore,
+        /** The interval that governs this vendor, and why. */
+        intervalMonths: months,
+        governedBy: intervals.length
+          ? entities
+              .filter((e) => intervalByEntity.get(e.id) === months && traded.includes(e.id))
+              .map((e) => e.code)
+              .join(", ")
+          : "group default",
+        dueAt,
+        overdue: dueAt.getTime() < now,
+      };
     })
-    .map((v) => ({
-      id: v.id,
-      code: v.code,
-      name: v.name,
-      status: v.status,
-      lastEvaluatedAt: v.evaluations[0]?.evaluatedAt ?? v.approvedAt ?? v.createdAt,
-      currentScore: v.currentScore,
-      maxScore: v.maxScore,
-    }));
+    .filter((v) => v.overdue);
 }
 
 export function scoreBand(percent: number | null | undefined) {

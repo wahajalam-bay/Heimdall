@@ -1,6 +1,6 @@
 import { prisma, type DbClient } from "@/lib/db";
 import { nextNumber, SEQ } from "@/lib/numbering";
-import { CONFIG_KEYS, getConfigBool, getConfigNumber } from "@/lib/config";
+import { CONFIG_KEYS, getConfig, getConfigBool, getConfigNumber } from "@/lib/config";
 import { ForbiddenError, NotFoundError, RuleViolationError, ValidationError } from "@/lib/errors";
 import { writeAudit } from "@/lib/audit";
 import { notify, createTask, completeTasks } from "@/lib/notify";
@@ -18,7 +18,13 @@ import { transitionPr, assertRequisitionComplete } from "./pr";
 
 /* ── Vendor eligibility ───────────────────────────────────── */
 
-export type VendorEligibility = { eligible: boolean; reason?: string; overridable: boolean };
+export type VendorEligibility = { eligible: boolean; reason?: string; overridable: boolean
+  /**
+   * PC-018 · The vendor is sourceable but carries no performance rating. The
+   * caller records this rather than letting the absence pass unremarked.
+   */
+  raiseUnratedException?: boolean;
+};
 
 /**
  * Blacklisted and suspended vendors are blocked from sourcing. An override is
@@ -55,6 +61,51 @@ export async function checkVendorEligibility(
       eligible: false,
       reason: `${vendor.name} is not an approved vendor (status: ${vendor.status}). Complete pre-qualification first.`,
       overridable: true,
+    };
+  }
+
+  // PC-021 · Pre-qualification validity. ZD §2.3.1 iii sets two years with
+  // mandatory re-qualification; ZAM states no period at all. So the months come
+  // from the entity's own policy and 0 means the control is inactive here —
+  // ZAM does not inherit ZD's expiry, and ZD's expiry is not optional.
+  const validityMonths = await getConfigNumber(CONFIG_KEYS.POLICY_PQ_VALIDITY_MONTHS, entityId, db);
+  if (validityMonths > 0 && vendor.approvedAt) {
+    const expiresAt = new Date(vendor.approvedAt);
+    expiresAt.setMonth(expiresAt.getMonth() + validityMonths);
+    if (expiresAt < new Date()) {
+      return {
+        eligible: false,
+        reason:
+          `${vendor.name}'s pre-qualification expired on ${expiresAt.toISOString().slice(0, 10)} ` +
+          `(valid ${validityMonths} months from approval). Re-qualification is required before sourcing.`,
+        overridable: true,
+      };
+    }
+  }
+
+  // PC-018 · ZD §2.3.3 ii bars business with a vendor "not having satisfactory
+  // performance rating". Neither SOP says what an *unrated* vendor is, and every
+  // newly approved vendor is unrated until its first evaluation — so blocking
+  // by default would stop exactly the vendors the pre-qualification process just
+  // approved. The treatment is policy, and the default neither invents a bar nor
+  // hides the gap.
+  const unrated = await getConfig<string>(CONFIG_KEYS.POLICY_UNRATED_VENDOR_TREATMENT, entityId, db);
+  const hasRating = typeof vendor.performanceScore === "number";
+
+  if (!hasRating && String(unrated) === "UNRATED-BLOCK") {
+    return {
+      eligible: false,
+      reason:
+        `${vendor.name} has no performance rating, and this entity's policy requires a satisfactory rating before business is transacted (ZD §2.3.3 ii).`,
+      overridable: true,
+    };
+  }
+  if (!hasRating && String(unrated) === "UNRATED-ALLOW-WITH-EXCEPTION") {
+    return {
+      eligible: true,
+      overridable: false,
+      reason: `${vendor.name} has no performance rating yet. Sourcing is permitted and the gap is recorded.`,
+      raiseUnratedException: true,
     };
   }
   return { eligible: true, overridable: false };

@@ -166,6 +166,7 @@ export const NAV: NavGroup[] = [
       { label: "Categories & Items", href: "/admin/catalogue", icon: "catalogue", perms: [P.MASTER_DATA_MANAGE] },
       { label: "Approval Rules", href: "/admin/approval-rules", icon: "rules", perms: [P.APPROVAL_RULE_MANAGE] },
       { label: "Policies & Thresholds", href: "/admin/policies", icon: "policies", perms: [P.CONFIG_MANAGE] },
+      { label: "Policy decisions", href: "/admin/policy-conflicts", icon: "policies", perms: [P.CONFIG_MANAGE] },
       { label: "Evaluation Criteria", href: "/admin/evaluation-criteria", icon: "criteria", perms: [P.CONFIG_MANAGE] },
       { label: "Document Types", href: "/admin/document-types", icon: "documents", perms: [P.CONFIG_MANAGE] },
       { label: "Email Delivery", href: "/admin/email", icon: "rfq", perms: [P.CONFIG_MANAGE] },

@@ -1,6 +1,6 @@
 import { prisma, type DbClient } from "@/lib/db";
 import { nextNumber, prefixForProcurementType } from "@/lib/numbering";
-import { CONFIG_KEYS, getConfigBool, getConfigNumber } from "@/lib/config";
+import { CONFIG_KEYS, getConfig, getConfigBool, getConfigNumber } from "@/lib/config";
 import { RuleViolationError, NotFoundError, ForbiddenError, ValidationError } from "@/lib/errors";
 import { writeAudit, diffFields } from "@/lib/audit";
 import { notify, createTask, cancelTasks } from "@/lib/notify";
@@ -20,6 +20,7 @@ import {
   type Disposition,
 } from "@/lib/domain";
 import { round2 } from "@/lib/format";
+import { escalationChain } from "@/server/org";
 
 /**
  * Purchase Requisition / ZD Material Demand service.
@@ -507,6 +508,34 @@ export async function transitionPr(
   return updated;
 }
 
+/**
+ * The first person in an escalation chain who actually holds `pr.approve`.
+ *
+ * Walks outward from the requester, so the nearest qualified manager is chosen
+ * rather than the most senior. Returns null when nobody in the chain qualifies,
+ * which the caller must treat as "no approver", not as permission to proceed.
+ */
+async function firstApprover(
+  chain: Array<{ id: string; name: string }>,
+  db: DbClient = prisma,
+): Promise<{ id: string; name: string } | null> {
+  if (!chain.length) return null;
+  const holders = await db.user.findMany({
+    where: {
+      id: { in: chain.map((c) => c.id) },
+      active: true,
+      roles: { some: { role: { permissions: { some: { permission: { code: P.PR_APPROVE } } } } } },
+    },
+    select: { id: true, name: true },
+  });
+  const byId = new Map(holders.map((h) => [h.id, h]));
+  for (const link of chain) {
+    const hit = byId.get(link.id);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 export async function submitPr(user: SessionUser, prId: string, db: DbClient = prisma) {
   const pr = await db.purchaseRequisition.findUnique({
     where: { id: prId },
@@ -582,13 +611,101 @@ export async function submitPr(user: SessionUser, prId: string, db: DbClient = p
   );
 
   if (approval.autoApproved || !deptApprovalRequired) {
-    // The approval engine returned no applicable approver, or departmental
-    // approval is switched off for this entity. The requisition advances on the
-    // engine's decision, not on the submitter's authority — which is why the
-    // grounds are named rather than left implicit. Whether a requisition should
-    // be able to reach APPROVED with no human approver at all is recorded as a
-    // policy conflict; this code preserves the configured behaviour and makes
-    // it visible in the audit trail instead of silently changing it.
+    // PC-027. The approval engine matched no approver, or departmental approval
+    // is switched off for this entity. Neither SOP says what happens here: both
+    // describe departmental approval as a step somebody performs, and no
+    // passage authorises proceeding without one. So the behaviour is policy.
+    const behaviour = String(
+      await getConfig<string>(CONFIG_KEYS.POLICY_NO_APPROVER_BEHAVIOUR, pr.entityId, db),
+    );
+
+    if (behaviour === "NOAPPR-REFUSE") {
+      throw new RuleViolationError(
+        `No approver is configured for a ${pr.procurementType.replace(/_/g, " ").toLowerCase()} requisition of PKR ${estimatedValue.toLocaleString("en-PK")} in ${pr.department.name}. ` +
+          "Add an approval rule that covers this entity, department, category and amount before submitting.",
+      );
+    }
+
+    if (behaviour === "NOAPPR-ESCALATE") {
+      // Walk the reporting lines loaded from the organograms until somebody who
+      // can actually approve is found. That turns a silent auto-approval into a
+      // real approval by a real person, using data the system already holds.
+      const chain = await escalationChain(pr.requesterId, db);
+      const approver = await firstApprover(chain, db);
+
+      if (approver) {
+        await transitionPr(
+          user,
+          prId,
+          "UNDER_DEPARTMENT_APPROVAL",
+          {
+            force: true,
+            authority: { cascade: "requisition submitted", from: [P.PR_SUBMIT, P.PR_CREATE] },
+          },
+          db,
+        );
+        await createTask(
+          {
+            title: `Approve ${pr.number} — escalated, no approval rule matched`,
+            description:
+              `No approval rule covered this requisition, so it was escalated to you as the first person above ` +
+              `${pr.requesterId === approver.id ? "the requester" : "the requester in the reporting line"} who can approve it.`,
+            taskType: "APPROVAL",
+            assigneeId: approver.id,
+            entityId: pr.entityId,
+            documentType: "PR",
+            documentId: pr.id,
+            documentRef: pr.number,
+            priority: "HIGH",
+            slaHours: await getConfigNumber(CONFIG_KEYS.SLA_PROCUREMENT_REVIEW_HOURS, pr.entityId, db),
+            linkUrl: `/pr/${pr.id}`,
+          },
+          db,
+        );
+        await notify(
+          {
+            userIds: [approver.id],
+            entityId: pr.entityId,
+            type: "APPROVAL_REQUIRED",
+            title: `${pr.number} escalated to you for approval`,
+            body: `${pr.title} · PKR ${estimatedValue.toLocaleString("en-PK")}. No approval rule matched, so it came up the reporting line.`,
+            priority: "HIGH",
+            linkType: "PR",
+            linkId: pr.id,
+            linkUrl: `/pr/${pr.id}`,
+          },
+          db,
+        );
+        await writeAudit(
+          {
+            entityType: "PurchaseRequisition",
+            entityId: pr.id,
+            entityRef: pr.number,
+            action: "PR_APPROVAL_ESCALATED",
+            newValue: { escalatedTo: approver.name, chain: chain.map((c) => c.name) },
+            reason:
+              "No approval rule matched this requisition. Escalated up the organogram rather than approved without an approver.",
+            caseKey: pr.number,
+            actor: user,
+          },
+          db,
+        );
+        return { approval, estimatedValue, escalatedTo: approver.name };
+      }
+
+      // The chain ran out. Refusing is the honest end state: there is nobody to
+      // approve, and approving it anyway is the behaviour this policy replaced.
+      throw new RuleViolationError(
+        `No approval rule covered this requisition and no one above ${pr.department.name} in the reporting line holds approval authority. ` +
+          "Add an approval rule, or set a reporting line for the requester, before submitting.",
+      );
+    }
+
+    // NOAPPR-AUTO-APPROVE — the original behaviour, kept because it is what
+    // some entities run on today. The requisition advances on the engine's
+    // decision rather than on the submitter's authority, and the grounds are
+    // named so the audit trail says so: searching for this phrase lists every
+    // requisition that was approved by nobody.
     const engineDecision: Authority = {
       cascade: "approval engine: no applicable approver",
       from: [P.PR_SUBMIT, P.PR_CREATE, P.PR_APPROVE],

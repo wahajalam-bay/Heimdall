@@ -68,9 +68,34 @@ export function CostAnalysisForm({ comparativeId, form }: { comparativeId: strin
         <Field label="Invoice charged to" name="invoiceChargedTo">
           <input className="field" name="invoiceChargedTo" defaultValue={form.invoiceChargedTo ?? ""} />
         </Field>
-        <Field label="Tax rate (%)" name="taxPercent" hint="Applied to every vendor column on the sheet.">
-          <input className="field" name="taxPercent" type="number" step="0.01" defaultValue={form.taxPercent} />
-        </Field>
+        {form.layout.computesTax ? (
+          <Field
+            label="Tax rate (%)"
+            name="taxPercent"
+            hint={
+              form.taxPercent === null
+                ? "No rate is configured for this entity, so the sheet prints the tax line as unset. Set one under Policy."
+                : (form.taxBasis ?? "From the entity's policy pack.")
+            }
+          >
+            <input
+              className="field"
+              name="taxPercent"
+              type="number"
+              step="0.01"
+              defaultValue={form.taxPercent ?? ""}
+              readOnly
+            />
+          </Field>
+        ) : (
+          <Field
+            label="GST / Tax"
+            name="taxNote"
+            hint={`${form.layout.label} carries tax as a stated term rather than a computed row, so there is no rate to apply here.`}
+          >
+            <input className="field" value="As per quotation" readOnly />
+          </Field>
+        )}
       </FormSection>
 
       <FormSection

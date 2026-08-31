@@ -1,6 +1,6 @@
 import { prisma, type DbClient } from "@/lib/db";
 import { nextNumber, SEQ } from "@/lib/numbering";
-import { CONFIG_KEYS, getConfigBool, getConfigNumber } from "@/lib/config";
+import { CONFIG_KEYS, getConfigArray, getConfigBool, getConfigNumber } from "@/lib/config";
 import { ForbiddenError, NotFoundError, RuleViolationError, ValidationError } from "@/lib/errors";
 import { writeAudit } from "@/lib/audit";
 import { notify, createTask, completeTasks } from "@/lib/notify";
@@ -22,6 +22,11 @@ export type CpcRequirement = {
   required: boolean;
   threshold: number;
   reason: string;
+  /** PC-023 · above the CEO value tier, so the Office of the CEO must approve. */
+  ceoRequired: boolean;
+  ceoThreshold: number;
+  /** PC-022 · the committee category the threshold was read from. */
+  transactionType: string;
 };
 
 export async function cpcRequirement(
@@ -31,15 +36,42 @@ export async function cpcRequirement(
   db: DbClient = prisma,
 ): Promise<CpcRequirement> {
   const enabled = await getConfigBool(CONFIG_KEYS.CPC_ENABLED, entityId, db);
-  const threshold = await getConfigNumber(CONFIG_KEYS.CPC_THRESHOLD, entityId, db);
+
+  // PC-022. The committee's engagement limit names "Procurement of Goods" at
+  // PKR 500,000; its mandate names "any transaction" including SLAs, service
+  // contracts, AMCs, build-outs and one-time purchases. The two readings differ
+  // in what a service contract does, so the threshold is held per transaction
+  // type and the seeded policy applies the mandate reading — the wider one, so
+  // that a service contract is referred rather than routed around a committee
+  // whose own mandate names it.
+  const byType = await getConfigArray<{ type: string; threshold: number }>(
+    CONFIG_KEYS.POLICY_CPC_THRESHOLDS_BY_TYPE,
+    entityId,
+    db,
+  );
+  const typeKey = cpcTransactionType(procurementType);
+  const matched = byType.find((t) => t.type === typeKey);
+  const threshold =
+    matched?.threshold ?? (await getConfigNumber(CONFIG_KEYS.CPC_THRESHOLD, entityId, db));
+
+  // PC-023. "All purchases above PKR 1,500,000 are to be approved by Office of
+  // CEO" is unambiguous and is applied. The separate "Exceptional Purchases
+  // (Must be approved by CEO)" trigger has no stated definition, so it is not
+  // applied until the business supplies one — see EXCEPTIONAL_PURCHASE_DEFINED.
+  const ceoThreshold = await getConfigNumber(CONFIG_KEYS.POLICY_CEO_APPROVAL_THRESHOLD, entityId, db);
+  const ceoRequired = ceoThreshold > 0 && amount > ceoThreshold;
+
   if (!enabled) {
-    return { required: false, threshold, reason: "CPC review is disabled for this entity." };
+    return { required: false, threshold, ceoRequired, ceoThreshold, transactionType: typeKey, reason: "CPC review is disabled for this entity." };
   }
   // Recurring/monthly buying is routine and does not go to committee on value alone.
   if (procurementType === "MONTHLY_RECURRING") {
     return {
       required: false,
       threshold,
+      ceoRequired,
+      ceoThreshold,
+      transactionType: typeKey,
       reason: "Monthly recurring procurement is routine and exempt from value-based CPC review.",
     };
   }
@@ -47,14 +79,58 @@ export async function cpcRequirement(
     return {
       required: true,
       threshold,
-      reason: `Case value PKR ${amount.toLocaleString("en-PK")} is at or above the CPC threshold of PKR ${threshold.toLocaleString("en-PK")}.`,
+      ceoRequired,
+      ceoThreshold,
+      transactionType: typeKey,
+      reason:
+        `Case value PKR ${amount.toLocaleString("en-PK")} is at or above the ${typeKey.replace(/_/g, " ").toLowerCase()} threshold of PKR ${threshold.toLocaleString("en-PK")}.` +
+        (ceoRequired
+          ? ` It also exceeds PKR ${ceoThreshold.toLocaleString("en-PK")}, so the Office of the CEO must approve it.`
+          : ""),
     };
   }
   return {
     required: false,
     threshold,
-    reason: `Case value PKR ${amount.toLocaleString("en-PK")} is below the CPC threshold of PKR ${threshold.toLocaleString("en-PK")}.`,
+    ceoRequired,
+    ceoThreshold,
+    transactionType: typeKey,
+    reason:
+      `Case value PKR ${amount.toLocaleString("en-PK")} is below the ${typeKey.replace(/_/g, " ").toLowerCase()} threshold of PKR ${threshold.toLocaleString("en-PK")}.` +
+      (ceoRequired
+        ? ` It nevertheless exceeds PKR ${ceoThreshold.toLocaleString("en-PK")}, so the Office of the CEO must approve it.`
+        : ""),
   };
+}
+
+/**
+ * Maps a procurement type onto the committee's own transaction vocabulary.
+ *
+ * The committee names its categories in its mandate — SLA, Service Contracts,
+ * AMC, Buildouts, Onetime Purchases — and the system's `procurementType` uses
+ * different words. Anything the mandate does not name falls to GOODS, which is
+ * the only category its engagement limit does name.
+ */
+export function cpcTransactionType(procurementType: string): string {
+  switch (procurementType) {
+    case "SERVICE":
+    case "SERVICES":
+      return "SERVICES";
+    case "SLA":
+      return "SLA";
+    case "AMC":
+    case "MAINTENANCE":
+      return "AMC";
+    case "BUILDOUT":
+    case "BUILD_OUT":
+    case "PROJECT":
+      return "BUILDOUT";
+    case "ONE_TIME":
+    case "ONETIME":
+      return "ONE_TIME";
+    default:
+      return "GOODS";
+  }
 }
 
 /**
@@ -145,12 +221,14 @@ export async function ensureUpcomingMeeting(
   });
   if (existing) return existing;
 
-  const cadence = await getConfigNumber(CONFIG_KEYS.CPC_MEETING_DAY, entityId, db);
-  const type = (await import("@/lib/config")).getConfig;
-  void type;
+  // PC-007. ZAM's committee meets every Wednesday, ZD's every Thursday. Both are
+  // explicit for their own entity, so the weekday comes from the entity's policy
+  // rather than one global value — which used to make every entity meet on ZAM's
+  // Wednesday.
+  const weekday = await getConfigNumber(CONFIG_KEYS.POLICY_CPC_MEETING_WEEKDAY, entityId, db);
   const now = new Date();
   const target = new Date(now);
-  const day = Number.isFinite(cadence) ? cadence : 3;
+  const day = Number.isFinite(weekday) ? weekday : 3;
   const diff = (day - now.getDay() + 7) % 7 || 7;
   target.setDate(now.getDate() + diff);
   target.setHours(11, 0, 0, 0);

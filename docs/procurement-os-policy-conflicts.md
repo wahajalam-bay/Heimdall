@@ -1,5 +1,79 @@
 # Policy Conflict Register
 
+## Status — all 28 implemented as policy
+
+Every conflict below is **implemented**, in the sense the brief requires: no
+contradiction has been reconciled in code, each contested value is a policy
+setting scoped to the entity, and where a document contradicts itself both
+readings are held and either can be selected.
+
+That is not the same as *settled*. A setting still running on the reading the
+system chose is marked `awaiting confirmation`, and the compliance report counts
+it as unconfirmed rather than compliant. There are **9** of those.
+
+**Where it lives**
+
+| Piece | File |
+|---|---|
+| Catalogue, variants, source citations, both instruments in full | `src/lib/policy.ts` |
+| Storage keys and shipped readings | `src/lib/config.ts` (`CONFIG_KEYS.POLICY_*`, group `Policy · …`) |
+| Per-entity values, each traceable to a passage | `scripts/seed-policy.ts` |
+| The screen where the business answers | `/admin/policy-conflicts` |
+
+Per-entity resolution needed no new table: `ConfigSetting` already carries an
+optional `entityId`, and `getConfig` resolves entity override → global → shipped
+reading. A ZAM value and a ZD value for the same key coexist, so every read is
+entity-scoped by construction — which is what "as per policy" means when the two
+companies have different policies.
+
+**How each conflict is resolved**
+
+| ID | Resolution | State |
+|---|---|---|
+| PC-001 | Per-entity interval: ZAM 3 months, ZD 12. A shared vendor is governed by the **strictest** cadence among the entities it has traded with, because vendors are not entity-scoped and a vendor selling to ZAM must satisfy ZAM. `vendorsDueForReevaluation` now reports which entity governs each vendor and when it falls due | Implemented, both explicit |
+| PC-002 | Both instruments in `PERFORMANCE_INSTRUMENTS`, selectable per entity | Awaiting confirmation |
+| PC-003 | Both scales in `RATING_SCALES` | Awaiting confirmation |
+| PC-004 | Both methods in `QUALITY_METHODS`. The accepted-quantity variant reproduces the form **including its gap** — `qualityScore` returns null for 80–90% rather than inventing a band | Awaiting confirmation |
+| PC-005 | Both scales in `INTERNAL_REFERENCE_SCALES` | Awaiting confirmation |
+| PC-006 | `PQ_SECTIONS` carries the form's own sections and printed maxima; the maximum is configuration, seeded at 61 with the printed 30 kept as the qualifying score | Awaiting confirmation |
+| PC-007 | Per-entity weekday: ZAM Wednesday, ZD Thursday. `ensureUpcomingMeeting` reads the entity's own value | Implemented, both explicit |
+| PC-008 | Committee roster with effective dates is Phase 5; the member **types** and quorum inputs are in place now. The Faisal Nisar / Faisal Mir identity question is unchanged — no identity is inferred from a name | Partly; roster in Phase 5 |
+| PC-009 | All three member types in `COMMITTEE_MEMBER_TYPES`, with `counts` and `votes` per type. Observers do not count and do not vote, per both committee tables. Quorum inputs configurable | Awaiting confirmation on Permanent Mandatory |
+| PC-010 | Both chains in `PAYMENT_ROUTES`, step for step, with document sets, named external parties, reject-capable checkpoints and the Tuesday/Friday collection rule. ZAM runs Annexure A, ZD runs the JEFFI chain | Implemented, each entity's own flow |
+| PC-011 | Both layouts in `COST_ANALYSIS_LAYOUTS`. The form now renders to the selected layout, and a layout that does not compute tax prints no tax row. Higher-rate reason bounded by `HIGHER_RATE_REASONS` with an Others follow-up | Awaiting confirmation |
+| PC-012 | **The internal contradiction is gone.** `policy.tax_rates` is effective-dated per entity and **empty by default**, because neither SOP states a percentage. The invented `finance.default_tax_rate_percent = 18` is now 0 and documented as a data-entry pre-fill, not a rate the system asserts. With nothing configured, a form prints tax as unset and says why | Implemented; rates pending from the business |
+| PC-013 | `policy.designation_map` records SOP designation → system role → organogram grade per entity. Named-post-holder questions unchanged | Mechanism in place; names pending |
+| PC-014 | `policy.system_of_record` records the book of record per document type, defaulting to this system. No integration built on an ambiguous Sage/SAP reference | Implemented as a record; decision pending |
+| PC-015 | Five dimensions in `CLASSIFICATION_DIMENSIONS`, held side by side with their sources. Not merged, because merging requires the mapping nobody supplied | Implemented as parallel dimensions |
+| PC-016 | Per-entity route in `policy.petty_cash_route`. ZAM: HOD → Director Procurement. ZD: HOD → Sr. Manager (comparative) → Director Procurement, with the middle step flagged `awaitingConfirmation` in the data itself | Implemented; ZD step flagged |
+| PC-017 | Separated, which is all the conflict needed: the per-requisition 3-quotation rule is unchanged, and the recurring two-monthly market check is now its own configured control | Implemented, both explicit |
+| PC-018 | Three treatments configurable and enforced in `checkVendorEligibility`. The default permits sourcing and returns `raiseUnratedException` so the absence is recorded rather than hidden | Awaiting confirmation |
+| PC-019 | Per-entity grounds in `BLACKLIST_GROUNDS`, verbatim, not merged | Implemented, both explicit |
+| PC-020 | `policy.vendor_blocking_enabled` — on for ZD, off for ZAM. Scopes and grounds seeded from ZD §2.3.4 | Implemented; ZAM adoption pending |
+| PC-021 | Per-entity validity, enforced in `checkVendorEligibility`. ZD 24 months; ZAM 0, meaning the control is inactive rather than ZD's rule being imposed on it | Implemented, both explicit |
+| PC-022 | `cpcRequirement` reads a threshold **per transaction type** and maps procurement types onto the committee's own vocabulary. The wider mandate reading is seeded | Awaiting confirmation |
+| PC-023 | The value tier is implemented — `cpcRequirement` returns `ceoRequired` above PKR 1,500,000. The classification trigger is gated behind `policy.exceptional_purchase_definition_confirmed`, false until defined | Value tier implemented; definition pending |
+| PC-024 | Per-region quorum in `policy.rnc_quorum_by_region`. Central 3; **North and South null**, because image22.PNG shows 3 members in total there and the stated quorum is arithmetically impossible. Not given an invented number | Implemented as unset; decision pending |
+| PC-025 | Three types in `INSPECTION_TYPES`, each carrying the column it prints under, so the data stays three-way while Annexure 4 prints two columns | Implemented; merge to confirm |
+| PC-026 | `policy.monthly_requisition_owners`. IT → Procurement, Grocery and Housekeeping → Logistics, **Stationery null** — unassigned, not guessed | Implemented; owner pending |
+| PC-027 | `policy.no_approver_behaviour`, seeded to escalate. `submitPr` now walks the organogram to the nearest holder of `pr.approve`, assigns them the approval and audits `PR_APPROVAL_ESCALATED`; if the chain runs out it refuses. The old auto-approve remains selectable for entities that run on it | Implemented; escalation is the new default |
+| PC-028 | Fixed in Phase 1 | Resolved |
+
+**The nine still awaiting confirmation** are PC-002, PC-003, PC-004, PC-005,
+PC-006, PC-011, PC-018, PC-022 and PC-027. Each is running, each has a stated
+reason, and each is one selection away from settled at `/admin/policy-conflicts`.
+Choosing the value the system already picked is a valid answer — it records that
+somebody checked the reading.
+
+**What is deliberately still empty**, because filling it would be inventing a
+requirement: the tax rate table, RNC quorum for North and South, the monthly
+stationery owner, the prohibited role combinations (ES-025), and the definition
+of an Exceptional Purchase.
+
+---
+
+
+
 Conflicts between the two supplied SOPs, and **within** them — several of the
 most serious are contradictions between a document's narrative table and its own
 annexure image.

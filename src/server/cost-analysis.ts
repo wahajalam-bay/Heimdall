@@ -1,5 +1,11 @@
 import { prisma, type DbClient } from "@/lib/db";
+import { CONFIG_KEYS, getConfig } from "@/lib/config";
 import { round2 } from "@/lib/format";
+import {
+  COST_ANALYSIS_LAYOUTS,
+  effectiveTaxRate,
+  type CostAnalysisLayout,
+} from "@/lib/policy";
 import { ForbiddenError, NotFoundError, RuleViolationError, ValidationError } from "@/lib/errors";
 import { PERMISSIONS as P } from "@/lib/permissions";
 import { SOD_RULES, assertSeparation } from "@/lib/sod";
@@ -63,7 +69,21 @@ export type CostAnalysis = {
   verifiedAt: Date | null;
   pocName: string | null;
   pocTitle: string | null;
-  taxPercent: number;
+  /**
+   * PC-012. Null when no rate is in force.
+   *
+   * Neither SOP states a percentage — §4.8 defers to the Income Tax Ordinance
+   * and both payment flows route the computation to KPMG. The old 18% config
+   * default and this form's 16% were both invented, and they contradicted each
+   * other. So the field is nullable: with no policy rate configured the form
+   * prints the tax line as unset rather than a figure nobody authorised.
+   */
+  taxPercent: number | null;
+  /** Where the rate came from, for the printed footnote. */
+  taxBasis: string | null;
+  /** PC-011. The layout in force for this entity. */
+  layout: CostAnalysisLayout;
+  layoutCode: string;
   invoiceChargedTo: string | null;
   awardedToVendorName: string | null;
   remarks: string | null;
@@ -188,6 +208,24 @@ export async function costAnalysis(comparativeId: string, db: DbClient = prisma)
     }))
     .sort((a, b) => a.netTotal - b.netTotal);
 
+  // PC-011 · which Annexure 3 layout governs, and PC-012 · the rate in force.
+  const layoutCode = String(
+    await getConfig<string>(CONFIG_KEYS.POLICY_COST_ANALYSIS_FORM_VERSION, c.pr.entityId, db),
+  );
+  const layout = COST_ANALYSIS_LAYOUTS[layoutCode] ?? COST_ANALYSIS_LAYOUTS["CA-ANNEX3"];
+
+  // A layout that does not compute tax prints no tax row at all, which is what
+  // Annexure 3 does. A layout that does compute it needs a rate from policy;
+  // the stored `taxPercent` on the row is only a fallback for forms captured
+  // before the policy pack existed, and it is labelled as such.
+  const policyRate = layout.computesTax ? await effectiveTaxRate(c.pr.entityId, "GST", db) : null;
+  const taxPercent = layout.computesTax ? (policyRate?.percent ?? null) : null;
+  const taxBasis = !layout.computesTax
+    ? null
+    : policyRate
+      ? `${policyRate.label} ${policyRate.percent}% effective ${new Date(policyRate.effectiveFrom).toISOString().slice(0, 10)}`
+      : "No tax rate is configured for this entity. Neither SOP states a rate; §4.8 defers to the Income Tax Ordinance and the payment flow routes the computation to KPMG.";
+
   return {
     comparativeId: c.id,
     number: c.number,
@@ -203,7 +241,10 @@ export async function costAnalysis(comparativeId: string, db: DbClient = prisma)
     verifiedAt: c.verifiedAt,
     pocName,
     pocTitle,
-    taxPercent: c.taxPercent,
+    taxPercent,
+    taxBasis,
+    layout,
+    layoutCode,
     invoiceChargedTo: c.invoiceChargedTo ?? c.pr.entity.legalName ?? c.pr.entity.name,
     awardedToVendorName: c.awardedToVendor?.name ?? vendors.find((v) => v.isSelected)?.vendorName ?? null,
     remarks: c.remarks,

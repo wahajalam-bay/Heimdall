@@ -19,6 +19,37 @@ export type ConfigDef = {
 };
 
 export const CONFIG_KEYS = {
+  // Policy Pack — every contested value from the two SOPs. The catalogue,
+  // variants and per-entity defaults live in `lib/policy.ts`; these are the
+  // storage keys, so an entity override is an ordinary ConfigSetting row.
+  POLICY_VENDOR_EVALUATION_INTERVAL_MONTHS: "policy.vendor_evaluation_interval_months",
+  POLICY_VENDOR_PERFORMANCE_INSTRUMENT: "policy.vendor_performance_instrument",
+  POLICY_VENDOR_RATING_SCALE: "policy.vendor_rating_scale",
+  POLICY_VENDOR_QUALITY_SCORING: "policy.vendor_quality_scoring",
+  POLICY_VENDOR_INTERNAL_REFERENCE_SCALE: "policy.vendor_internal_reference_scale",
+  POLICY_VENDOR_PQ_MAX_SCORE: "policy.vendor_pq_max_score",
+  POLICY_VENDOR_PQ_MIN_SCORE: "policy.vendor_pq_min_score",
+  POLICY_CPC_MEETING_WEEKDAY: "policy.cpc_meeting_weekday",
+  POLICY_COMMITTEE_QUORUM_PERMANENT_MIN: "policy.committee_quorum_permanent_min",
+  POLICY_COMMITTEE_QUORUM_REQUIRES_MANDATORY: "policy.committee_quorum_requires_mandatory",
+  POLICY_COMMITTEE_OBSERVERS_COUNT: "policy.committee_observers_count_toward_quorum",
+  POLICY_PAYMENT_ROUTE: "policy.payment_route",
+  POLICY_COST_ANALYSIS_FORM_VERSION: "policy.cost_analysis_form_version",
+  POLICY_TAX_RATES: "policy.tax_rates",
+  POLICY_SYSTEM_OF_RECORD: "policy.system_of_record",
+  POLICY_PETTY_CASH_ROUTE: "policy.petty_cash_route",
+  POLICY_PRICE_REVIEW_INTERVAL_MONTHS: "policy.price_review_interval_months",
+  POLICY_PRICE_REVIEW_QUOTES: "policy.price_review_quote_count",
+  POLICY_UNRATED_VENDOR_TREATMENT: "policy.unrated_vendor_treatment",
+  POLICY_BLOCKING_ENABLED: "policy.vendor_blocking_enabled",
+  POLICY_PQ_VALIDITY_MONTHS: "policy.pq_validity_months",
+  POLICY_CPC_THRESHOLDS_BY_TYPE: "policy.cpc_thresholds_by_transaction_type",
+  POLICY_CEO_APPROVAL_THRESHOLD: "policy.ceo_approval_threshold",
+  POLICY_EXCEPTIONAL_PURCHASE_DEFINED: "policy.exceptional_purchase_definition_confirmed",
+  POLICY_RNC_QUORUM_BY_REGION: "policy.rnc_quorum_by_region",
+  POLICY_INSPECTION_FORM_PAIRS_QUAL_TECH: "policy.inspection_form_pairs_qualitative_technical",
+  POLICY_MONTHLY_REQUISITION_OWNERS: "policy.monthly_requisition_owners",
+  POLICY_NO_APPROVER_BEHAVIOUR: "policy.no_approver_behaviour",
   // Segregation of duties — see lib/sod.ts for what each one separates.
   SOD_COST_ANALYSIS_PREPARE_VERIFY: "sod.cost_analysis_prepare_verify",
   SOD_PR_RAISE_APPROVE: "sod.pr_raise_approve",
@@ -543,7 +574,15 @@ export const CONFIG_DEFS: ConfigDef[] = [
     valueType: "number",
     default: 30,
   },
-  { key: CONFIG_KEYS.DEFAULT_TAX_RATE, label: "Default sales tax %", description: "Applied to new quotation and PO lines.", group: "Finance", valueType: "number", default: 18 },
+  {
+    key: CONFIG_KEYS.DEFAULT_TAX_RATE,
+    label: "Default sales tax %",
+    description:
+      "PC-012. Pre-filled on new quotation and purchase order lines as a convenience — a data-entry default a buyer can overtype, not a rate the system asserts. 0 means no pre-fill. The 18% this used to ship with had no SOP authority and contradicted the 16% on the Cost Analysis Form; neither SOP states a percentage, because §4.8 defers to the Income Tax Ordinance and both payment flows route the computation to KPMG. The authoritative rates live in the policy pack under Tax rates (effective-dated) and are what a printed form reads.",
+    group: "Finance",
+    valueType: "number",
+    default: 0,
+  },
   { key: CONFIG_KEYS.WITHHOLDING_TAX_RATE, label: "Withholding tax %", description: "Deducted at payment handoff.", group: "Finance", valueType: "number", default: 4.5 },
   {
     key: CONFIG_KEYS.NON_LOWEST_REQUIRES_JUSTIFICATION,
@@ -649,6 +688,289 @@ export const CONFIG_DEFS: ConfigDef[] = [
     group: "Segregation of duties",
     valueType: "json",
     default: [],
+  },
+
+  /* ── Policy Pack ────────────────────────────────────────────────────────
+   * Each of these resolves a numbered policy conflict. The *global* value
+   * below is the reading that applies where the two entities agree; where they
+   * differ, the seeder writes an entity-scoped row for each, because a single
+   * global value is exactly what made these look like conflicts in the first
+   * place. `lib/policy.ts` holds the variants and the source citations. */
+  {
+    key: CONFIG_KEYS.POLICY_VENDOR_EVALUATION_INTERVAL_MONTHS,
+    label: "Vendor evaluation interval (months)",
+    description:
+      "PC-001. ZAM §5.9 says every three months; ZD §5.9 and §2.3.3 i say annually. Both are explicit for their own entity, so both are seeded — ZAM 3, ZD 12. The global value is ZD's because it is the more common cadence across the group.",
+    group: "Policy · Vendors",
+    valueType: "number",
+    default: 12,
+  },
+  {
+    key: CONFIG_KEYS.POLICY_VENDOR_PERFORMANCE_INSTRUMENT,
+    label: "Vendor performance instrument",
+    description:
+      "PC-002. PERF-5CRIT-ANNEX (image11.png, 40/20/30/5/5) or PERF-6CRIT-TEXT (narrative §5.9, 40/20/20/10/5/5). AWAITING CONFIRMATION — a document contradicts its own annexure.",
+    group: "Policy · Vendors",
+    valueType: "string",
+    default: "PERF-5CRIT-ANNEX",
+  },
+  {
+    key: CONFIG_KEYS.POLICY_VENDOR_RATING_SCALE,
+    label: "Vendor rating scale",
+    description:
+      "PC-003. SCALE-5BAND (image13.png, Unsatisfactory = 1) or SCALE-4BAND (narrative, Unsatisfactory = 0). AWAITING CONFIRMATION.",
+    group: "Policy · Vendors",
+    valueType: "string",
+    default: "SCALE-5BAND",
+  },
+  {
+    key: CONFIG_KEYS.POLICY_VENDOR_QUALITY_SCORING,
+    label: "Quality criterion scoring method",
+    description:
+      "PC-004. QUALITY-BY-COMPLAINTS (narrative) or QUALITY-BY-ACCEPTED-PCT (image12.png). The accepted-percentage form leaves 80–90% unscored, so it cannot be used until that gap is closed. AWAITING CONFIRMATION.",
+    group: "Policy · Vendors",
+    valueType: "string",
+    default: "QUALITY-BY-COMPLAINTS",
+  },
+  {
+    key: CONFIG_KEYS.POLICY_VENDOR_INTERNAL_REFERENCE_SCALE,
+    label: "Internal reference marks",
+    description:
+      "PC-005. IREF-1-2-4 (Annexure 6, section maximum 4) or IREF-3-4-5 (image10.png, out of five). AWAITING CONFIRMATION.",
+    group: "Policy · Vendors",
+    valueType: "string",
+    default: "IREF-1-2-4",
+  },
+  {
+    key: CONFIG_KEYS.POLICY_VENDOR_PQ_MAX_SCORE,
+    label: "Pre-qualification maximum score",
+    description:
+      "PC-006. Annexure 6 prints 'Min. Qualifying Score: 30/60', but its own section maxima sum to 61. 61 is seeded because that is what an evaluator adds up; a vendor cannot otherwise score 61 out of 60. AWAITING CONFIRMATION.",
+    group: "Policy · Vendors",
+    valueType: "number",
+    default: 61,
+  },
+  {
+    key: CONFIG_KEYS.POLICY_VENDOR_PQ_MIN_SCORE,
+    label: "Pre-qualification qualifying score",
+    description: "PC-006. The printed minimum, 30, which both readings of the maximum agree on.",
+    group: "Policy · Vendors",
+    valueType: "number",
+    default: 30,
+  },
+  {
+    key: CONFIG_KEYS.POLICY_PQ_VALIDITY_MONTHS,
+    label: "Pre-qualification validity (months)",
+    description:
+      "PC-021. ZD §2.3.1 iii states two years. ZAM is silent, so ZAM is seeded with 0 — the control is inactive there until instructed, rather than ZD's rule being imposed on it.",
+    group: "Policy · Vendors",
+    valueType: "number",
+    default: 0,
+  },
+  {
+    key: CONFIG_KEYS.POLICY_UNRATED_VENDOR_TREATMENT,
+    label: "Vendor with no performance rating",
+    description:
+      "PC-018. UNRATED-ALLOW-WITH-EXCEPTION, UNRATED-ALLOW or UNRATED-BLOCK. ZD §2.3.3 ii bars business without a satisfactory rating but neither SOP says what an unrated vendor is. SOURCE CLARIFICATION REQUIRED.",
+    group: "Policy · Vendors",
+    valueType: "string",
+    default: "UNRATED-ALLOW-WITH-EXCEPTION",
+  },
+  {
+    key: CONFIG_KEYS.POLICY_BLOCKING_ENABLED,
+    label: "Temporary vendor blocking enabled",
+    description:
+      "PC-020. ZD §2.3.4 iv–vi defines blocking as distinct from blacklisting. ZAM has no such concept, so blocking is on for ZD and off for ZAM until ZAM adopts it.",
+    group: "Policy · Vendors",
+    valueType: "boolean",
+    default: false,
+  },
+  {
+    key: CONFIG_KEYS.POLICY_CPC_MEETING_WEEKDAY,
+    label: "Committee meeting weekday",
+    description:
+      "PC-007. ZAM meets every Wednesday (3), ZD every Thursday (4). Both explicit; both seeded. 0 = Sunday.",
+    group: "Policy · Committees",
+    valueType: "number",
+    default: 3,
+  },
+  {
+    key: CONFIG_KEYS.POLICY_COMMITTEE_QUORUM_PERMANENT_MIN,
+    label: "Quorum — minimum permanent members",
+    description:
+      "PC-009. 'At least 3 permanent committee members must be present in addition to the Head of the requisitioner department.'",
+    group: "Policy · Committees",
+    valueType: "number",
+    default: 3,
+  },
+  {
+    key: CONFIG_KEYS.POLICY_COMMITTEE_QUORUM_REQUIRES_MANDATORY,
+    label: "Quorum — every mandatory member required",
+    description:
+      "PC-009. The RNC composition image adds a third type, Permanent Mandatory, whose effect on quorum is not stated. Seeded as required, which is the stricter reading. AWAITING CONFIRMATION.",
+    group: "Policy · Committees",
+    valueType: "boolean",
+    default: true,
+  },
+  {
+    key: CONFIG_KEYS.POLICY_COMMITTEE_OBSERVERS_COUNT,
+    label: "Quorum — observers count",
+    description:
+      "PC-009. Observers are listed separately from permanent members in both committee tables, so they do not count and do not vote.",
+    group: "Policy · Committees",
+    valueType: "boolean",
+    default: false,
+  },
+  {
+    key: CONFIG_KEYS.POLICY_RNC_QUORUM_BY_REGION,
+    label: "RNC quorum by region",
+    description:
+      'PC-024. JSON, e.g. [{"region":"CENTRAL","permanentMinimum":3}]. The ZAM RNC wording requires 3 permanent members plus the Head of the Committee, but image22.PNG shows North and South with only 3 members in total — so that quorum is arithmetically impossible there. North and South are seeded null pending a decision rather than given an invented number. SOURCE CLARIFICATION REQUIRED.',
+    group: "Policy · Committees",
+    valueType: "json",
+    default: [
+      { region: "CENTRAL", permanentMinimum: 3, requiresHeadOfCommittee: true },
+      { region: "NORTH", permanentMinimum: null, requiresHeadOfCommittee: true },
+      { region: "SOUTH", permanentMinimum: null, requiresHeadOfCommittee: true },
+    ],
+  },
+  {
+    key: CONFIG_KEYS.POLICY_CPC_THRESHOLDS_BY_TYPE,
+    label: "Committee threshold by transaction type",
+    description:
+      'PC-022. JSON, e.g. [{"type":"GOODS","threshold":500000}]. The engagement limit names goods only; the mandate names any transaction. The wider mandate reading is seeded, so service contracts, AMCs and build-outs are referred rather than routed around a committee that names them. AWAITING CONFIRMATION.',
+    group: "Policy · Committees",
+    valueType: "json",
+    default: [
+      { type: "GOODS", threshold: 500000 },
+      { type: "SERVICES", threshold: 500000 },
+      { type: "SLA", threshold: 500000 },
+      { type: "AMC", threshold: 500000 },
+      { type: "BUILDOUT", threshold: 500000 },
+      { type: "ONE_TIME", threshold: 500000 },
+    ],
+  },
+  {
+    key: CONFIG_KEYS.POLICY_CEO_APPROVAL_THRESHOLD,
+    label: "CEO approval above",
+    description:
+      "PC-023. 'All purchases above PKR 1,500,000 are to be approved by Office of CEO' — unambiguous, so implemented. The separate 'Exceptional Purchases (Must be approved by CEO)' trigger has no stated definition and is held by the flag below.",
+    group: "Policy · Committees",
+    valueType: "number",
+    default: 1500000,
+  },
+  {
+    key: CONFIG_KEYS.POLICY_EXCEPTIONAL_PURCHASE_DEFINED,
+    label: "Exceptional purchase definition confirmed",
+    description:
+      "PC-023. False until the business defines what makes a purchase exceptional. While false, the classification cannot be applied and only the value tier above routes to the CEO. SOURCE CLARIFICATION REQUIRED.",
+    group: "Policy · Committees",
+    valueType: "boolean",
+    default: false,
+  },
+  {
+    key: CONFIG_KEYS.POLICY_PAYMENT_ROUTE,
+    label: "Payment processing route",
+    description:
+      "PC-010. PAY-ZAM-ANNEXA (2 Internal Audit checkpoints, KPMG tax step, cheque collection Tuesday and Friday, 7 documents) or PAY-ZD-JEFFI (PV plus JEFFI, single IA checkpoint with a resubmission loop, 9 documents). Each entity's own flow diagram governs; both are seeded.",
+    group: "Policy · Finance",
+    valueType: "string",
+    default: "PAY-ZAM-ANNEXA",
+  },
+  {
+    key: CONFIG_KEYS.POLICY_TAX_RATES,
+    label: "Tax rates (effective-dated)",
+    description:
+      'PC-012. JSON, e.g. [{"code":"GST","label":"GST","percent":18,"effectiveFrom":"2026-01-01"}]. EMPTY BY DEFAULT AND DELIBERATELY SO: §4.8 defers to the Income Tax Ordinance and both payment flows route the computation to KPMG, so neither SOP states a percentage. The old 18% default and the Cost Analysis Form\'s 16% were both invented. Until a rate is entered here, a form shows tax as unset rather than printing a number nobody authorised.',
+    group: "Policy · Finance",
+    valueType: "json",
+    default: [],
+  },
+  {
+    key: CONFIG_KEYS.POLICY_COST_ANALYSIS_FORM_VERSION,
+    label: "Cost Analysis form layout",
+    description:
+      "PC-011. CA-ANNEX3 (3 vendor columns, 6 terms rows, no computed tax) or CA-XLSX-5COL (5 vendor columns, computed tax and net total). The SOP annexure is seeded as authoritative; the supplied spreadsheet carries no entity marking or policy reference. AWAITING CONFIRMATION.",
+    group: "Policy · Finance",
+    valueType: "string",
+    default: "CA-ANNEX3",
+  },
+  {
+    key: CONFIG_KEYS.POLICY_PETTY_CASH_ROUTE,
+    label: "Petty cash approval route",
+    description:
+      'PC-016. JSON list of steps. ZAM Annexure 2 shows HOD then Director Procurement. ZD adds a Sr. Manager Procurement step for the manual comparative that does not appear in the flow diagram, so ZD is seeded with three steps, flagged. AWAITING CONFIRMATION of the ZD chain.',
+    group: "Policy · Finance",
+    valueType: "json",
+    default: [
+      { seq: 1, role: "HOD", label: "Requester HOD approval" },
+      { seq: 2, role: "PROCUREMENT_DIRECTOR", label: "Director Procurement approval" },
+    ],
+  },
+  {
+    key: CONFIG_KEYS.POLICY_PRICE_REVIEW_INTERVAL_MONTHS,
+    label: "Price competitiveness review interval (months)",
+    description:
+      "PC-017. §5.11 requires a price comparison every two months with 3 quotes. That is a recurring market check, separate from the per-requisition 3-quotation rule in §4.5.1 — the two only looked contradictory because the second was implemented and the first was not.",
+    group: "Policy · Sourcing",
+    valueType: "number",
+    default: 2,
+  },
+  {
+    key: CONFIG_KEYS.POLICY_PRICE_REVIEW_QUOTES,
+    label: "Price competitiveness review — quotes required",
+    description: "PC-017. §5.11: 'by taking 3 quotes'.",
+    group: "Policy · Sourcing",
+    valueType: "number",
+    default: 3,
+  },
+  {
+    key: CONFIG_KEYS.POLICY_SYSTEM_OF_RECORD,
+    label: "System of record by document type",
+    description:
+      'PC-014. JSON, e.g. [{"documentType":"PR","system":"HEIMDALL"}]. ZD names Sage in its text and SAP in its own annexure flow; ZAM names Sage 300. No integration is built on an ambiguous reference — this records the intent so it is visible. DECISION REQUIRED: is this system the book of record, or does it feed Sage/SAP?',
+    group: "Policy · Platform",
+    valueType: "json",
+    default: [
+      { documentType: "PR", system: "HEIMDALL" },
+      { documentType: "PO", system: "HEIMDALL" },
+      { documentType: "GRN", system: "HEIMDALL" },
+      { documentType: "INVOICE", system: "HEIMDALL" },
+      { documentType: "PAYMENT", system: "HEIMDALL" },
+    ],
+  },
+  {
+    key: CONFIG_KEYS.POLICY_INSPECTION_FORM_PAIRS_QUAL_TECH,
+    label: "Inspection form pairs qualitative with technical",
+    description:
+      "PC-025. The Store Process Flow matrix names three inspection types; Annexure 4 prints only two columns, combining qualitative and technical. True keeps the printed layout while the three types stay distinct in data. SOURCE CLARIFICATION REQUIRED on whether the merge is intentional.",
+    group: "Policy · Receiving",
+    valueType: "boolean",
+    default: true,
+  },
+  {
+    key: CONFIG_KEYS.POLICY_MONTHLY_REQUISITION_OWNERS,
+    label: "Monthly repeat requisition owners",
+    description:
+      'PC-026. JSON category-to-role mapping. §4.1 names procurement for IT equipment and logistics for grocery and housekeeping, then lists stationery among the monthly categories without naming an owner — so stationery is null, unassigned, rather than guessed. SOURCE CLARIFICATION REQUIRED.',
+    group: "Policy · Requisitions",
+    valueType: "json",
+    default: [
+      { category: "IT Equipment", ownerRole: "PROCUREMENT_OFFICER" },
+      { category: "IT Accessories", ownerRole: "PROCUREMENT_OFFICER" },
+      { category: "Grocery", ownerRole: "WAREHOUSE_MANAGER" },
+      { category: "Housekeeping", ownerRole: "WAREHOUSE_MANAGER" },
+      { category: "Stationery", ownerRole: null },
+    ],
+  },
+  {
+    key: CONFIG_KEYS.POLICY_NO_APPROVER_BEHAVIOUR,
+    label: "When no approver matches a requisition",
+    description:
+      "PC-027. NOAPPR-ESCALATE walks the organogram to the first holder of pr.approve; NOAPPR-REFUSE blocks the submission and names the missing rule; NOAPPR-AUTO-APPROVE is the old behaviour, in which the submitter's own act approved their requisition. Escalation is seeded because the reporting lines already exist for every loaded member of staff. No SOP contemplates this case.",
+    group: "Policy · Requisitions",
+    valueType: "string",
+    default: "NOAPPR-ESCALATE",
   },
 ];
 
