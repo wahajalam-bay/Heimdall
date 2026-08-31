@@ -48,6 +48,7 @@ export default async function NewPrPage({
           entityId,
           departmentId: defaultDept,
           procurementType: type,
+          procurementKind: type === "SERVICE" ? "SERVICES" : "GOODS",
           title: "",
           justification: "",
           projectId: "",

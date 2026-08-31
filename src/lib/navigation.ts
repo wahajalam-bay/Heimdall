@@ -73,6 +73,7 @@ export const NAV: NavGroup[] = [
       { label: "Receiving", href: "/receiving", icon: "receiving", perms: [P.RECEIVING_VIEW, P.RECEIVE_GOODS] },
       { label: "Gate Passes", href: "/gate-passes", icon: "gate", perms: [P.GATE_PASS_VIEW] },
       { label: "Inspections", href: "/inspections", icon: "inspection", perms: [P.INSPECTION_VIEW], badge: "inspections" },
+      { label: "Service acceptance", href: "/service-acceptance", icon: "receiving", perms: [P.RECEIVING_VIEW, P.SERVICE_ACCEPT] },
       { label: "GRNs", href: "/grn", icon: "grn", perms: [P.GRN_VIEW] },
       {
         label: "Variances",

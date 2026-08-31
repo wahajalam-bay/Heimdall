@@ -3,6 +3,8 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { pageContext, first, type SearchParams } from "@/lib/page";
 import { PERMISSIONS as P } from "@/lib/permissions";
+import { serviceOutstanding } from "@/server/service-acceptance";
+import { RaiseServiceAcceptanceForm } from "../../service-acceptance/RaiseForm";
 import { userHasPermission } from "@/lib/rbac";
 import { CONFIG_KEYS, getConfigBool } from "@/lib/config";
 import { canUserActOnApproval, getApprovalTrail } from "@/lib/approvals";
@@ -235,13 +237,37 @@ export default async function PoDetailPage({
 
   const negotiated = po.quote?.negotiations.at(-1);
 
+  const isService = po.procurementKind === "SERVICES";
+  const serviceAcceptances = isService
+    ? await prisma.serviceAcceptance.findMany({
+        where: { poId: po.id },
+        orderBy: { createdAt: "desc" },
+        include: { pocUser: { select: { name: true } }, confirmedBy: { select: { name: true } } },
+      })
+    : [];
+  const serviceLines = isService && caps.canRecordGatePass ? await serviceOutstanding(po.id) : [];
+
   const tabs = [
     { key: "overview", label: "Overview", count: null },
     { key: "items", label: "Lines", count: po.items.length },
     { key: "approvals", label: "Approvals", count: trails.reduce((a, t) => a + t.steps.length, 0) },
-    { key: "receiving", label: "Receiving", count: po.deliveries.length + po.gatePasses.length },
-    { key: "inspections", label: "Inspections", count: po.deliveries.reduce((a, d) => a + d.inspections.length, 0) },
-    { key: "grn", label: "GRNs", count: po.grns.length },
+    {
+      key: "receiving",
+      label: isService ? "Service acceptance" : "Receiving",
+      count: isService ? serviceAcceptances.length : po.deliveries.length + po.gatePasses.length,
+    },
+    // Goods are inspected and received. A service has nothing to inspect and
+    // nothing to take into stock, so those tabs would be permanently empty.
+    ...(isService
+      ? []
+      : [
+          {
+            key: "inspections",
+            label: "Inspections",
+            count: po.deliveries.reduce((a, d) => a + d.inspections.length, 0),
+          },
+          { key: "grn", label: "GRNs", count: po.grns.length },
+        ]),
     { key: "invoices", label: "Invoices", count: po.invoices.length },
     { key: "documents", label: "Documents", count: null },
     { key: "exceptions", label: "Exceptions", count: null },
@@ -574,7 +600,82 @@ export default async function PoDetailPage({
             </SectionCard>
           )}
 
-          {tab === "receiving" && (
+          {tab === "receiving" && isService && (
+            <div className="space-y-4">
+              {serviceAcceptances.length > 0 && (
+                <SectionCard title="Acceptance records" bodyClassName="px-0 py-0">
+                  <div className="table-wrap">
+                    <table className="dt">
+                      <thead>
+                        <tr>
+                          <th style={{ width: "9rem" }}>Number</th>
+                          <th style={{ width: "11rem" }}>Status</th>
+                          <th style={{ width: "12rem" }}>Point of contact</th>
+                          <th style={{ width: "12rem" }}>Confirmed by</th>
+                          <th style={{ width: "9rem" }}>Accepted</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {serviceAcceptances.map((sa) => (
+                          <tr key={sa.id}>
+                            <td>
+                              <RefLink href={`/service-acceptance/${sa.id}`}>{sa.number}</RefLink>
+                            </td>
+                            <td>
+                              <Badge
+                                tone={
+                                  sa.status === "ACCEPTED"
+                                    ? "success"
+                                    : sa.status === "PARTIALLY_ACCEPTED"
+                                      ? "warning"
+                                      : sa.status === "REJECTED"
+                                        ? "danger"
+                                        : "neutral"
+                                }
+                              >
+                                {humanize(sa.status)}
+                              </Badge>
+                            </td>
+                            <td>{sa.pocUser?.name ?? "—"}</td>
+                            <td>{sa.confirmedBy?.name ?? "Awaiting confirmation"}</td>
+                            <td className="tnum">{money(sa.acceptedValue)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </SectionCard>
+              )}
+
+              {serviceLines.length > 0 && (
+                <RaiseServiceAcceptanceForm
+                  poId={po.id}
+                  poNumber={po.number}
+                  lines={serviceLines.map((l) => ({
+                    id: l.id,
+                    lineNo: l.lineNo,
+                    description: l.description,
+                    unit: l.unit,
+                    quantity: l.quantity,
+                    acceptedToDate: l.acceptedToDate,
+                    outstanding: l.outstanding,
+                  }))}
+                  pocName={po.pr?.requester?.name ?? null}
+                />
+              )}
+
+              {serviceAcceptances.length === 0 && serviceLines.length === 0 && (
+                <Card>
+                  <EmptyState
+                    title="No service acceptance yet"
+                    description="A service is not received into a store. Once the work is done, procurement records what was performed and the requesting department's point of contact confirms it — that confirmation is what makes the invoice payable."
+                  />
+                </Card>
+              )}
+            </div>
+          )}
+
+          {tab === "receiving" && !isService && (
             <div className="space-y-4">
               {po.gatePasses.length === 0 && po.deliveries.length === 0 ? (
                 <Card>

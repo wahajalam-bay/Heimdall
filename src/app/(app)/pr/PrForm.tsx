@@ -7,6 +7,12 @@ import { Field, FormSection, Select, TextArea, TextInput } from "@/components/ui
 import { InlineAlert } from "@/components/ui/primitives";
 import { LineItemsEditor, type CatalogueItem, type CategoryOption, type LineDraft } from "@/components/forms/LineItemsEditor";
 import { PROCUREMENT_TYPES, PROCUREMENT_TYPE_LABELS, PRIORITIES, humanize } from "@/lib/domain";
+import {
+  PROCUREMENT_KINDS,
+  PROCUREMENT_KIND_LABELS,
+  kindFromProcurementType,
+  type ProcurementKind,
+} from "@/lib/kind";
 import { toInputDate } from "@/lib/format";
 import type { ActionResult } from "@/lib/errors";
 
@@ -27,6 +33,7 @@ export type PrFormInitial = {
   entityId: string;
   departmentId: string;
   procurementType: string;
+  procurementKind?: string;
   title: string;
   justification: string;
   projectId: string;
@@ -69,6 +76,9 @@ export function PrForm({
 }) {
   const [entityId, setEntityId] = useState(initial.entityId);
   const [procurementType, setProcurementType] = useState(initial.procurementType);
+  const [procurementKind, setProcurementKind] = useState<ProcurementKind>(
+    (initial.procurementKind as ProcurementKind) ?? kindFromProcurementType(initial.procurementType),
+  );
   const [departmentId, setDepartmentId] = useState(initial.departmentId);
   const [projectId, setProjectId] = useState(initial.projectId);
   const [siteId, setSiteId] = useState(initial.siteId);
@@ -172,7 +182,30 @@ export function PrForm({
             name="procurementType"
             options={PROCUREMENT_TYPES.map((t) => ({ value: t, label: PROCUREMENT_TYPE_LABELS[t] }))}
             value={procurementType}
-            onChange={(e) => setProcurementType(e.target.value)}
+            onChange={(e) => {
+              setProcurementType(e.target.value);
+              // A service requisition is a service requisition. The other three
+              // types carry no signal either way, so they leave the choice alone.
+              if (e.target.value === "SERVICE") setProcurementKind("SERVICES");
+            }}
+          />
+        </Field>
+
+        <Field
+          label="Goods or services"
+          name="procurementKind"
+          required
+          hint={
+            procurementKind === "SERVICES"
+              ? "Services are accepted by the department that asked for them, not received into a store. There is no gate pass, no inspection and no GRN."
+              : "Goods are gate-passed, delivered, inspected and received into stock or the asset register before they can be invoiced."
+          }
+        >
+          <Select
+            name="procurementKind"
+            options={PROCUREMENT_KINDS.map((k) => ({ value: k, label: PROCUREMENT_KIND_LABELS[k] }))}
+            value={procurementKind}
+            onChange={(e) => setProcurementKind(e.target.value as ProcurementKind)}
           />
         </Field>
 
