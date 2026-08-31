@@ -65,6 +65,7 @@ model User {
   inspections        Inspection[]          @relation("InspectionInspector")
   grns               Grn[]                 @relation("GrnReceivedBy")
   grnsPosted         Grn[]                 @relation("GrnPostedBy")
+  grnTreatmentsApproved GrnItem[]          @relation("GrnTreatmentApprover")
   taxRulesCreated    TaxRule[]             @relation("TaxRuleCreatedBy")
   taxRulesApproved   TaxRule[]             @relation("TaxRuleApprovedBy")
   serviceAcceptancePocs      ServiceAcceptance[] @relation("ServiceAcceptancePoc")
@@ -1500,6 +1501,29 @@ model GrnItem {
   warrantyMonths  Int?
   storeLocationId String?
   disposition     String    @default("INVENTORY")
+
+  /// The treatment the item or its category says by default, kept so an override
+  /// is visible as an override rather than having to be inferred later.
+  defaultDisposition String?
+
+  /// Why this line departs from its default, and who approved the departure.
+  ///
+  /// The same air conditioner is an office asset and a project cost, so the
+  /// decision belongs to the receipt. What makes it reviewable rather than
+  /// arbitrary is the reason and the approval — particularly for capitalising
+  /// below the threshold, which the policy allows only with both.
+  treatmentReason       String?
+  treatmentApprovedById String?
+  treatmentApprovedBy   User?     @relation("GrnTreatmentApprover", fields: [treatmentApprovedById], references: [id])
+  treatmentApprovedAt   DateTime?
+
+  /// True when the line capitalises below the configured threshold. Stored
+  /// rather than recomputed, because the threshold moves and this is the fact
+  /// about the decision as it was taken.
+  capitalisedBelowThreshold Boolean @default(false)
+
+  /// Where the goods went, which is what makes the treatment defensible.
+  usageContext String?
   remarks         String?
 
   @@unique([grnId, lineNo])

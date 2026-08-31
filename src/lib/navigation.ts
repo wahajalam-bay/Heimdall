@@ -145,6 +145,7 @@ export const NAV: NavGroup[] = [
     items: [
       { label: "Procurement Analytics", href: "/analytics", icon: "chart", perms: [P.ANALYTICS_VIEW], exact: true },
       { label: "Savings", href: "/analytics/savings", icon: "savings", perms: [P.ANALYTICS_VIEW] },
+      { label: "Expense Book", href: "/analytics/expense-book", icon: "chart", perms: [P.ANALYTICS_VIEW, P.INVENTORY_VIEW] },
       { label: "Spend", href: "/analytics/spend", icon: "spend", perms: [P.ANALYTICS_VIEW] },
       { label: "Vendor Analytics", href: "/analytics/vendors", icon: "vendor", perms: [P.ANALYTICS_VIEW] },
       { label: "Performance", href: "/analytics/performance", icon: "activity", perms: [P.ANALYTICS_VIEW] },

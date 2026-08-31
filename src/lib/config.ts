@@ -19,6 +19,10 @@ export type ConfigDef = {
 };
 
 export const CONFIG_KEYS = {
+  // Accounting treatment — see lib/treatment.ts and BD-002.
+  CAPITALISATION_THRESHOLD: "treatment.capitalisation_threshold",
+  CAPITALISATION_MODE: "treatment.capitalisation_mode",
+  CAPITALISATION_EXEMPT_CATEGORIES: "treatment.capitalisation_exempt_categories",
   // Policy Pack — every contested value from the two SOPs. The catalogue,
   // variants and per-entity defaults live in `lib/policy.ts`; these are the
   // storage keys, so an entity override is an ordinary ConfigSetting row.
@@ -971,6 +975,38 @@ export const CONFIG_DEFS: ConfigDef[] = [
     group: "Policy · Requisitions",
     valueType: "string",
     default: "NOAPPR-ESCALATE",
+  },
+
+  /* ── Accounting treatment ───────────────────────────────────────────────
+   * The same item can be an asset in an office and a project cost on a
+   * build-out, so treatment is decided per receipt. These govern when
+   * capitalising needs a reason and an approval. See BD-002. */
+  {
+    key: CONFIG_KEYS.CAPITALISATION_THRESHOLD,
+    label: "Capitalisation threshold",
+    description:
+      "Below this line value, asset treatment is not the default. The approved requirements name PKR 15,000. 0 disables the threshold entirely.",
+    group: "Accounting treatment",
+    valueType: "number",
+    default: 15000,
+  },
+  {
+    key: CONFIG_KEYS.CAPITALISATION_MODE,
+    label: "Below-threshold capitalisation",
+    description:
+      "HARD_BAR refuses asset treatment below the threshold. DEFAULT_WITH_EXCEPTION makes consumable the default but allows an approved, reasoned override — this is what ships, because the approved requirements say both that nothing below PKR 15,000 should be an asset and that a coffee table below PKR 15,000 may still be a fixed asset, and this is the only reading under which both are true. ADVISORY warns and records without refusing. See BD-002.",
+    group: "Accounting treatment",
+    valueType: "string",
+    default: "DEFAULT_WITH_EXCEPTION",
+  },
+  {
+    key: CONFIG_KEYS.CAPITALISATION_EXEMPT_CATEGORIES,
+    label: "Categories that capitalise below the threshold",
+    description:
+      'Category codes that may be capitalised below the threshold without an override, as JSON: ["FUR","ITE"]. Empty by default — no category is exempt until the business names one.',
+    group: "Accounting treatment",
+    valueType: "json",
+    default: [],
   },
 ];
 

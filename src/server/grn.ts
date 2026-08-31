@@ -9,6 +9,7 @@ import { PERMISSIONS as P } from "@/lib/permissions";
 import { userHasPermission, type SessionUser } from "@/lib/rbac";
 import { STORE_ENTRY_DISPOSITIONS, type Disposition } from "@/lib/domain";
 import { round2 } from "@/lib/format";
+import { assertTreatments, capitalisationPolicy, decideTreatment } from "@/lib/treatment";
 import { reconcileGrnToPo } from "./receiving-exceptions";
 import { postMovement } from "./inventory";
 import { recomputePoFulfilment } from "./po";
@@ -91,6 +92,17 @@ export type GrnItemInput = {
   warrantyMonths?: number | null;
   storeLocationId?: string | null;
   disposition?: Disposition;
+  /**
+   * Why this line departs from the item's default treatment.
+   *
+   * The same air conditioner is an office asset and a project cost, so the
+   * receipt decides — but a decision with no reason cannot be reviewed, and
+   * capitalising below the threshold needs an approval as well.
+   */
+  treatmentReason?: string | null;
+  treatmentApprovedById?: string | null;
+  /** Where the goods went, which is what makes the treatment defensible. */
+  usageContext?: string | null;
   remarks?: string | null;
 };
 
@@ -115,7 +127,7 @@ export async function createGrn(user: SessionUser, input: GrnInput, db: DbClient
   const delivery = await db.delivery.findUnique({
     where: { id: input.deliveryId },
     include: {
-      items: { include: { poItem: true, item: true } },
+      items: { include: { poItem: true, item: { include: { category: true } } } },
       po: { include: { pr: true, items: true } },
       gatePass: true,
       inspections: { orderBy: { createdAt: "desc" }, take: 1, include: { items: true } },
@@ -179,7 +191,39 @@ export async function createGrn(user: SessionUser, input: GrnInput, db: DbClient
   }
 
   const storeId = input.storeId ?? delivery.storeId;
-  const number = await nextNumber(SEQ.GRN, db);
+// Accounting treatment, per line and per receipt.
+  //
+  // The item's category says what it usually is; this receipt says what it is
+  // this time. Where the two differ the reason is required, and where the line
+  // capitalises below the configured threshold an approval is required too —
+  // that is the only reading under which the approved requirements' two
+  // statements about PKR 15,000 are both true. See BD-002.
+  const policy = await capitalisationPolicy(delivery.po.entityId, db);
+  const treatmentDecisions = prepared.map((p) => {
+    const defaultTreatment = (p.deliveryItem.poItem.disposition ??
+      p.deliveryItem.item?.category?.defaultDisposition ??
+      "INVENTORY") as Disposition;
+    return {
+      lineNo: p.deliveryItem.poItem.lineNo,
+      description: p.deliveryItem.description,
+      deliveryItemId: p.deliveryItem.id,
+      decision: decideTreatment({
+        requested: p.input.disposition,
+        defaultTreatment,
+        lineValue: round2(p.acceptedQty * p.deliveryItem.poItem.unitPrice),
+        categoryCode: p.deliveryItem.item?.category?.code ?? null,
+        policy,
+        reason: p.input.treatmentReason,
+        approvedById: p.input.treatmentApprovedById,
+      }),
+    };
+  });
+  assertTreatments(treatmentDecisions);
+  const decisionByDeliveryItem = new Map(
+    treatmentDecisions.map((d) => [d.deliveryItemId, d.decision]),
+  );
+
+    const number = await nextNumber(SEQ.GRN, db);
   const totalValue = round2(
     prepared.reduce((a, p) => a + p.acceptedQty * p.deliveryItem.poItem.unitPrice, 0),
   );
@@ -219,7 +263,17 @@ export async function createGrn(user: SessionUser, input: GrnInput, db: DbClient
           expiryDate: p.input.expiryDate ?? p.deliveryItem.expiryDate,
           warrantyMonths: p.input.warrantyMonths ?? p.deliveryItem.warrantyMonths,
           storeLocationId: p.input.storeLocationId ?? null,
-          disposition: p.input.disposition ?? p.deliveryItem.poItem.disposition,
+          disposition:
+            decisionByDeliveryItem.get(p.deliveryItem.id)?.treatment ??
+            p.input.disposition ??
+            p.deliveryItem.poItem.disposition,
+          defaultDisposition: decisionByDeliveryItem.get(p.deliveryItem.id)?.defaultTreatment ?? null,
+          treatmentReason: p.input.treatmentReason ?? null,
+          treatmentApprovedById: p.input.treatmentApprovedById ?? null,
+          treatmentApprovedAt: p.input.treatmentApprovedById ? new Date() : null,
+          capitalisedBelowThreshold:
+            decisionByDeliveryItem.get(p.deliveryItem.id)?.belowThreshold ?? false,
+          usageContext: p.input.usageContext ?? null,
           remarks: p.input.remarks ?? null,
         })),
       },
