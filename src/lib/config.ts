@@ -700,10 +700,10 @@ export const CONFIG_DEFS: ConfigDef[] = [
     key: CONFIG_KEYS.POLICY_VENDOR_EVALUATION_INTERVAL_MONTHS,
     label: "Vendor evaluation interval (months)",
     description:
-      "PC-001. ZAM §5.9 says every three months; ZD §5.9 and §2.3.3 i say annually. Both are explicit for their own entity, so both are seeded — ZAM 3, ZD 12. The global value is ZD's because it is the more common cadence across the group.",
+      "ZAM/PUR/SOP-01 §5.9: \"Vendor's performance will be evaluated after every three months\". Three is therefore both the Zameen Media value and the shipped default. ZD/PRO/SOP-01 states annually; that is held as an entity override for ZD and is FUTURE / ZD ONLY — it must not become the fallback Zameen Media inherits.",
     group: "Policy · Vendors",
     valueType: "number",
-    default: 12,
+    default: 3,
   },
   {
     key: CONFIG_KEYS.POLICY_VENDOR_PERFORMANCE_INSTRUMENT,

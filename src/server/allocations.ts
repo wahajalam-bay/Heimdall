@@ -28,42 +28,94 @@ export type AllocationInput = {
   unit: string;
 };
 
-/** Records what an order took, refusing to place more than the line still has. */
+/**
+ * Records what an order took, refusing to place more than the line still has.
+ *
+ * The reads are batched deliberately. This used to call `unallocatedQuantity`
+ * per line, which is two queries, then look up the existing allocation, which is
+ * a third — four round trips a line. Inside a transaction that is not merely
+ * slow: the transaction holds a pooler slot for the whole of it, and against a
+ * database in another region a five-line order was enough to exceed the
+ * transaction timeout and abort a purchase order that was otherwise valid.
+ *
+ * Two queries up front instead, then a loop that only writes.
+ */
 export async function allocate(
   actor: Actor,
   inputs: AllocationInput[],
   db: DbClient = prisma,
   authority: Authority = { permission: [P.PO_CREATE, P.PO_EDIT] },
 ) {
+  assertAuthority(actor, DOMAIN_ACTIONS.ALLOCATION_APPLY, authority);
+  const wanted = inputs.filter((a) => a.quantity > 0);
+  if (!wanted.length) return;
+
+  const prItemIds = [...new Set(wanted.map((a) => a.prItemId))];
+
   return withTransaction(db, async (tx) => {
-    assertAuthority(actor, DOMAIN_ACTIONS.ALLOCATION_APPLY, authority);
     const createdById = actor.id;
-    for (const a of inputs) {
-      if (a.quantity <= 0) continue;
-      const remaining = await unallocatedQuantity(a.prItemId, tx, a.poId);
+
+    const [lines, priorAllocations, existingRows] = await Promise.all([
+      tx.purchaseRequisitionItem.findMany({
+        where: { id: { in: prItemIds } },
+        select: { id: true, quantity: true, lineNo: true, description: true },
+      }),
+      // Everything already placed against these lines by *other* orders. Grouped
+      // in one query rather than aggregated per line.
+      tx.prPoAllocation.groupBy({
+        by: ["prItemId", "poId"],
+        where: { prItemId: { in: prItemIds } },
+        _sum: { quantity: true },
+      }),
+      tx.prPoAllocation.findMany({
+        where: { prItemId: { in: prItemIds } },
+        select: { id: true, prItemId: true, poItemId: true },
+      }),
+    ]);
+
+    const lineById = new Map(lines.map((l) => [l.id, l]));
+
+    /** Placed against a line, ignoring the order being written. */
+    const placedExcept = (prItemId: string, exceptPoId: string) =>
+      round2(
+        priorAllocations
+          .filter((g) => g.prItemId === prItemId && g.poId !== exceptPoId)
+          .reduce((a, g) => a + (g._sum.quantity ?? 0), 0),
+      );
+
+    const existingByPair = new Map(
+      existingRows.map((r) => [`${r.prItemId}::${r.poItemId ?? ""}`, r.id]),
+    );
+
+    // What this call itself places per line, so two lines of one order drawing
+    // on the same requisition line cannot together exceed it.
+    const takenHere = new Map<string, number>();
+
+    for (const a of wanted) {
+      const line = lineById.get(a.prItemId);
+      const required = line?.quantity ?? 0;
+      const remaining = round2(
+        Math.max(0, required - placedExcept(a.prItemId, a.poId) - (takenHere.get(a.prItemId) ?? 0)),
+      );
+
       if (a.quantity > remaining + 1e-9) {
-        const line = await tx.purchaseRequisitionItem.findUnique({
-          where: { id: a.prItemId },
-          select: { lineNo: true, description: true },
-        });
         throw new RuleViolationError(
           `Requisition line ${line?.lineNo ?? "?"} (${line?.description ?? a.prItemId}) has ${round2(remaining)} ${a.unit} left to order; this order asks for ${round2(a.quantity)}.`,
         );
       }
-      // A compound unique cannot be looked up through a null, so the pair is found
-      // rather than upserted. In practice every allocation names an order line;
-      // the nullable side exists for a line-less allocation, which is rare.
-      const existing = await tx.prPoAllocation.findFirst({
-        where: { prItemId: a.prItemId, poItemId: a.poItemId ?? null },
-        select: { id: true },
-      });
-      if (existing) {
+      takenHere.set(a.prItemId, (takenHere.get(a.prItemId) ?? 0) + a.quantity);
+
+      // A compound unique cannot be looked up through a null, so the pair is
+      // found rather than upserted. In practice every allocation names an order
+      // line; the nullable side exists for a line-less allocation, which is rare.
+      const existingId = existingByPair.get(`${a.prItemId}::${a.poItemId ?? ""}`);
+      if (existingId) {
         await tx.prPoAllocation.update({
-          where: { id: existing.id },
+          where: { id: existingId },
           data: { quantity: round2(a.quantity), poId: a.poId, unit: a.unit },
         });
       } else {
-        await tx.prPoAllocation.create({
+        const created = await tx.prPoAllocation.create({
           data: {
             prId: a.prId,
             prItemId: a.prItemId,
@@ -74,6 +126,8 @@ export async function allocate(
             createdById,
           },
         });
+        // So a second input naming the same pair updates rather than duplicates.
+        existingByPair.set(`${a.prItemId}::${a.poItemId ?? ""}`, created.id);
       }
     }
   });

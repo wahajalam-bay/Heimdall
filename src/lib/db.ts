@@ -48,8 +48,24 @@ export function inTransaction(db: DbClient): boolean {
  */
 export type DeferredJob = { label: string; run: () => Promise<unknown> };
 
-/** How long an interactive transaction may take before Prisma aborts it. */
-const TX_TIMEOUT_MS = Number(process.env.DB_TX_TIMEOUT_MS ?? 20_000);
+/**
+ * How long an interactive transaction may take before Prisma aborts it.
+ *
+ * Prisma's default is five seconds. Measured against this database, a single
+ * query costs about 1.25s from a developer machine and about 600ms from inside a
+ * transaction, where the connection is pinned — the instance is in
+ * ap-southeast-2 and the round trip dominates. A purchase order creation issues
+ * roughly forty statements once its allocation and requisition transition are
+ * counted, so it needs something like twenty-five seconds, and a goods receipt
+ * with several lines needs more.
+ *
+ * Two minutes is therefore an accommodation for that latency, not a target. In a
+ * deployment co-located with the database the same chains run in a fraction of a
+ * second. Lower this with `DB_TX_TIMEOUT_MS` where the database is near, and
+ * treat a chain that needs it as a chain whose reads want batching — which is
+ * why `allocate` no longer queries per line.
+ */
+const TX_TIMEOUT_MS = Number(process.env.DB_TX_TIMEOUT_MS ?? 120_000);
 /** How long to wait for a pool slot before giving up. */
 const TX_MAX_WAIT_MS = Number(process.env.DB_TX_MAX_WAIT_MS ?? 10_000);
 
@@ -91,17 +107,34 @@ export async function withTransaction<T>(
   }
 
   const deferred: DeferredJob[] = [];
-  const result = await (db as PrismaClient).$transaction(
-    async (tx) => {
-      pendingDeferrals.set(tx, deferred);
-      try {
-        return await fn(tx, (job) => deferred.push(job));
-      } finally {
-        pendingDeferrals.delete(tx);
-      }
-    },
-    { timeout: TX_TIMEOUT_MS, maxWait: TX_MAX_WAIT_MS },
-  );
+  const startedAt = Date.now();
+  let result: T;
+  try {
+    result = await (db as PrismaClient).$transaction(
+      async (tx) => {
+        pendingDeferrals.set(tx, deferred);
+        try {
+          return await fn(tx, (job) => deferred.push(job));
+        } finally {
+          pendingDeferrals.delete(tx);
+        }
+      },
+      { timeout: TX_TIMEOUT_MS, maxWait: TX_MAX_WAIT_MS },
+    );
+  } catch (e) {
+    // A transaction that hits the timeout aborts everything it did, and Prisma's
+    // message for it does not say how long it ran or what the ceiling was. One
+    // of these went past silently during testing and the only symptom was a
+    // process that stopped, so the duration is attached before rethrowing.
+    const ms = Date.now() - startedAt;
+    if (ms > TX_TIMEOUT_MS * 0.9) {
+      console.error(
+        `[transaction] rolled back after ${ms}ms against a ${TX_TIMEOUT_MS}ms limit. ` +
+          "Every write in it is undone. Batch the reads in this chain, or raise DB_TX_TIMEOUT_MS.",
+      );
+    }
+    throw e;
+  }
 
   for (const job of deferred) {
     try {

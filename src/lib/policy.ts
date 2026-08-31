@@ -5,6 +5,12 @@ import { ENTITY_CODES } from "./domain";
 /**
  * The Policy Pack.
  *
+ * **Scope: Zameen Media (ZAM/PUR/SOP-01).** ZD/PRO/SOP-01 is reference material
+ * for future expansion, not a source of Zameen Media rules. Where a value below
+ * differs by entity, the *shipped default* is always the Zameen Media reading —
+ * a ZD figure must never become the fallback ZAM inherits when no override is
+ * set. ZD values are held as entity overrides on the ZD entity only.
+ *
  * The two SOPs disagree with each other, and in six places a document disagrees
  * with its own annexure. Nothing here reconciles those disagreements by picking
  * a winner in code. Instead every contested value becomes a policy setting with:
