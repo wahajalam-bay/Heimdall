@@ -29,27 +29,45 @@ Phase 1 true as the code grows.
 
 ## What the last end-to-end run proved
 
-`scripts/acceptance.ts`, after the Phase 2 transaction work:
+**`scripts/acceptance.ts` — ALL CHECKS PASSED, exit 0.** Eight stages, 33 checks,
+driven through the real service functions after the Phase 1 authorization sweep
+and the Phase 2 transaction work. Full log: `e2e/.artifacts/acceptance-run.log`.
 
-| Stage | Result |
+| Stage | Notable |
 |---|---|
-| 01 Requisition | **PASS** — draft created; submission refused without BOQ and drawings; approved through its configured chain |
-| 02 Sourcing | **PASS** — RFQ to three vendors, three quotations recorded |
-| 03 Comparative | **PASS** — lowest flagged; the cheapest is the non-compliant one; an above-lowest award refused without justification, then recorded, then raised as a tracked exception; re-recommending the lowest clears the justification |
-| 04 Committee | **PASS** — threshold derived from configuration, **and the new CEO tier fired**: "at or above the goods threshold of PKR 500,000… also exceeds PKR 1,500,000, so the Office of the CEO must approve it" |
-| 05 Purchase order | Reached; an invoice against an unissued order correctly refused |
+| 01 Requisition | Submission refused without BOQ and drawings, then approved through its configured chain |
+| 02 Sourcing | RFQ to three vendors, three quotations recorded |
+| 03 Comparative | The cheapest quotation is the technically non-compliant one; an above-lowest award is refused without justification, then recorded, then raised as a tracked exception; re-recommending the lowest clears it |
+| 04 Committee | **The CEO tier fired** — "at or above the goods threshold of PKR 500,000… also exceeds PKR 1,500,000, so the Office of the CEO must approve it" |
+| 05 Purchase order | An invoice against an unissued order refused; PO issued for the full ordered quantity |
+| 06 Receiving | **Receiving more than was ordered is refused.** The short delivery is recorded on the line rather than smoothed over, and raises a tracked exception |
+| 07 Inspection and GRN | GRN refused while inspection is open; posted for the **accepted** 90 of 100; inventory up by exactly 90; the receipt on the immutable ledger traced to its GRN; the order stays open with 10 outstanding |
+| 08 Invoice | Three-way match fails on the over-billed quantity, the line is identified, a blocking exception stands, the notes explain the refusal, payment handoff is refused, and no payment exists |
 
-The committee stage is worth noting: `CP-012` — CEO approval above PKR 1,500,000
-— was `MISSING` in the matrix and now appears in the requirement text the engine
-produces, driven by configuration rather than a literal.
+Two results matter for Phase 2's claim specifically. The GRN posted **inside a
+transaction** and inventory moved by exactly the accepted quantity, so the atomic
+path writes what it should and no more. And `CP-012` — CEO approval above PKR
+1,500,000, which the matrix had as `MISSING` — now appears in the requirement text
+the engine produces, driven by configuration rather than a literal.
 
-**A run also exposed a real defect.** An earlier pass aborted at the purchase
-order with `Transaction not found… refers to an old closed transaction`. The
-cause was measured, not guessed: **~1.25 s per query to the database region from
-a developer machine**, and a purchase order issues roughly forty statements once
-its allocation and requisition transition are counted. The transaction exceeded
-its ceiling and rolled back — correctly, but silently. Fixed by batching
-`allocate`'s reads, raising the ceiling, and making an abort report its duration.
+Note what stage 06 already enforces: **receiving more than was ordered is
+refused**, at the delivery boundary. The brief's stronger requirement, that
+*cumulative accepted GRN quantity* can never exceed the PO outstanding, is the
+part still to build in Phase 3 — this run proves the single-delivery case, not
+the cumulative one.
+
+### The run also found a real defect
+
+An earlier pass aborted at the purchase order with `Transaction not found… refers
+to an old closed transaction`. The cause was measured, not guessed: **~1.25 s per
+query to the database region from a developer machine**, and a purchase order
+issues roughly forty statements once its allocation and requisition transition
+are counted. The transaction exceeded its ceiling and rolled back — correctly, but
+silently, which is the worst part.
+
+Fixed three ways: `allocate` batched from four round trips per line to two queries
+in total, the ceiling raised and made configurable, and an abort now reports its
+duration instead of vanishing.
 
 ## Gaps — stated, not softened
 
@@ -71,7 +89,7 @@ The brief names these. Only the first is partly covered, by the acceptance run.
 
 | Scenario | State |
 |---|---|
-| Goods purchase, requirement → payment → closure | **Partial** — acceptance covers requisition to invoice refusal; voucher, payment and closure not asserted |
+| Goods purchase, requirement → payment → closure | **Partial** — acceptance runs green from requisition to a *correctly blocked* invoice. The happy-path voucher, payment and closure are not asserted, because this run deliberately over-bills in order to prove the block |
 | Service purchase, requirement → Service PO/WO → acceptance → payment | **Not possible yet** — services are not a distinct concept until Phase 3 |
 | Mixed need: genset oil plus testing service, linked documents, separate POs | **Not possible yet** — Phase 3 |
 | Partial GRN: PO 100 → GRN 60 → GRN 40 → **GRN 41 must fail** | **Not covered.** The control itself is Phase 3 |
