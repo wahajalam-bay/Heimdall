@@ -15,6 +15,7 @@ under test live in the schema as much as in the code.
 | `documents.test.ts` | 278 | Document access control, listing redaction, audit trail |
 | `vendors.test.ts` | 257 | Vendor lifecycle, blacklisting |
 | `rules.test.ts` | 109 | Domain invariants |
+| `transactions.test.ts` | 190 | Rollback, nesting, after-commit deferral, receipt idempotency |
 
 Plus `scripts/acceptance.ts` — an end-to-end run that drives a brand-new case
 through the real service functions rather than fixtures, resolving actors,
@@ -75,9 +76,9 @@ duration instead of vanishing.
 
 | Gap | Why it matters |
 |---|---|
-| **Transaction rollback tests** | Phase 2's central claim is that 61 chains are all-or-nothing. Nothing proves it. Forcing a failure at each write and asserting no partial state is the test that would |
-| **Duplicate-post test** | `postGrn`'s idempotency guard is a conditional `updateMany`. Two concurrent posts should leave one receipt |
-| **Concurrency test** | Two approvers acting on one step; two issues drawing the same stock |
+| ~~Transaction rollback tests~~ | **Written and passing** — see below |
+| ~~Duplicate-post test~~ | **Written and passing** |
+| Concurrency beyond the receipt | Two approvers acting on one step; two issues drawing the same stock |
 | `receiving.ts` | Untested. Gate passes, deliveries, inspections |
 | `assets.ts` | Untested. Tagging, disposal stages |
 | `analytics.ts` | Untested |
@@ -101,13 +102,35 @@ The brief names these. Only the first is partly covered, by the acceptance run.
 | PO splitting detection | **Not covered.** Phase 8 |
 | Vendor blacklist / blocking, Single Source, Emergency, Petty Cash, stock count variance, scrap disposal | **Not covered.** Phases 5 and 6 |
 
+## Atomicity is now proved, not asserted
+
+`tests/transactions.test.ts` — **8 tests, all passing, 45s.** Phase 2 wrapped 61
+chains on the strength of a type check and a source audit, neither of which shows
+that a failure part-way through actually undoes what came before. These break
+things on purpose and read the database back.
+
+| Test | What it establishes |
+|---|---|
+| Fails after one write | Nothing survives. The row is visible *inside* the transaction and absent outside it |
+| Fails after three writes | Rollback covers the whole chain, not just the last statement |
+| Succeeds | A create and a subsequent update both commit, with the update's value winning |
+| Nested call | The inner call receives the **same handle** rather than opening a second transaction — so it cannot deadlock against a pool slot its own caller holds — and inner writes roll back with the outer |
+| Deferred job throws | The commit **stands**. That is the contract: asset tagging must not be able to un-receive goods |
+| Rollback with a deferred job | The job does **not** run. Nothing after-commit fires when there was no commit |
+| Two concurrent posts of one receipt | One posting. Movements never exceed one per accepted line — a second set would be stock arriving from nowhere |
+| Posting an already-posted receipt | Returns it rather than failing, and adds no movements |
+
 ## Honest position on verification
 
 Phases 1 and 2 were verified by `tsc --noEmit` across the repo, `prisma
-validate`, scripted source audits, and the acceptance run above. **The rollback
-and concurrency tests those phases specified were not written.** They are the
-first item of Phase 3's test work rather than a footnote here, because Phase 2's
-guarantee is unproven without them.
+validate`, scripted source audits, the acceptance run above, and — as of this
+commit — the transaction integrity suite. Phase 2's guarantee is no longer taken
+on trust.
+
+What remains untested is breadth rather than depth: two approvers racing one
+approval step, and two issues drawing the same stock. The mechanism they would
+exercise is the same one the receipt test covers, so the risk is lower, but they
+are not written and are not claimed.
 
 A note on cost: the suite takes roughly twenty minutes against this database, and
 the acceptance run longer, because of the round-trip latency measured above. That
