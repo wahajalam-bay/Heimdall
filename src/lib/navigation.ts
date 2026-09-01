@@ -121,6 +121,15 @@ export const NAV: NavGroup[] = [
     ],
   },
   {
+    label: "Build-outs",
+    items: [
+      { label: "Build-outs", href: "/build-outs", icon: "case", perms: [P.BUILD_OUT_VIEW], exact: true },
+      { label: "CFC roster", href: "/build-outs/roster", icon: "committee", perms: [P.BUILD_OUT_VIEW] },
+      { label: "Rental committee", href: "/rnc", icon: "committee", perms: [P.RNC_VIEW], exact: true },
+      { label: "RNC roster", href: "/rnc/roster", icon: "committee", perms: [P.RNC_VIEW] },
+    ],
+  },
+  {
     label: "CPC",
     items: [
       { label: "CPC Dashboard", href: "/cpc", icon: "committee", perms: [P.CPC_VIEW], exact: true },

@@ -26,6 +26,20 @@ export const PERMISSIONS = {
 
   // Work orders — ZAM/PUR/SOP-01 §4.6. Admin raises them, procurement supplies
   // the rate, and Internal Audit reviews the ones outside CPC's domain.
+  // Build-outs — ZAM/PUR/SOP-01 Build-Outs section.
+  BUILD_OUT_VIEW: "build_out.view",
+  BUILD_OUT_CREATE: "build_out.create",
+  BUILD_OUT_EDIT: "build_out.edit",
+  /// BO-002 — management's go-ahead, which is not the same act as raising it.
+  BUILD_OUT_MANAGEMENT_APPROVE: "build_out.management_approve",
+  BUILD_OUT_TASK_UPDATE: "build_out.task_update",
+  BUILD_OUT_MEETING_MANAGE: "build_out.meeting_manage",
+  BUILD_OUT_CLOSE: "build_out.close",
+  // Rental & Negotiation Committee.
+  RNC_VIEW: "rnc.view",
+  RNC_CASE_RAISE: "rnc.case_raise",
+  RNC_DECIDE: "rnc.decide",
+  RNC_MANAGE: "rnc.manage",
   WORK_ORDER_VIEW: "work_order.view",
   WORK_ORDER_CREATE: "work_order.create",
   WORK_ORDER_EDIT: "work_order.edit",
@@ -217,6 +231,20 @@ export const PERMISSION_META: Record<string, PermMeta> = {
   [PERMISSIONS.RETURN_VIEW]: { group: "Receiving", name: "View vendor returns" },
   [PERMISSIONS.RETURN_CREATE]: { group: "Receiving", name: "Raise a vendor return" },
   [PERMISSIONS.RETURN_AUTHORISE]: { group: "Receiving", name: "Authorise a vendor return" },
+  [PERMISSIONS.BUILD_OUT_VIEW]: { group: "Build-outs", name: "View build-outs" },
+  [PERMISSIONS.BUILD_OUT_CREATE]: { group: "Build-outs", name: "Raise a build-out" },
+  [PERMISSIONS.BUILD_OUT_EDIT]: { group: "Build-outs", name: "Edit a build-out" },
+  [PERMISSIONS.BUILD_OUT_MANAGEMENT_APPROVE]: {
+    group: "Build-outs",
+    name: "Give management's go-ahead for a build-out",
+  },
+  [PERMISSIONS.BUILD_OUT_TASK_UPDATE]: { group: "Build-outs", name: "Update a checklist task" },
+  [PERMISSIONS.BUILD_OUT_MEETING_MANAGE]: { group: "Build-outs", name: "Call and minute CFC meetings" },
+  [PERMISSIONS.BUILD_OUT_CLOSE]: { group: "Build-outs", name: "Close a build-out" },
+  [PERMISSIONS.RNC_VIEW]: { group: "RNC", name: "View rental committee cases" },
+  [PERMISSIONS.RNC_CASE_RAISE]: { group: "RNC", name: "Raise a rental committee case" },
+  [PERMISSIONS.RNC_DECIDE]: { group: "RNC", name: "Vote on a rental committee case" },
+  [PERMISSIONS.RNC_MANAGE]: { group: "RNC", name: "Manage the rental committee roster and decisions" },
   [PERMISSIONS.WORK_ORDER_VIEW]: { group: "Work orders", name: "View work orders" },
   [PERMISSIONS.WORK_ORDER_CREATE]: { group: "Work orders", name: "Raise a work order" },
   [PERMISSIONS.WORK_ORDER_EDIT]: { group: "Work orders", name: "Edit a draft work order" },
@@ -454,6 +482,12 @@ export const ROLE_DEFINITIONS: Array<{
     rank: 40,
     permissions: [
       ...REQUESTER_BASE,
+      // A department head is handed a sheet of their department's
+      // responsibilities at the kickoff meeting, so they can see the project
+      // and update their own lines — but not run it.
+      P.BUILD_OUT_VIEW,
+      P.BUILD_OUT_TASK_UPDATE,
+      P.RNC_VIEW,
       P.PR_VIEW_ALL,
       P.PR_APPROVE,
       P.PR_REJECT,
@@ -524,6 +558,11 @@ export const ROLE_DEFINITIONS: Array<{
     rank: 80,
     permissions: [
       ...PROCUREMENT_CORE,
+      // image22 seats the Director Procurement on every regional rental
+      // committee as a permanent-mandatory member.
+      P.BUILD_OUT_VIEW,
+      P.RNC_VIEW,
+      P.RNC_DECIDE,
       P.PR_APPROVE,
       P.PR_REJECT,
       P.PO_APPROVE,
@@ -814,10 +853,24 @@ export const ROLE_DEFINITIONS: Array<{
   {
     code: "ADMIN_FLOOR_MANAGER",
     name: "Admin / Floor Manager",
-    description: "Office administration, gate passes, office store and petty cash.",
+    description:
+      "Office administration, gate passes, office store and petty cash — and build-outs, which the Checklist of Roles & Responsibilities gives Administration more lines on than any other department.",
     rank: 35,
     permissions: [
       ...REQUESTER_BASE,
+      // Build-outs. Administration gathers requirements, runs the day-wise
+      // vendor schedule and monitors the BOQ against actual, so it owns the
+      // project — but not the go-ahead, which is management's.
+      P.BUILD_OUT_VIEW,
+      P.BUILD_OUT_CREATE,
+      P.BUILD_OUT_EDIT,
+      P.BUILD_OUT_TASK_UPDATE,
+      P.BUILD_OUT_MEETING_MANAGE,
+      P.BUILD_OUT_CLOSE,
+      // RN-003 puts the arranging of an RNC with the HOD Sales or Admin.
+      P.RNC_VIEW,
+      P.RNC_CASE_RAISE,
+      P.RNC_MANAGE,
       P.GATE_PASS_VIEW,
       P.GATE_PASS_CREATE,
       P.RECEIVE_GOODS,
@@ -856,6 +909,8 @@ export const ROLE_DEFINITIONS: Array<{
     description: "Read-only across the system plus audit review of vendor and disposal cases.",
     rank: 55,
     permissions: [
+      P.BUILD_OUT_VIEW,
+      P.RNC_VIEW,
       P.PR_VIEW,
       P.PR_VIEW_ALL,
       P.RFQ_VIEW,
@@ -976,6 +1031,13 @@ export const ROLE_DEFINITIONS: Array<{
       P.VENDOR_FINANCIALS_VIEW,
       P.CPC_VIEW,
       P.CPC_DECIDE,
+      // BO-002 — the go-ahead is management's own act, and deliberately not
+      // held by whoever raises the build-out.
+      P.BUILD_OUT_VIEW,
+      P.BUILD_OUT_MANAGEMENT_APPROVE,
+      P.BUILD_OUT_CLOSE,
+      P.RNC_VIEW,
+      P.RNC_DECIDE,
       P.ASSET_VIEW,
       P.DISPOSAL_VIEW,
       P.DISPOSAL_MANAGEMENT_APPROVE,

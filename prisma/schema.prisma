@@ -59,6 +59,22 @@ model User {
   approvalActions    ApprovalAction[]
   approvalsEscalatedTo ApprovalAction[]    @relation("ApprovalEscalatedTo")
   cpcCeoDecisions      CpcCase[]           @relation("CpcCeoDecision")
+
+  // Build-outs and the RNC.
+  buildOutsCreated        BuildOut[]            @relation("BuildOutCreatedBy")
+  buildOutsApproved       BuildOut[]            @relation("BuildOutManagementApproval")
+  buildOutRequirements    BuildOut[]            @relation("BuildOutRequirements")
+  buildOutTasksOwned      BuildOutTask[]        @relation("BuildOutTaskOwner")
+  buildOutTasksUpdated    BuildOutTask[]        @relation("BuildOutTaskUpdatedBy")
+  cfcMeetingsCalled       CfcMeeting[]          @relation("CfcMeetingCalledBy")
+  cfcSeats                CfcMember[]           @relation("CfcMemberPrimary")
+  cfcProxySeats           CfcMember[]           @relation("CfcMemberProxy")
+  cfcProxyAttendance      CfcAttendance[]       @relation("CfcProxyAttended")
+  boqMeasurements         BuildOutBoqLine[]     @relation("BoqMeasuredBy")
+  scheduleChecks          BuildOutScheduleDay[] @relation("ScheduleCheckedBy")
+  lessonsRaised           BuildOutLesson[]      @relation("LessonRaisedBy")
+  rncSeats                RncMember[]           @relation("RncMemberUser")
+  rncCasesCreated         RncCase[]             @relation("RncCaseCreatedBy")
   rfqsCreated        Rfq[]                 @relation("RfqCreatedBy")
   negotiations       Negotiation[]
   posCreated         PurchaseOrder[]       @relation("PoCreatedBy")
@@ -269,6 +285,11 @@ model Entity {
   policyDocuments PolicyDocument[]
   lossReports LossReport[]
   @@map("entities")
+
+  buildOuts  BuildOut[]
+  cfcMembers CfcMember[]
+  rncMembers RncMember[]
+  rncCases   RncCase[]
 }
 
 model UserEntityAccess {
@@ -305,6 +326,8 @@ model Department {
 
   @@unique([entityId, code])
   @@map("departments")
+
+  buildOutTasks BuildOutTask[]
 }
 
 model Project {
@@ -326,6 +349,7 @@ model Project {
   inventory    InventoryItem[]
 
   requirements Requirement[]
+  buildOuts    BuildOut[]
 
   @@map("projects")
 }
@@ -346,6 +370,7 @@ model Site {
   requisitions PurchaseRequisition[]
 
   requirements Requirement[]
+  buildOuts    BuildOut[]
 
   @@map("sites")
 }
@@ -2346,6 +2371,8 @@ model Vendor {
   contracts Contract[]
   @@index([status])
   @@map("vendors")
+
+  buildOutScheduleDays BuildOutScheduleDay[]
 }
 
 model VendorEntityLink {
@@ -5523,4 +5550,432 @@ model LossReportItem {
   @@unique([reportId, lineNo])
   @@index([reportId])
   @@map("loss_report_items")
+}
+
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Build-outs  ·  ZAM/PUR/SOP-01 Build-Outs section, image21/image23/image24
+
+   A build-out is a new office fitted out by ten departments working to one
+   set of deadlines. The SOP's whole point is coordination: a Cross Functional
+   Committee is called, each department is handed a predefined checklist, and
+   progress is reviewed in a standing Friday meeting until the project closes
+   with a lesson-learnt report and a budget-versus-actual variance.
+
+   Modelled as its own thing rather than as a Project with extra fields,
+   because a project is a cost-coding dimension and a build-out is a governed
+   sequence with meetings, a roster, a checklist and a closing report.
+   ───────────────────────────────────────────────────────────────────────── */
+
+model BuildOut {
+  id       String @id @default(cuid())
+  number   String @unique
+  name     String
+  entityId String
+  entity   Entity @relation(fields: [entityId], references: [id])
+
+  /// CENTRAL | NORTH | SOUTH — the regions the committee rosters are cut by.
+  region    String
+  city      String?
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id])
+  siteId    String?
+  site      Site?    @relation(fields: [siteId], references: [id])
+
+  /// BO-004: what Admin gathered from the departments, Sales especially.
+  headcount            Int?
+  requirementsSummary  String?
+  specialRequirements  String?
+  requirementsGatheredById String?
+  requirementsGatheredBy   User?     @relation("BuildOutRequirements", fields: [requirementsGatheredById], references: [id])
+  requirementsGatheredAt   DateTime?
+
+  /// BO-002: management's go-ahead. A build-out that starts without it is the
+  /// thing the first step of the SOP exists to prevent.
+  managementApprovedById String?
+  managementApprovedBy   User?     @relation("BuildOutManagementApproval", fields: [managementApprovedById], references: [id])
+  managementApprovedAt   DateTime?
+  managementNote         String?
+
+  /// BO-006: timelines defined early and shared with the committee.
+  plannedStartDate DateTime?
+  plannedEndDate   DateTime?
+  timelinesSharedAt DateTime?
+
+  actualStartDate DateTime?
+  actualEndDate   DateTime?
+
+  /// BO-010 / BO-014: budget against actual, for the closing variance.
+  budgetAmount Float?
+  actualAmount Float @default(0)
+
+  /// DRAFT | PENDING_MANAGEMENT | REQUIREMENTS | TIMELINES | CFC_PRESENTED |
+  /// IN_EXECUTION | COMPLETED | CLOSED | CANCELLED
+  status        String    @default("DRAFT")
+  cancelReason  String?
+  closedAt      DateTime?
+  createdById   String
+  createdBy     User      @relation("BuildOutCreatedBy", fields: [createdById], references: [id])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tasks     BuildOutTask[]
+  meetings  CfcMeeting[]
+  boqLines  BuildOutBoqLine[]
+  schedule  BuildOutScheduleDay[]
+  lessons   BuildOutLesson[]
+  rncCases  RncCase[]
+
+  @@index([entityId, status])
+  @@map("build_outs")
+}
+
+/// One department's one responsibility on one build-out.
+///
+/// BO-007 and BO-012: the committee hands each department "a sheet of
+/// predefined tasks ... per the Checklist of Roles & Responsibilities". The
+/// checklist is a template of 33 named responsibilities across ten departments,
+/// seeded from `image24`, and copied onto each build-out so a later edit to the
+/// template cannot rewrite what a finished project was asked to do.
+model BuildOutTask {
+  id         String   @id @default(cuid())
+  buildOutId String
+  buildOut   BuildOut @relation(fields: [buildOutId], references: [id], onDelete: Cascade)
+
+  /// The department the checklist names, as text — the checklist is the source
+  /// and not every entry maps to a department record.
+  departmentName String
+  departmentId   String?
+  department     Department? @relation(fields: [departmentId], references: [id])
+
+  responsibility String
+  sequence       Int    @default(0)
+
+  ownerId  String?
+  owner    User?     @relation("BuildOutTaskOwner", fields: [ownerId], references: [id])
+  dueDate  DateTime?
+
+  /// NOT_STARTED | IN_PROGRESS | BLOCKED | DONE | NOT_APPLICABLE
+  status       String    @default("NOT_STARTED")
+  /// BO-009: the progress note as given in the Friday meeting.
+  progressNote String?
+  /// Why it does not apply here. A checklist line waved away without a reason
+  /// is indistinguishable from one nobody looked at.
+  notApplicableReason String?
+  completedAt  DateTime?
+  updatedById  String?
+  updatedBy    User?     @relation("BuildOutTaskUpdatedBy", fields: [updatedById], references: [id])
+  updatedAt    DateTime  @updatedAt
+
+  @@index([buildOutId, departmentName])
+  @@map("build_out_tasks")
+}
+
+/// BO-007, BO-008, BO-009 — the Cross Functional Committee's meetings.
+model CfcMeeting {
+  id         String   @id @default(cuid())
+  number     String   @unique
+  buildOutId String
+  buildOut   BuildOut @relation(fields: [buildOutId], references: [id], onDelete: Cascade)
+
+  /// KICKOFF — the meeting where scope is presented and the checklist handed out.
+  /// WEEKLY  — the standing Friday review.
+  /// CLOSING — the lesson-learnt and variance meeting.
+  meetingType String   @default("WEEKLY")
+  scheduledAt DateTime
+  heldAt      DateTime?
+  location    String?
+  agenda      String?
+  minutes     String?
+
+  /// SCHEDULED | HELD | CANCELLED
+  status      String @default("SCHEDULED")
+  calledById  String?
+  calledBy    User?  @relation("CfcMeetingCalledBy", fields: [calledById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  attendance CfcAttendance[]
+
+  @@index([buildOutId, scheduledAt])
+  @@map("cfc_meetings")
+}
+
+model CfcAttendance {
+  id        String     @id @default(cuid())
+  meetingId String
+  meeting   CfcMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  memberId String
+  member   CfcMember @relation(fields: [memberId], references: [id])
+
+  /// PRESENT | PROXY | ABSENT
+  attendance String @default("ABSENT")
+  /// Who came instead. The roster names a proxy for exactly this, and recording
+  /// "present" for a proxy would lose the fact that the member did not attend.
+  proxyUserId String?
+  proxyUser   User?   @relation("CfcProxyAttended", fields: [proxyUserId], references: [id])
+  note        String?
+
+  @@unique([meetingId, memberId])
+  @@map("cfc_attendance")
+}
+
+/// BO-011 · `image21` — the Cross Functional Team roster, with named proxies.
+///
+/// A seat belongs to a function, and the roster names both the member and the
+/// person who stands in. Held as its own roster rather than derived from roles,
+/// because the document names individuals and a role can have many holders.
+model CfcMember {
+  id       String @id @default(cuid())
+  entityId String
+  entity   Entity @relation(fields: [entityId], references: [id])
+
+  /// The seat: Sales Central, Finance, HR, IT, Procurement, Internal Audit,
+  /// Architect, Legal, Logistic, Administration, Talent Acquisition.
+  seat String
+
+  memberId String?
+  member   User?   @relation("CfcMemberPrimary", fields: [memberId], references: [id])
+  memberName String?
+
+  proxyId   String?
+  proxy     User?   @relation("CfcMemberProxy", fields: [proxyId], references: [id])
+  proxyName String?
+
+  active   Boolean @default(true)
+  sequence Int     @default(0)
+
+  attendance CfcAttendance[]
+
+  @@unique([entityId, seat])
+  @@map("cfc_members")
+}
+
+/// BO-014 — the bill of quantities, monitored against actual in real time.
+model BuildOutBoqLine {
+  id         String   @id @default(cuid())
+  buildOutId String
+  buildOut   BuildOut @relation(fields: [buildOutId], references: [id], onDelete: Cascade)
+
+  lineNo      Int
+  description String
+  unit        String
+  /// What the BOQ said.
+  budgetQty   Float
+  budgetRate  Float
+  budgetTotal Float @default(0)
+
+  /// What was actually measured and paid. BO-014 asks for measurement against
+  /// the BOQ after completion, so the two are held side by side rather than
+  /// the budget being overwritten.
+  actualQty   Float?
+  actualRate  Float?
+  actualTotal Float?
+
+  varianceNote String?
+  measuredById String?
+  measuredBy   User?     @relation("BoqMeasuredBy", fields: [measuredById], references: [id])
+  measuredAt   DateTime?
+
+  @@unique([buildOutId, lineNo])
+  @@map("build_out_boq_lines")
+}
+
+/// BO-015 — the day-wise schedule agreed with the vendor, and whether it held.
+model BuildOutScheduleDay {
+  id         String   @id @default(cuid())
+  buildOutId String
+  buildOut   BuildOut @relation(fields: [buildOutId], references: [id], onDelete: Cascade)
+
+  day         DateTime
+  activity    String
+  vendorId    String?
+  vendor      Vendor?  @relation(fields: [vendorId], references: [id])
+  vendorName  String?
+
+  /// PLANNED | ON_TRACK | SLIPPED | DONE
+  status      String  @default("PLANNED")
+  checkedById String?
+  checkedBy   User?   @relation("ScheduleCheckedBy", fields: [checkedById], references: [id])
+  checkedAt   DateTime?
+  slipReason  String?
+
+  @@index([buildOutId, day])
+  @@map("build_out_schedule_days")
+}
+
+/// BO-010 — the lesson-learnt report: what went wrong, so the next one does not.
+model BuildOutLesson {
+  id         String   @id @default(cuid())
+  buildOutId String
+  buildOut   BuildOut @relation(fields: [buildOutId], references: [id], onDelete: Cascade)
+
+  /// COST | TIMELINE | QUALITY | COORDINATION | VENDOR | OTHER
+  category  String @default("OTHER")
+  finding   String
+  /// The improvement it points to. A loophole recorded with no remedy is a
+  /// complaint, and the SOP asks for the report to serve future projects.
+  recommendation String?
+
+  raisedById String
+  raisedBy   User     @relation("LessonRaisedBy", fields: [raisedById], references: [id])
+  raisedAt   DateTime @default(now())
+
+  @@index([buildOutId])
+  @@map("build_out_lessons")
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Rental & Negotiation Committee  ·  RNC  ·  image22 + RNC ToR
+
+   RN-001: the mandate covers any transaction including build-outs. RN-004
+   sets a quorum the system has to count rather than assume, and RN-010 makes
+   the decision a documented email to members copying the CEO's office, with
+   the trail Finance needs to pay against.
+   ───────────────────────────────────────────────────────────────────────── */
+
+model RncMember {
+  id       String @id @default(cuid())
+  entityId String
+  entity   Entity @relation(fields: [entityId], references: [id])
+
+  /// CENTRAL | NORTH | SOUTH
+  region String
+
+  userId String?
+  user   User?   @relation("RncMemberUser", fields: [userId], references: [id])
+  /// The document names people who may not have accounts yet.
+  memberName  String
+  designation String?
+
+  /// PERMANENT_MANDATORY — counts toward quorum and must be present or proxied.
+  /// PERMANENT           — counts toward quorum.
+  /// OBSERVER            — attends, does not vote, does not count.
+  memberType String @default("PERMANENT")
+  /// The Head of the Committee, who RN-004 requires in addition to the three.
+  isHead     Boolean @default(false)
+
+  active   Boolean @default(true)
+  sequence Int     @default(0)
+
+  attendance RncAttendance[]
+  votes      RncVote[]
+
+  @@unique([entityId, region, memberName])
+  @@map("rnc_members")
+}
+
+model RncCase {
+  id       String @id @default(cuid())
+  number   String @unique
+  entityId String
+  entity   Entity @relation(fields: [entityId], references: [id])
+
+  region String
+  title  String
+  /// RN-006 — the need assessment for the desired location.
+  needAssessment String?
+  locationNote   String?
+
+  buildOutId String?
+  buildOut   BuildOut? @relation(fields: [buildOutId], references: [id])
+
+  /// RN-008 — whether the agreed terms sit within general market practice, and
+  /// the evidence for saying so.
+  commercialTerms      String?
+  marketPracticeNote   String?
+  /// RN-009 — the landlord's own obligations, agreed and written into the deal.
+  landlordObligations  String?
+
+  /// DRAFT | PENDING_RNC | DEFERRED | APPROVED | REJECTED | AGREEMENT_SIGNED | CLOSED
+  status String @default("DRAFT")
+
+  /// RN-004 — the quorum as it stood when the decision was taken, snapshotted.
+  /// The roster changes; whether this decision was quorate must not.
+  quorumRequired Int?
+  quorumPresent  Int?
+  headPresent    Boolean @default(false)
+  deferredReason String?
+
+  /// RN-010 — the decision email and the trail Finance pays against.
+  decisionEmailRef  String?
+  decisionEmailSentAt DateTime?
+  ceoOfficeCopied   Boolean @default(false)
+  decisionSummary   String?
+
+  decidedAt   DateTime?
+  createdById String
+  createdBy   User     @relation("RncCaseCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  quotes     RncQuote[]
+  votes      RncVote[]
+  attendance RncAttendance[]
+
+  @@index([entityId, status])
+  @@map("rnc_cases")
+}
+
+/// RN-007 — landlord selection on a comparative, not on a single quote.
+model RncQuote {
+  id     String  @id @default(cuid())
+  caseId String
+  case   RncCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  landlordName String
+  propertyRef  String?
+  areaSqft     Float?
+  monthlyRent  Float
+  annualEscalationPercent Float?
+  advanceMonths Int?
+  securityDeposit Float?
+  leaseYears    Float?
+
+  /// The three things RN-007 names beside price.
+  technicalEvaluation    String?
+  environmentalImpact    String?
+  quoteAnalysisNote      String?
+
+  isSelected Boolean @default(false)
+  /// Why this one, when it is not the cheapest.
+  selectionReason String?
+
+  @@map("rnc_quotes")
+}
+
+model RncAttendance {
+  id     String  @id @default(cuid())
+  caseId String
+  case   RncCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  memberId String
+  member   RncMember @relation(fields: [memberId], references: [id])
+
+  /// PRESENT | PROXY | ABSENT
+  attendance  String  @default("ABSENT")
+  proxyName   String?
+  note        String?
+
+  @@unique([caseId, memberId])
+  @@map("rnc_attendance")
+}
+
+model RncVote {
+  id     String  @id @default(cuid())
+  caseId String
+  case   RncCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  memberId String
+  member   RncMember @relation(fields: [memberId], references: [id])
+
+  /// APPROVE | REJECT | DEFER
+  vote    String
+  comment String?
+  castAt  DateTime @default(now())
+
+  @@unique([caseId, memberId])
+  @@map("rnc_votes")
 }
