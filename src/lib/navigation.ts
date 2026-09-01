@@ -97,6 +97,7 @@ export const NAV: NavGroup[] = [
       { label: "Costing (FIFO)", href: "/inventory/costing", icon: "inventory", perms: [P.INVENTORY_VIEW] },
       { label: "Replenishment", href: "/inventory/replenishment", icon: "inventory", perms: [P.INVENTORY_VIEW] },
       { label: "Stock counts", href: "/inventory/counts", icon: "verified", perms: [P.INVENTORY_VIEW] },
+      { label: "Employee returns", href: "/inventory/returns", icon: "return", perms: [P.INVENTORY_VIEW] },
       { label: "Transfers", href: "/transfers", icon: "transfer", perms: [P.INVENTORY_VIEW, P.STORE_TRANSFER] },
     ],
   },

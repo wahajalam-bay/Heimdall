@@ -129,6 +129,10 @@ model User {
   stockCountsCounted  StockCount[] @relation("StockCountCountedBy")
   stockCountsReviewed StockCount[] @relation("StockCountReviewedBy")
   stockCountsApproved StockCount[] @relation("StockCountApprovedBy")
+  employeeReturnsCreated   EmployeeReturn[] @relation("EmployeeReturnCreatedBy")
+  employeeReturnsMade      EmployeeReturn[] @relation("EmployeeReturnBy")
+  employeeReturnsReceived  EmployeeReturn[] @relation("EmployeeReturnReceivedBy")
+  employeeReturnsInspected EmployeeReturn[] @relation("EmployeeReturnInspectedBy")
   @@index([email])
   @@map("users")
 }
@@ -239,6 +243,7 @@ model Entity {
   negotiationMinutes NegotiationMinute[]
   workOrders WorkOrder[]
   stockCounts StockCount[]
+  employeeReturns EmployeeReturn[]
   @@map("entities")
 }
 
@@ -361,6 +366,7 @@ model Store {
   serialUnits SerialUnit[]
   costLayers CostLayer[]
   stockCounts StockCount[]
+  employeeReturns EmployeeReturn[]
   @@map("stores")
 }
 
@@ -481,6 +487,7 @@ model Item {
   serialUnits SerialUnit[]
   costLayers CostLayer[]
   stockCountLines StockCountLine[]
+  employeeReturnLines EmployeeReturnItem[]
   @@index([categoryId])
   @@map("items")
 }
@@ -2512,6 +2519,7 @@ model Asset {
   insurance AssetInsurance[]
 
   serialUnits SerialUnit[]
+  employeeReturnLines EmployeeReturnItem[]
   @@index([status])
   @@map("assets")
 }
@@ -4733,4 +4741,134 @@ model StockCountLine {
   @@unique([countId, lineNo])
   @@index([countId])
   @@map("stock_count_lines")
+}
+
+/// An employee handing something back to the store.
+///
+/// ZAM/PUR/SOP-01, Store Keeping, prints three routes into a store — New Items,
+/// **Employee Return**, and Asset Tagging — and gives the employee-return route
+/// its own flow:
+///
+/// > Store Receiving note · Inspection (**Only IT equipment will be inspected**)
+/// > · Fails inspection; sent to the Repair and Maintenance Dept · Pass
+/// > Inspection; Store Manager will proceed to the next step i.e. Stacking &
+/// > Inventory
+///
+/// The system had nothing for this. Custody sat on the asset and could be
+/// reassigned, which recorded that somebody else now holds it but not that
+/// anything came back, in what condition, or whether it was fit to reissue.
+///
+/// Two details from that flow are load-bearing.
+///
+/// **Only IT equipment is inspected.** So the inspection is conditional, and
+/// what makes it conditional is the item, not somebody's judgement on the day.
+/// A returned chair does not wait on an IT inspection it will never get.
+///
+/// **A failed inspection goes to Repair and Maintenance, not back on the
+/// shelf.** That is the whole point of inspecting: the alternative is a broken
+/// laptop reissued to the next joiner. So a failed unit is handed off and the
+/// hand-off is recorded, rather than the return simply being marked closed.
+model EmployeeReturn {
+  id     String @id @default(cuid())
+  number String @unique
+
+  storeId String
+  store   Store  @relation(fields: [storeId], references: [id])
+
+  entityId String?
+  entity   Entity? @relation(fields: [entityId], references: [id])
+
+  /// Who is handing it back. Held as a user where they are one, and by name
+  /// either way, because a leaver's account is often already disabled by the
+  /// time their equipment comes back.
+  returnedById String?
+  returnedBy   User?   @relation("EmployeeReturnBy", fields: [returnedById], references: [id])
+  returnedByName String
+  department     String?
+
+  /// RESIGNATION | TRANSFER | ROLE_CHANGE | UPGRADE | FAULTY | END_OF_PROJECT | OTHER
+  reason      String  @default("OTHER")
+  reasonNote  String?
+
+  /// DRAFT | RECEIVED | PENDING_INSPECTION | INSPECTION_FAILED | AT_REPAIR
+  /// | ACCEPTED | STACKED | CLOSED | CANCELLED
+  status String @default("DRAFT")
+
+  /// The Store Receiving Note — the first step of the SOP's flow.
+  srnNumber   String?
+  receivedById String?
+  receivedBy   User?     @relation("EmployeeReturnReceivedBy", fields: [receivedById], references: [id])
+  receivedAt   DateTime?
+  receiptNotes String?
+
+  /// Whether the IT inspection applies, decided from the items when the note is
+  /// raised and then held.
+  inspectionRequired Boolean @default(false)
+  inspectionId       String?
+  inspectedById      String?
+  inspectedBy        User?     @relation("EmployeeReturnInspectedBy", fields: [inspectedById], references: [id])
+  inspectedAt        DateTime?
+  inspectionResult   String?
+  inspectionNotes    String?
+
+  /// The Repair and Maintenance hand-off, for anything that failed.
+  repairHandoffAt   DateTime?
+  repairHandoffRef  String?
+  repairHandoffNote String?
+
+  stackedAt DateTime?
+  closedAt  DateTime?
+
+  createdById String
+  createdBy   User   @relation("EmployeeReturnCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items EmployeeReturnItem[]
+
+  @@index([storeId, status])
+  @@index([status])
+  @@map("employee_returns")
+}
+
+model EmployeeReturnItem {
+  id       String         @id @default(cuid())
+  returnId String
+  return   EmployeeReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+
+  lineNo Int
+
+  /// Either a tagged asset coming back, or a catalogue item, or something with
+  /// neither — a cable somebody was issued years ago. All three happen.
+  assetId String?
+  asset   Asset?  @relation(fields: [assetId], references: [id])
+  itemId  String?
+  item    Item?   @relation(fields: [itemId], references: [id])
+
+  description String
+  quantity    Float  @default(1)
+  unit        String @default("EA")
+  serialNumber String?
+
+  /// GOOD | USABLE | DAMAGED | FAULTY | BEYOND_REPAIR — what the store received,
+  /// as received, before any inspection.
+  condition      String  @default("GOOD")
+  conditionNotes String?
+
+  /// Set once the unit has been inspected, where inspection applies.
+  /// PASS | FAIL | NOT_INSPECTED
+  inspectionVerdict String?
+
+  /// STACK | REPAIR | DISPOSE | HOLD — where this unit went. Recorded per line,
+  /// because one return can hold a working monitor and a dead laptop.
+  disposition     String?
+  dispositionNote String?
+
+  /// The movement that took it back into stock, where it went back into stock.
+  movementTxnId String?
+
+  @@unique([returnId, lineNo])
+  @@index([returnId])
+  @@map("employee_return_items")
 }

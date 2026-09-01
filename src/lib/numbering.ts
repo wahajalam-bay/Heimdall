@@ -39,6 +39,7 @@ export const SEQ = {
   EXCEPTION: "EXC",
   INV_TXN: "ITX",
   STOCK_COUNT: "STC",
+  EMPLOYEE_RETURN: "ERN",
   ISSUE: "SIS",
   TRANSFER: "STR",
   ASSET: "AST",
