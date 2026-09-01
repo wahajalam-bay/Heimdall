@@ -48,6 +48,12 @@ export const NAV: NavGroup[] = [
         badge: "requirementsPending",
       },
       {
+        label: "Monthly repeat",
+        href: "/requirements/monthly",
+        icon: "calendar",
+        perms: [P.REQUIREMENT_VIEW, P.REQUIREMENT_CREATE],
+      },
+      {
         label: "Store Requisitions",
         href: "/issuance",
         icon: "issuance",
