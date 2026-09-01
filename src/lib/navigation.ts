@@ -178,6 +178,7 @@ export const NAV: NavGroup[] = [
       { label: "Exceptions", href: "/analytics/exceptions", icon: "issue", perms: [P.EXCEPTION_VIEW], badge: "exceptions" },
       { label: "Control calendar", href: "/analytics/controls", icon: "calendar", perms: [P.AUDIT_VIEW, P.ANALYTICS_VIEW] },
       { label: "Policies", href: "/policies", icon: "verified", perms: [P.DOCUMENT_VIEW, P.PR_VIEW] },
+      { label: "Policy reviews", href: "/policies/reviews", icon: "verified", perms: [P.AUDIT_VIEW, P.CONFIG_MANAGE] },
       { label: "Audit Trail", href: "/analytics/audit", icon: "audit", perms: [P.AUDIT_VIEW] },
       { label: "Reports", href: "/analytics/reports", icon: "report", perms: [P.EXPORT_DATA] },
     ],

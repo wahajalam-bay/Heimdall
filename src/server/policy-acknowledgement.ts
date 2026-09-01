@@ -101,7 +101,9 @@ export async function publishPolicy(
   for (const prior of priors) {
     await db.policyDocument.update({
       where: { id: prior.id },
-      data: { active: false, effectiveTo: input.effectiveFrom },
+      // SUPERSEDED rather than merely inactive, so the review register can ask
+      // for the published version without inferring it from dates.
+      data: { active: false, status: "SUPERSEDED", effectiveTo: input.effectiveFrom },
     });
   }
 
@@ -117,6 +119,8 @@ export async function publishPolicy(
       effectiveFrom: input.effectiveFrom,
       requiredRoleCodes: JSON.stringify(input.requiredRoleCodes ?? []),
       active: true,
+      status: "PUBLISHED",
+      publishedAt: new Date(),
       createdById: user.id,
     },
   });
