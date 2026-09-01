@@ -15,6 +15,8 @@ import { systemActor } from "@/lib/actor";
 import { rollControlCalendar, escalateOverdueExceptions } from "../src/server/controls";
 import { lapsePoAcknowledgements } from "../src/server/po";
 import { warnExpiringPrequalifications } from "../src/server/prequalification";
+import { raiseSplitCases } from "../src/server/split-detector";
+import { sweepContractExpiry } from "../src/server/contracts";
 
 async function main() {
   console.log("\nRecomputing rollups\n");
@@ -50,6 +52,16 @@ async function main() {
   const pq = await warnExpiringPrequalifications(scheduler, {}, prisma);
   console.log(
     `  pre-qualification expiry: ${pq.expired} expired, ${pq.expiring} expiring, ${pq.notified} notified`,
+  );
+
+  const splits = await raiseSplitCases(scheduler, {}, prisma);
+  console.log(
+    `  order-splitting detector: ${splits.found} pattern(s) found, ${splits.raised} case(s) raised, ${splits.alreadyOpen} already open`,
+  );
+
+  const contracts = await sweepContractExpiry(scheduler, prisma);
+  console.log(
+    `  contract expiry: ${contracts.expiring} entered their notice period, ${contracts.expired} expired, ${contracts.autoRenewing} of those renew automatically unless stopped`,
   );
 
   console.log("");

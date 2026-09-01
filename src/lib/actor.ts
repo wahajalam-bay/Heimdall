@@ -55,6 +55,8 @@ export const DOMAIN_ACTIONS = {
   PQ_EXPIRY_WARN: "prequalification.expiryWarn",
   CONTROL_CALENDAR_ROLL: "control.calendarRoll",
   EXCEPTION_ESCALATE: "exception.escalate",
+  SPLIT_DETECT: "compliance.splitDetect",
+  CONTRACT_EXPIRY_SWEEP: "contract.expirySweep",
   VENDOR_RETURN_CREATE: "vendorReturn.create",
   PO_FULFILMENT_RECOMPUTE: "po.fulfilmentRecompute",
   PO_ACK_LAPSE: "po.acknowledgementLapse",
@@ -90,6 +92,8 @@ const SYSTEM_GRANTS: Record<SystemPurpose, readonly DomainAction[]> = {
     DOMAIN_ACTIONS.PQ_EXPIRY_WARN,
     DOMAIN_ACTIONS.CONTROL_CALENDAR_ROLL,
     DOMAIN_ACTIONS.EXCEPTION_ESCALATE,
+    DOMAIN_ACTIONS.SPLIT_DETECT,
+    DOMAIN_ACTIONS.CONTRACT_EXPIRY_SWEEP,
   ],
   /** One-off backfills run from `scripts/`, never from a request. */
   MIGRATION: [DOMAIN_ACTIONS.ALLOCATION_BACKFILL],

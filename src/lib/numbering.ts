@@ -17,6 +17,7 @@ export const SEQ = {
   NEGOTIATION_MINUTE: "NGM",
   PO: "PO",
   WORK_ORDER: "WO",
+  CONTRACT: "CTR",
   GATE_PASS: "GP",
   SERVICE_ACCEPTANCE: "SAC",
   DELIVERY: "DLV",

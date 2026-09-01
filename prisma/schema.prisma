@@ -137,6 +137,9 @@ model User {
   exceptionsEscalatedTo  Exception[]  @relation("ExceptionEscalatedTo")
   controlRunsPerformed   ControlRun[] @relation("ControlRunPerformedBy")
   controlRunsWaived      ControlRun[] @relation("ControlRunWaivedBy")
+  contractsCreated  Contract[]      @relation("ContractCreatedBy")
+  contractsSigned   Contract[]      @relation("ContractSignatory")
+  contractEvents    ContractEvent[] @relation("ContractEventActor")
   @@index([email])
   @@map("users")
 }
@@ -249,6 +252,7 @@ model Entity {
   stockCounts StockCount[]
   employeeReturns EmployeeReturn[]
   controlDefinitions ControlDefinition[]
+  contracts Contract[]
   @@map("entities")
 }
 
@@ -756,6 +760,7 @@ model PurchaseRequisition {
 
   negotiationMinutes NegotiationMinute[]
   workOrders WorkOrder[]
+  contracts Contract[]
   @@index([entityId, status])
   @@index([status])
   @@map("purchase_requisitions")
@@ -2262,6 +2267,7 @@ model Vendor {
   negotiationMinutes NegotiationMinute[] 
   negotiationAppearances NegotiationParticipant[]
   workOrders WorkOrder[]
+  contracts Contract[]
   @@index([status])
   @@map("vendors")
 }
@@ -4989,4 +4995,144 @@ model ControlRun {
   @@unique([definitionId, periodLabel])
   @@index([status, dueAt])
   @@map("control_runs")
+}
+
+/// Contracts and agreements.
+///
+/// ZAM/PUR/SOP-01 §4.6: "Procurement department will **solely** be authorized to
+/// issue purchase order, **contract, agreement** or any other related documents
+/// mentioning all necessary details related to payment term, delivery location,
+/// etc with the signature of Manager Procurement or other authorized signatory."
+///
+/// The system had purchase orders and nothing else. A twelve-month AMC lived as
+/// either a single purchase order — which closes when its first invoice is paid,
+/// taking the obligation with it — or as nothing at all.
+///
+/// The CPC's mandate names the types: "SLA · Service Contracts · AMC (Annual
+/// Maintenance contract) · Buildouts · Onetime Purchases", and the committee
+/// approves any contract over PKR 500,000 "based on technical, financial and
+/// legal implications". So the type is a real classification with real
+/// consequences, not a label.
+///
+/// ## What a contract is that a purchase order is not
+///
+/// A **standing obligation with an end date**. That is the whole distinction, and
+/// it produces the two things this model exists for: an expiry that has to be
+/// seen coming, and a value that is drawn down over time by many orders rather
+/// than consumed by one.
+model Contract {
+  id     String @id @default(cuid())
+  number String @unique
+
+  entityId String
+  entity   Entity @relation(fields: [entityId], references: [id])
+
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
+
+  title       String
+  description String?
+
+  /// SLA | SERVICE_CONTRACT | AMC | BUILDOUT | ONE_TIME | RENTAL | FRAMEWORK | OTHER
+  ///
+  /// The first five are the CPC mandate's own list. RENTAL is here because the
+  /// SOP gives rental agreements their own committee, and FRAMEWORK because a
+  /// rate agreement with no committed value is a real thing that is none of the
+  /// others. OTHER exists so nothing has to be mislabelled to be recorded.
+  contractType String @default("SERVICE_CONTRACT")
+
+  /// DRAFT | PENDING_REVIEW | PENDING_APPROVAL | APPROVED | PENDING_SIGNATURE
+  /// | ACTIVE | EXPIRING | EXPIRED | RENEWED | SUSPENDED | TERMINATED | CLOSED
+  ///
+  /// Twelve states, each a distinct condition somebody would describe
+  /// differently. EXPIRING is not cosmetic: a contract inside its notice period
+  /// needs a decision, and one that has run out needs a different one.
+  status String @default("DRAFT")
+
+  currency String @default("PKR")
+  /// What the contract commits to, where it commits to an amount. A framework
+  /// agreement on rates commits to none, and a zero here means exactly that
+  /// rather than "unknown".
+  contractValue Float?
+  /// Drawn down by the orders raised against it.
+  committedValue Float @default(0)
+
+  startDate DateTime?
+  endDate   DateTime?
+
+  /// Days before `endDate` at which the contract starts asking for a decision.
+  noticeDays Int @default(60)
+
+  /// Whether it rolls on unless somebody stops it. An auto-renewing contract
+  /// nobody is watching is the one that costs money after it stops being needed.
+  autoRenew      Boolean @default(false)
+  renewalOfId    String?
+  renewalOf      Contract?  @relation("ContractRenewal", fields: [renewalOfId], references: [id])
+  renewals       Contract[] @relation("ContractRenewal")
+
+  paymentTerms     String?
+  deliveryLocation String?
+  legalTerms       String?
+  slaTerms         String?
+
+  /// §4.6 — the authorised signatory who issued it, and when.
+  authorisedSignatoryId String?
+  authorisedSignatory   User?     @relation("ContractSignatory", fields: [authorisedSignatoryId], references: [id])
+  signedAt              DateTime?
+  vendorSignedAt        DateTime?
+  vendorSignatoryName   String?
+
+  /// The committee case, where the value took it to one. Held so a contract can
+  /// show its own approval rather than the approval having to be found.
+  cpcCaseId String?
+  prId      String?
+  pr        PurchaseRequisition? @relation(fields: [prId], references: [id])
+
+  /// Set when the committee's approval was required and obtained, decided from
+  /// the value at the moment the contract was raised and then held.
+  committeeRequired Boolean @default(false)
+
+  terminatedAt     DateTime?
+  terminationReason String?
+  closedAt         DateTime?
+  statusReason     String?
+
+  createdById String
+  createdBy   User   @relation("ContractCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events ContractEvent[]
+
+  @@index([status, endDate])
+  @@index([vendorId])
+  @@map("contracts")
+}
+
+/// One thing that happened to a contract.
+///
+/// Kept as its own trail rather than only in the audit log, because a contract's
+/// history is a business document people read — when it was signed, when it was
+/// renewed, when somebody was warned it was running out — and an audit log is a
+/// forensic record that happens to contain that.
+model ContractEvent {
+  id         String   @id @default(cuid())
+  contractId String
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  /// CREATED | REVIEWED | APPROVED | SIGNED | ACTIVATED | NOTICE_GIVEN
+  /// | EXPIRY_WARNED | RENEWED | SUSPENDED | RESUMED | TERMINATED | CLOSED | AMENDED
+  eventType String
+  fromStatus String?
+  toStatus   String?
+  note       String?
+
+  actorId String?
+  actor   User?   @relation("ContractEventActor", fields: [actorId], references: [id])
+
+  occurredAt DateTime @default(now())
+
+  @@index([contractId, occurredAt])
+  @@map("contract_events")
 }

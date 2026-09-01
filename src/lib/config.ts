@@ -28,6 +28,9 @@ export const CONFIG_KEYS = {
   MIN_STOCK_MIN_MOVEMENTS: "inventory.min_stock_min_movements",
   // Scrap Material Policy evidence — ZAM/PUR/SOP-01 disposal procedure.
   ENFORCE_DISPOSAL_EVIDENCE: "disposal.enforce_evidence",
+  // PO splitting detector.
+  SPLIT_WINDOW_DAYS: "compliance.split_window_days",
+  SPLIT_MIN_ORDERS: "compliance.split_min_orders",
   // Price Competitiveness Policy — ZAM/PUR/SOP-01.
   ENFORCE_PRICE_COMPETITIVENESS: "sourcing.enforce_price_competitiveness",
   // Purchase order acknowledgement — ZAM §4.6.
@@ -1094,6 +1097,25 @@ export const CONFIG_DEFS: ConfigDef[] = [
     group: "Assets",
     valueType: "boolean",
     default: false,
+  },
+
+  {
+    key: CONFIG_KEYS.SPLIT_WINDOW_DAYS,
+    label: "Order-splitting window (days)",
+    description:
+      "How close together orders to one vendor have to be before the detector treats them as one pattern. Too long and every regular supplier looks like a split; too short and a genuine split slips between windows.",
+    group: "Governance",
+    valueType: "number",
+    default: 30,
+  },
+  {
+    key: CONFIG_KEYS.SPLIT_MIN_ORDERS,
+    label: "Orders needed before a split is flagged",
+    description:
+      "How many below-threshold orders to one vendor inside the window before a compliance case is raised. Two is the minimum that can be a split at all.",
+    group: "Governance",
+    valueType: "number",
+    default: 2,
   },
 
   /* ── Inventory costing ───────────────────────────────────────────────── */

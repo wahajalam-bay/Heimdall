@@ -91,6 +91,7 @@ export const NAV: NavGroup[] = [
       },
       { label: "Open POs", href: "/open-pos", icon: "clock", perms: [P.PO_VIEW], badge: "openPo" },
       { label: "Work orders", href: "/work-orders", icon: "order", perms: [P.WORK_ORDER_VIEW] },
+      { label: "Contracts", href: "/contracts", icon: "verified", perms: [P.PO_VIEW] },
       { label: "Stores", href: "/stores", icon: "store", perms: [P.INVENTORY_VIEW] },
       { label: "Inventory", href: "/inventory", icon: "inventory", perms: [P.INVENTORY_VIEW] },
       { label: "Ageing & Expiry", href: "/inventory/ageing", icon: "inventory", perms: [P.INVENTORY_VIEW] },
