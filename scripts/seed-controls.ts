@@ -130,12 +130,9 @@ const CONTROLS: Row[] = [
     frequency: "QUARTERLY",
     ownerRoleCode: "SYSTEM_ADMIN",
     graceDays: 21,
-    actionUrl: "/admin/users",
+    actionUrl: "/admin/access-review",
     sourceReference:
       "Meeting requirements — quarterly access review as a decision record. Not in ZAM/PUR/SOP-01.",
-    // The review needs somewhere to record the decision, and that screen does
-    // not exist yet. Listed rather than run, so the calendar shows the gap.
-    awaitingRollout: true,
   },
   {
     code: "SOD-REVIEW",
@@ -145,10 +142,9 @@ const CONTROLS: Row[] = [
     frequency: "HALF_YEARLY",
     ownerRoleCode: "AUDIT_USER",
     graceDays: 21,
-    actionUrl: "/admin/roles",
+    actionUrl: "/admin/access-review",
     sourceReference:
-      "Meeting requirements — segregation-of-duties configuration and report. The three per-transaction separations are enforced; the standing report is not built.",
-    awaitingRollout: true,
+      "Meeting requirements — segregation-of-duties configuration and report. The three per-transaction separations are enforced on every document; the standing report shows who holds both sides of one.",
   },
 ];
 
