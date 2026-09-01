@@ -529,6 +529,11 @@ model Item {
   invoiceItems     InvoiceItem[]
   pettyCashItems   PettyCashItem[]
   stacking         GoodsStacking[]
+
+  /// RC-016 — which of Annexure 5's ten stacking categories this belongs to.
+  /// Separate from `categoryId`, which is the procurement taxonomy.
+  stackingCategoryId String?
+  stackingCategory   StackingCategory? @relation(fields: [stackingCategoryId], references: [id])
   disposalItems    DisposalItem[]
 
   requirementItems RequirementItem[]
@@ -1589,6 +1594,20 @@ model DeliveryItem {
   specificationMatch Boolean @default(true)
   conditionNotes     String?
 
+  /// ── RC-003 · bulk receipts, box by box ──────────────────────────────────
+  ///
+  /// "For bulk receipts, packing method verified and each box checked against
+  /// delivery documents." A package count on its own does not say that: eighteen
+  /// packages received tells you nothing about whether anyone opened them.
+  ///
+  /// So the check is its own fact. `boxesChecked` against `packages` is the
+  /// coverage, and a bulk line where they differ is a line somebody signed for
+  /// without looking — which is the practice the clause exists to stop.
+  packingMethodVerified Boolean @default(false)
+  boxesChecked          Int?
+  boxCheckNotes         String?
+  boxesWithDiscrepancy  Int?
+
   /// OK | QUANTITY_MISMATCH | DAMAGED | WRONG_ITEM | WRONG_SPEC | EXPIRED | MISSING_SERIAL | MISSING_WARRANTY | SHORT_DELIVERY | EXCESS_DELIVERY
   discrepancyType  String  @default("OK")
   discrepancyNotes String?
@@ -1809,6 +1828,12 @@ model GoodsStacking {
   /// GENERAL | HIGH_VALUE | SENSITIVE | HAZARDOUS | PROJECT_MATERIAL
   goodsClass           String   @default("GENERAL")
   handlingRequirements String?
+
+  /// RC-016 — the stacking category applied, snapshotted from the item at the
+  /// time of stacking. Held on the row because a later reclassification of the
+  /// item must not rewrite where this consignment was actually put.
+  stackingCategoryId String?
+  stackingCategory   StackingCategory? @relation(fields: [stackingCategoryId], references: [id])
   stackedById          String
   stackedBy            User     @relation("StackedBy", fields: [stackedById], references: [id])
   stackedAt            DateTime @default(now())
@@ -6064,4 +6089,49 @@ model CpcAttendance {
 
   @@unique([caseId, memberId])
   @@map("cpc_attendance")
+}
+
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Stacking taxonomy  ·  RC-016 · Annexure 5 Table 1.1
+
+   "Table 1.1 Main Categories for Stacking of Goods" names ten: Electronics,
+   Hardware, Grocery, Housekeeping, Stationery, Giveaways, IT Equipment,
+   Furniture & Fixture, Branding Material, Printing Material.
+
+   This is a *second* dimension, not the procurement category tree. The two
+   answer different questions — the catalogue category decides who inspects and
+   how it is accounted for; the stacking category decides where in the warehouse
+   it goes and what it may be stacked beside. Collapsing them would force one
+   taxonomy to serve both, which is why the existing category tree does not match
+   the table.
+   ───────────────────────────────────────────────────────────────────────── */
+
+model StackingCategory {
+  id       String @id @default(cuid())
+  code     String @unique
+  name     String
+  sequence Int    @default(0)
+
+  /// Annexure 5's own guidance for this class of goods, so the storekeeper is
+  /// told what the rule is at the point of stacking rather than having to
+  /// remember the annexure.
+  guidance String?
+
+  /// Annexure 5: "handsets, laptops and high-value goods in strong
+  /// cabinets/strong rooms with entry/exit management".
+  requiresSecureStorage Boolean @default(false)
+  /// Annexure 5: "liquids on wooden pallets".
+  requiresPallet        Boolean @default(false)
+  /// Annexure 5: "not near wires/electrical appliances".
+  keepFromElectrical    Boolean @default(false)
+  /// Annexure 5: "heavy goods at ground level".
+  groundLevelOnly       Boolean @default(false)
+
+  active Boolean @default(true)
+
+  items    Item[]
+  stacking GoodsStacking[]
+
+  @@map("stacking_categories")
 }
