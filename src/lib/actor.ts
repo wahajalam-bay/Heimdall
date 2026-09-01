@@ -57,6 +57,7 @@ export const DOMAIN_ACTIONS = {
   EXCEPTION_ESCALATE: "exception.escalate",
   SPLIT_DETECT: "compliance.splitDetect",
   CONTRACT_EXPIRY_SWEEP: "contract.expirySweep",
+  DELEGATION_SWEEP: "delegation.sweep",
   VENDOR_RETURN_CREATE: "vendorReturn.create",
   PO_FULFILMENT_RECOMPUTE: "po.fulfilmentRecompute",
   PO_ACK_LAPSE: "po.acknowledgementLapse",
@@ -94,6 +95,7 @@ const SYSTEM_GRANTS: Record<SystemPurpose, readonly DomainAction[]> = {
     DOMAIN_ACTIONS.EXCEPTION_ESCALATE,
     DOMAIN_ACTIONS.SPLIT_DETECT,
     DOMAIN_ACTIONS.CONTRACT_EXPIRY_SWEEP,
+    DOMAIN_ACTIONS.DELEGATION_SWEEP,
   ],
   /** One-off backfills run from `scripts/`, never from a request. */
   MIGRATION: [DOMAIN_ACTIONS.ALLOCATION_BACKFILL],

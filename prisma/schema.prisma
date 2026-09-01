@@ -140,6 +140,13 @@ model User {
   contractsCreated  Contract[]      @relation("ContractCreatedBy")
   contractsSigned   Contract[]      @relation("ContractSignatory")
   contractEvents    ContractEvent[] @relation("ContractEventActor")
+  delegationsGranted  Delegation[]     @relation("DelegationFrom")
+  delegationsHeld     Delegation[]     @relation("DelegationTo")
+  delegationsRecorded Delegation[]     @relation("DelegationRecordedBy")
+  delegationsRevoked  Delegation[]     @relation("DelegationRevokedBy")
+  delegationUses      DelegationUse[]  @relation("DelegationUsedBy")
+  policiesCreated     PolicyDocument[] @relation("PolicyCreatedBy")
+  policyAcks          PolicyAcknowledgement[] @relation("PolicyAcknowledgedBy")
   @@index([email])
   @@map("users")
 }
@@ -253,6 +260,8 @@ model Entity {
   employeeReturns EmployeeReturn[]
   controlDefinitions ControlDefinition[]
   contracts Contract[]
+  delegations    Delegation[]
+  policyDocuments PolicyDocument[]
   @@map("entities")
 }
 
@@ -5135,4 +5144,176 @@ model ContractEvent {
 
   @@index([contractId, occurredAt])
   @@map("contract_events")
+}
+
+/// A recorded delegation of authority.
+///
+/// The meeting requirements ask for delegation and proxy that is **provable**,
+/// rather than "someone else holds the permission". Today the only way to keep
+/// approvals moving while an approver is away is to give somebody their role —
+/// which is permanent until removed, invisible afterwards, and indistinguishable
+/// from that person having always held it.
+///
+/// A delegation is instead a dated grant from one named person to another,
+/// bounded in time and scope, and every act taken under it says so.
+///
+/// ## Four things that make it a control rather than a shortcut
+///
+/// **It is bounded in time.** A delegation with no end date is a role
+/// reassignment wearing a delegation's name, so `validTo` is required.
+///
+/// **It is granted by the person whose authority it is.** Somebody delegating an
+/// authority they do not hold is not delegating, and an administrator handing out
+/// somebody else's authority is not either — so a grant needs a reason and names
+/// who recorded it separately from whose authority it is.
+///
+/// **It is scoped.** A delegation of purchase-order approval is not a delegation
+/// of everything, and an "all authority" delegation is the thing that makes
+/// separation of duties unenforceable for its duration.
+///
+/// **Acts under it are attributed to both.** The delegate acted; the delegator's
+/// authority was used. An approval that records only one of those cannot be
+/// audited.
+model Delegation {
+  id String @id @default(cuid())
+
+  /// Whose authority is being lent.
+  delegatorId String
+  delegator   User   @relation("DelegationFrom", fields: [delegatorId], references: [id])
+  /// Who may use it.
+  delegateId  String
+  delegate    User   @relation("DelegationTo", fields: [delegateId], references: [id])
+
+  entityId String?
+  entity   Entity? @relation(fields: [entityId], references: [id])
+
+  /// The permissions being lent, as JSON. Empty is refused: a delegation of
+  /// nothing is not a delegation, and a delegation of everything is what makes
+  /// segregation of duties unenforceable while it lasts.
+  permissions String @default("[]")
+
+  /// Optional narrowing to particular document types, e.g. ["PR","PO"].
+  documentTypes String @default("[]")
+
+  /// A ceiling on what may be approved under it, where one applies. Null means
+  /// the delegator's own limits stand.
+  valueLimit Float?
+
+  validFrom DateTime
+  validTo   DateTime
+
+  reason String
+
+  /// PENDING | ACTIVE | EXPIRED | REVOKED
+  status String @default("ACTIVE")
+
+  /// Who entered it, which is not necessarily whose authority it is.
+  recordedById String
+  recordedBy   User   @relation("DelegationRecordedBy", fields: [recordedById], references: [id])
+
+  revokedById String?
+  revokedBy   User?     @relation("DelegationRevokedBy", fields: [revokedById], references: [id])
+  revokedAt   DateTime?
+  revokeReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  uses DelegationUse[]
+
+  @@index([delegateId, status])
+  @@index([delegatorId, status])
+  @@index([status, validTo])
+  @@map("delegations")
+}
+
+/// One act taken under a delegation.
+///
+/// Recorded so the delegation is provable after the fact. An approval given
+/// under borrowed authority that does not say so is indistinguishable from one
+/// given by somebody who held the authority outright, and that is precisely the
+/// distinction an auditor is looking for.
+model DelegationUse {
+  id           String     @id @default(cuid())
+  delegationId String
+  delegation   Delegation @relation(fields: [delegationId], references: [id], onDelete: Cascade)
+
+  action       String
+  documentType String
+  documentId   String
+  documentRef  String?
+
+  usedById String
+  usedBy   User   @relation("DelegationUsedBy", fields: [usedById], references: [id])
+  usedAt   DateTime @default(now())
+
+  @@index([delegationId, usedAt])
+  @@index([documentType, documentId])
+  @@map("delegation_uses")
+}
+
+/// Somebody's acknowledgement of a specific version of a policy.
+///
+/// The meeting requirements ask for acknowledgement "tied to the exact version",
+/// which is the whole point: an acknowledgement of "the procurement policy" says
+/// nothing once the policy changes, and everybody's acknowledgement silently
+/// becomes an acknowledgement of a document they never read.
+model PolicyDocument {
+  id   String @id @default(cuid())
+  code String
+  /// The version acknowledged. `code` plus `version` is what somebody signs.
+  version String
+
+  title       String
+  summary     String?
+  /// What changed in this version, so an acknowledgement of it means something
+  /// more than "I clicked".
+  changeNote  String?
+
+  entityId String?
+  entity   Entity? @relation(fields: [entityId], references: [id])
+
+  /// The document itself, where one is attached.
+  documentId String?
+
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+
+  /// Roles that must acknowledge it. Empty means everybody.
+  requiredRoleCodes String @default("[]")
+
+  active Boolean @default(true)
+
+  createdById String
+  createdBy   User   @relation("PolicyCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  acknowledgements PolicyAcknowledgement[]
+
+  @@unique([code, version, entityId])
+  @@index([active, effectiveFrom])
+  @@map("policy_documents")
+}
+
+model PolicyAcknowledgement {
+  id       String         @id @default(cuid())
+  policyId String
+  policy   PolicyDocument @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("PolicyAcknowledgedBy", fields: [userId], references: [id])
+
+  /// The office held when they acknowledged it, captured rather than joined —
+  /// an acknowledgement is a statement by a person in a role at a moment.
+  roleAtAcknowledgement String?
+
+  acknowledgedAt DateTime @default(now())
+  ip             String?
+  userAgent      String?
+
+  @@unique([policyId, userId])
+  @@index([userId])
+  @@map("policy_acknowledgements")
 }

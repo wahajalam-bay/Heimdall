@@ -17,6 +17,7 @@ import { lapsePoAcknowledgements } from "../src/server/po";
 import { warnExpiringPrequalifications } from "../src/server/prequalification";
 import { raiseSplitCases } from "../src/server/split-detector";
 import { sweepContractExpiry } from "../src/server/contracts";
+import { sweepDelegations } from "../src/server/delegation";
 
 async function main() {
   console.log("\nRecomputing rollups\n");
@@ -62,6 +63,11 @@ async function main() {
   const contracts = await sweepContractExpiry(scheduler, prisma);
   console.log(
     `  contract expiry: ${contracts.expiring} entered their notice period, ${contracts.expired} expired, ${contracts.autoRenewing} of those renew automatically unless stopped`,
+  );
+
+  const delegations = await sweepDelegations(scheduler, prisma);
+  console.log(
+    `  delegations: ${delegations.activated} came into force, ${delegations.expired} expired`,
   );
 
   console.log("");

@@ -174,6 +174,7 @@ export const NAV: NavGroup[] = [
     items: [
       { label: "Users", href: "/admin/users", icon: "users", perms: [P.USER_MANAGE] },
       { label: "Roles & Permissions", href: "/admin/roles", icon: "roles", perms: [P.ROLE_MANAGE] },
+      { label: "Delegations", href: "/admin/delegations", icon: "users", perms: [P.USER_MANAGE, P.ROLE_MANAGE, P.AUDIT_VIEW] },
       { label: "Organogram", href: "/admin/organogram", icon: "users", perms: [P.USER_MANAGE, P.MASTER_VIEW] },
       { label: "Entities", href: "/admin/entities", icon: "entities", perms: [P.MASTER_DATA_MANAGE] },
       { label: "Departments", href: "/admin/departments", icon: "departments", perms: [P.MASTER_DATA_MANAGE] },
