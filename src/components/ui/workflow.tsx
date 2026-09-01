@@ -300,6 +300,10 @@ export function ApprovalTrailView({
       dueAt: Date | null;
       actedAt: Date | null;
       overdue: boolean;
+      escalationLevel?: number;
+      escalatedAt?: Date | null;
+      escalatedToName?: string | null;
+      overdueHours?: number | null;
     }>;
   }>;
 }) {
@@ -359,6 +363,18 @@ export function ApprovalTrailView({
                   {s.comment && (
                     <p className="mt-1 rounded-sm border-l-2 border-[var(--c-border-strong)] bg-surface-secondary px-2 py-1 text-xs leading-5 text-muted">
                       {s.comment}
+                    </p>
+                  )}
+                  {/* Escalation says who was told, and says plainly that they
+                      cannot decide it — otherwise the line reads as a handover
+                      and the approver looks relieved of the step. */}
+                  {(s.escalationLevel ?? 0) > 0 && (
+                    <p className="mt-1 text-2xs leading-4 text-[var(--c-warning)]">
+                      Escalated{s.escalationLevel && s.escalationLevel > 1 ? ` ×${s.escalationLevel}` : ""}
+                      {s.escalatedToName ? ` to ${s.escalatedToName}` : ""}
+                      {s.escalatedAt ? ` on ${fmtDateTime(s.escalatedAt)}` : ""}
+                      {s.overdueHours != null ? ` — ${s.overdueHours}h past its deadline` : ""}. Still awaiting the
+                      assigned approver; escalation tells somebody above them, it does not move the decision.
                     </p>
                   )}
                 </div>

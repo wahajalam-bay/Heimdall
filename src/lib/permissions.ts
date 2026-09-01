@@ -91,6 +91,14 @@ export const PERMISSIONS = {
   /// puts the case up, the committee resolves it.
   CPC_CASE_RAISE: "cpc.case_raise",
   CPC_DECIDE: "cpc.decide",
+  /**
+   * PC-023 — the Office of the CEO above the value tier.
+   *
+   * Deliberately not held by any committee role. The committee approving on
+   * the CEO's behalf is the substitution the second approval exists to
+   * prevent, and a permission both offices hold cannot tell the two apart.
+   */
+  CPC_CEO_APPROVE: "cpc.ceoApprove",
   CPC_MANAGE: "cpc.manage",
 
   // Purchase orders
@@ -260,6 +268,10 @@ export const PERMISSION_META: Record<string, PermMeta> = {
   [PERMISSIONS.CPC_VIEW]: { group: "CPC", name: "View CPC cases" },
   [PERMISSIONS.CPC_CASE_RAISE]: { group: "CPC", name: "Raise a case for the committee" },
   [PERMISSIONS.CPC_DECIDE]: { group: "CPC", name: "Cast CPC decision" },
+  [PERMISSIONS.CPC_CEO_APPROVE]: {
+    group: "CPC",
+    name: "Approve as the Office of the CEO (above the value tier)",
+  },
   [PERMISSIONS.CPC_MANAGE]: { group: "CPC", name: "Manage CPC meetings & agenda" },
   [PERMISSIONS.PO_VIEW]: { group: "Purchase Orders", name: "View purchase orders" },
   [PERMISSIONS.PO_CREATE]: { group: "Purchase Orders", name: "Create purchase order" },
@@ -973,6 +985,29 @@ export const ROLE_DEFINITIONS: Array<{
       P.AUDIT_VIEW,
       P.DOCUMENT_VIEW,
       P.DOCUMENT_VIEW_CONFIDENTIAL,
+      P.EXCEPTION_VIEW,
+    ],
+  },
+  {
+    code: "CEO_OFFICE",
+    name: "Office of the CEO",
+    description:
+      "PC-023's second approval above the value tier. Ships with nobody in it: who constitutes the Office of the CEO is a decision for the business, and seeding a plausible name would be inventing an approver. The access review lists roles nobody holds, so the gap is visible rather than silent, and the enforcement flag stays off until somebody is named.",
+    rank: 95,
+    permissions: [
+      P.PR_VIEW,
+      P.PR_VIEW_ALL,
+      P.PO_VIEW,
+      P.COMPARATIVE_VIEW,
+      P.QUOTE_VIEW,
+      P.VENDOR_VIEW,
+      P.CPC_VIEW,
+      // The one permission that is the point of this role, and which no
+      // committee role holds.
+      P.CPC_CEO_APPROVE,
+      P.ANALYTICS_VIEW,
+      P.ANALYTICS_VIEW_ALL_ENTITIES,
+      P.DOCUMENT_VIEW,
       P.EXCEPTION_VIEW,
     ],
   },

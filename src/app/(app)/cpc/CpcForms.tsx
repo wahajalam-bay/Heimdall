@@ -8,6 +8,7 @@ import { humanize } from "@/lib/domain";
 import { money } from "@/lib/format";
 import {
   castVoteAction,
+  recordCeoDecisionAction,
   recordMinutesAction,
   resolveCaseAction,
   scheduleMeetingAction,
@@ -351,6 +352,76 @@ export function MinutesForm({
               meeting leaves them open — they will need to be decided or moved to the next sitting.
             </InlineAlert>
           )}
+        </ActionForm>
+      </Modal>
+    </>
+  );
+}
+
+/**
+ * The Office of the CEO's decision on a case the committee already approved.
+ *
+ * Kept visibly separate from the committee's own outcome form. It is a different
+ * office giving a different approval, and a shared control would invite the
+ * substitution PC-023's second approval exists to prevent.
+ */
+export function CeoDecisionForm({
+  caseId,
+  number,
+  amount,
+  threshold,
+}: {
+  caseId: string;
+  number: string;
+  amount: string;
+  threshold: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [decision, setDecision] = useState("APPROVED");
+
+  return (
+    <>
+      <button type="button" className="btn btn-primary btn-sm" onClick={() => setOpen(true)}>
+        Record the CEO&rsquo;s decision
+      </button>
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title={`Office of the CEO — ${number}`}
+        description={`The committee has approved this case. PC-023 requires the Office of the CEO above ${threshold}, and this award is ${amount}. Approving releases the requisition to PO preparation; declining returns it to procurement.`}
+        size="lg"
+      >
+        <ActionForm
+          action={recordCeoDecisionAction}
+          layout="bare"
+          submitLabel="Record the decision"
+          hiddenFields={{ caseId, decision }}
+          secondary={
+            <button type="button" className="btn btn-secondary" onClick={() => setOpen(false)}>
+              Cancel
+            </button>
+          }
+        >
+          <FormSection columns={1}>
+            <Field label="Decision" name="decisionChoice" required>
+              <Select
+                name="decisionChoice"
+                value={decision}
+                onChange={(e) => setDecision(e.currentTarget.value)}
+                options={[
+                  { value: "APPROVED", label: "Approved" },
+                  { value: "REJECTED", label: "Declined" },
+                ]}
+              />
+            </Field>
+            <Field
+              label="Note"
+              name="comment"
+              hint="Required when declining. A purchase of this size turned down without a reason cannot be acted on by whoever has to find an alternative."
+            >
+              <TextArea name="comment" rows={3} />
+            </Field>
+          </FormSection>
         </ActionForm>
       </Modal>
     </>

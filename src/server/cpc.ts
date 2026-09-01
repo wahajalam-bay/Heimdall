@@ -280,6 +280,16 @@ export async function createCpcCase(
   const number = await nextNumber(SEQ.CPC_CASE, db);
   const members = await resolveMembers(comparative.prId, db);
 
+  // PC-023's tier, snapshotted now. The threshold is configuration and moves; a
+  // case decided under the old tier must not be retrospectively found wanting,
+  // and one raised above the tier must not escape by the tier later being lifted.
+  const tier = await cpcRequirement(
+    comparative.pr.entityId,
+    selected.netTotal,
+    comparative.pr.procurementType,
+    db,
+  );
+
   const meeting = input.scheduleMeeting === false ? null : await ensureUpcomingMeeting(user, comparative.pr.entityId, db, {
           cascade: "case raised for the committee",
           from: [P.CPC_CASE_RAISE, P.CPC_MANAGE],
@@ -299,6 +309,8 @@ export async function createCpcCase(
         `Award to ${selected.vendor.name} at PKR ${selected.netTotal.toLocaleString("en-PK")}. ${comparative.recommendationBasis ?? ""}`.trim(),
       riskNotes: input.riskNotes ?? comparative.nonLowestJustification ?? null,
       status: meeting ? "SCHEDULED" : "PENDING",
+      ceoApprovalRequired: tier.ceoRequired,
+      ceoThresholdAtRaise: tier.ceoRequired ? tier.ceoThreshold : null,
       members: { create: members.map((m) => ({ userId: m.userId, roleLabel: m.roleLabel, required: m.required })) },
     },
   });
@@ -465,6 +477,117 @@ export async function castCpcDecision(
 }
 
 /** Applies the committee's conclusion to the case and the requisition. */
+
+/**
+ * The Office of the CEO's decision on a case the committee already approved.
+ *
+ * PC-023 puts a second approval above the value tier. It is a separate act by a
+ * separate office, so it is a separate function and a separate permission — not
+ * another vote on the committee's roster, and not something the committee can
+ * cast on the CEO's behalf.
+ *
+ * Approving here releases the requisition to purchase order preparation, which
+ * is what the committee's own approval would have done below the tier. Rejecting
+ * returns the case rather than killing the requisition: the CEO declining an
+ * award is a decision about the award, and procurement may come back with
+ * another.
+ */
+export async function recordCeoDecision(
+  user: SessionUser,
+  input: { caseId: string; decision: "APPROVED" | "REJECTED"; comment?: string | null },
+  db: DbClient = prisma,
+) {
+  if (!["APPROVED", "REJECTED"].includes(input.decision)) {
+    throw new ValidationError("Say whether the Office of the CEO approved or rejected the case.");
+  }
+  // Declining a purchase of this size needs a reason on the record. Approving
+  // one does not — the committee's papers are the reasoning.
+  if (input.decision === "REJECTED" && !input.comment?.trim()) {
+    throw new ValidationError("Say why the Office of the CEO declined the award.");
+  }
+
+  const kase = await db.cpcCase.findUnique({
+    where: { id: input.caseId },
+    include: { pr: true },
+  });
+  if (!kase) throw new NotFoundError("CPC case");
+
+  assertAuthority(user, DOMAIN_ACTIONS.CPC_CEO_DECIDE, { permission: [P.CPC_CEO_APPROVE] });
+  assertEntityAccess(user, kase.pr.entityId);
+
+  if (!kase.ceoApprovalRequired) {
+    throw new RuleViolationError(
+      `${kase.number} is below the CEO approval tier that applied when it was raised, so the Office of the CEO has nothing to decide.`,
+    );
+  }
+  if (kase.status !== "PENDING_CEO") {
+    throw new RuleViolationError(
+      `${kase.number} is ${kase.status.toLowerCase().replace(/_/g, " ")}. The Office of the CEO decides a case the committee has approved and nothing else.`,
+    );
+  }
+  if (kase.ceoDecidedAt) {
+    throw new RuleViolationError(`The Office of the CEO has already decided ${kase.number}.`);
+  }
+
+  return withTransaction(db, async (tx) => {
+    const updated = await tx.cpcCase.update({
+      where: { id: kase.id },
+      data: {
+        status: input.decision === "APPROVED" ? "APPROVED" : "RETURNED",
+        decidedAt: new Date(),
+        ceoDecision: input.decision,
+        ceoDecidedById: user.id,
+        ceoDecidedAt: new Date(),
+        ceoComment: input.comment?.trim() || null,
+      },
+    });
+    await completeTasks("CPC_CASE", kase.id, user.id, tx);
+
+    if (input.decision === "APPROVED") {
+      if (kase.comparativeId) {
+        await tx.comparative.update({ where: { id: kase.comparativeId }, data: { status: "APPROVED" } });
+      }
+      await transitionPr(user, kase.prId, "PO_PREPARATION", { reason: input.comment }, tx);
+      await createTask(
+        {
+          title: `Raise PO for ${kase.pr.number}`,
+          taskType: "ACTION",
+          assignedRoleCode: "PROCUREMENT_OFFICER",
+          entityId: kase.pr.entityId,
+          documentType: "PR",
+          documentId: kase.prId,
+          documentRef: kase.pr.number,
+          priority: "HIGH",
+          slaHours: 24,
+          linkUrl: `/pr/${kase.prId}`,
+        },
+        tx,
+      );
+    } else {
+      await transitionPr(user, kase.prId, "PROCUREMENT_REVIEW", { reason: input.comment }, tx);
+    }
+
+    await writeAudit(
+      {
+        entityType: "CpcCase",
+        entityId: kase.id,
+        entityRef: kase.number,
+        action: input.decision === "APPROVED" ? "CPC_CEO_APPROVED" : "CPC_CEO_REJECTED",
+        newValue: {
+          amount: kase.amount,
+          threshold: kase.ceoThresholdAtRaise,
+          comment: input.comment ?? null,
+        },
+        reason: "PC-023 — Office of the CEO above the value tier.",
+        caseKey: kase.pr.number,
+        actor: user,
+      },
+      tx,
+    );
+    return updated;
+  });
+}
+
 export async function resolveCpcCase(
   user: SessionUser,
   caseId: string,
@@ -510,13 +633,73 @@ export async function resolveCpcCase(
     throw e;
   }
 
+  // PC-023. A case above the tier that the committee has approved is not
+  // finished: the Office of the CEO has still to approve it. Without this the
+  // requirement was computed, printed on screen, and read by nothing — the case
+  // announced that the CEO must approve it and then approved without them.
+  //
+  // Enforcement is a switch, and the reason is honest rather than cautious: no
+  // user holds CEO_OFFICE, so turning it on before somebody does would stop
+  // every purchase above the tier with nobody able to release it.
+  const enforceCeo = await getConfigBool(CONFIG_KEYS.ENFORCE_CEO_APPROVAL, kase.pr.entityId, db);
+  const awaitsCeo =
+    outcome === "APPROVED" && enforceCeo && kase.ceoApprovalRequired && !kase.ceoDecidedAt;
+  const landing = awaitsCeo ? "PENDING_CEO" : outcome;
+
   return withTransaction(db, async (tx) => {
 
     const updated = await tx.cpcCase.update({
       where: { id: caseId },
-      data: { status: outcome, decidedAt: outcome === "DEFERRED" ? null : new Date() },
+      data: {
+        status: landing,
+        // A case waiting on the CEO is not decided, so it carries no decision
+        // date. Stamping one would make every ageing report call it closed.
+        decidedAt: outcome === "DEFERRED" || awaitsCeo ? null : new Date(),
+      },
     });
     await completeTasks("CPC_CASE", caseId, user.id, tx);
+
+    if (awaitsCeo) {
+      await createTask(
+        {
+          title: `Office of the CEO — approve ${kase.number} (PKR ${kase.amount.toLocaleString("en-PK")})`,
+          description:
+            `The committee approved this case. PC-023 requires the Office of the CEO above PKR ` +
+            `${(kase.ceoThresholdAtRaise ?? 0).toLocaleString("en-PK")}, so the requisition is held until they decide.`,
+          taskType: "APPROVAL",
+          assignedRoleCode: "CEO_OFFICE",
+          entityId: kase.pr.entityId,
+          documentType: "CPC_CASE",
+          documentId: kase.id,
+          documentRef: kase.number,
+          priority: "HIGH",
+          slaHours: 48,
+          linkUrl: `/cpc/${kase.id}`,
+        },
+        tx,
+      );
+      await writeAudit(
+        {
+          entityType: "CpcCase",
+          entityId: kase.id,
+          entityRef: kase.number,
+          action: "CPC_HELD_FOR_CEO",
+          newValue: {
+            committeeOutcome: outcome,
+            amount: kase.amount,
+            threshold: kase.ceoThresholdAtRaise,
+          },
+          reason: "PC-023 — above the CEO approval tier.",
+          caseKey: kase.pr.number,
+          actor: user,
+        },
+        tx,
+      );
+      // The same shape callers already expect, with the outcome the case
+      // actually landed on. A caller told "APPROVED" while the case sits at
+       // PENDING_CEO would report a release that has not happened.
+      return { kase: updated, resolved: true as const, outcome: "PENDING_CEO" as const };
+    }
 
     if (outcome === "APPROVED") {
       if (kase.comparativeId) {

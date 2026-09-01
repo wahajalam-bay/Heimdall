@@ -575,6 +575,13 @@ export type ApprovalTrail = {
     dueAt: Date | null;
     actedAt: Date | null;
     overdue: boolean;
+    /** How many times this step has been escalated for sitting past its SLA. */
+    escalationLevel: number;
+    escalatedAt: Date | null;
+    /** Who was told. Not who can decide it — escalation does not move authority. */
+    escalatedToName: string | null;
+    /** Hours past the deadline, for a step still waiting. */
+    overdueHours: number | null;
   }>;
 };
 
@@ -588,7 +595,13 @@ export async function getApprovalTrail(
     orderBy: { startedAt: "desc" },
     include: {
       rule: true,
-      actions: { orderBy: { sequence: "asc" }, include: { actor: { select: { name: true } } } },
+      actions: {
+        orderBy: { sequence: "asc" },
+        include: {
+          actor: { select: { name: true } },
+          escalatedTo: { select: { name: true } },
+        },
+      },
     },
   });
   const now = new Date();
@@ -611,6 +624,13 @@ export async function getApprovalTrail(
       dueAt: a.dueAt,
       actedAt: a.actedAt,
       overdue: a.action === "PENDING" && !!a.dueAt && a.dueAt < now,
+      escalationLevel: a.escalationLevel,
+      escalatedAt: a.escalatedAt,
+      escalatedToName: a.escalatedTo?.name ?? null,
+      overdueHours:
+        a.action === "PENDING" && a.dueAt && a.dueAt < now
+          ? Math.floor((now.getTime() - a.dueAt.getTime()) / 3_600_000)
+          : null,
     })),
   }));
 }

@@ -4,7 +4,14 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { requirePermission, requireUser } from "@/lib/auth";
 import { ForbiddenError, toActionError, ValidationError, type ActionResult } from "@/lib/errors";
-import { castCpcDecision, recordMinutes, resolveCpcCase, scheduleMeeting, type CpcVote } from "@/server/cpc";
+import {
+  castCpcDecision,
+  recordCeoDecision,
+  recordMinutes,
+  resolveCpcCase,
+  scheduleMeeting,
+  type CpcVote,
+} from "@/server/cpc";
 import { userHasPermission } from "@/lib/rbac";
 import { PERMISSIONS as P } from "@/lib/permissions";
 
@@ -46,9 +53,11 @@ export async function castVoteAction(_prev: ActionResult | null, formData: FormD
       message:
         result.outcome === "APPROVED"
           ? "Your vote is recorded and the case is approved — the requisition has moved to PO preparation."
-          : result.outcome
-            ? `Your vote is recorded — the case is now ${result.outcome.toLowerCase()}.`
-            : "Your vote is recorded. The case stays open until the remaining required members vote.",
+          : result.outcome === "PENDING_CEO"
+            ? "Your vote is recorded and the committee has approved. The case is above the CEO tier, so it is held for the Office of the CEO and the requisition has not moved."
+            : result.outcome
+              ? `Your vote is recorded — the case is now ${result.outcome.toLowerCase().replace(/_/g, " ")}.`
+              : "Your vote is recorded. The case stays open until the remaining required members vote.",
     };
   } catch (e) {
     return toActionError(e);
@@ -70,10 +79,17 @@ export async function resolveCaseAction(_prev: ActionResult | null, formData: Fo
     if (outcome !== "APPROVED" && !comment) {
       throw new ValidationError("Record the committee's reasoning for anything other than a clean approval.");
     }
-    const { kase } = await resolveCpcCase(user, caseId, outcome, comment);
+    const { kase, outcome: landed } = await resolveCpcCase(user, caseId, outcome, comment);
     touch(caseId, kase.meetingId ?? undefined);
     revalidatePath("/pr");
-    return { ok: true, data: null, message: `${kase.number} recorded as ${outcome.toLowerCase()}.` };
+    return {
+      ok: true,
+      data: null,
+      message:
+        landed === "PENDING_CEO"
+          ? `${kase.number} is approved by the committee and held for the Office of the CEO — PC-023 applies above the value tier, so the requisition has not moved to PO preparation.`
+          : `${kase.number} recorded as ${outcome.toLowerCase()}.`,
+    };
   } catch (e) {
     return toActionError(e);
   }
@@ -182,4 +198,43 @@ export async function cpcOptions(entityId: string | null) {
     }),
   ]);
   return { entities, unscheduled };
+}
+
+/**
+ * The Office of the CEO's decision — PC-023, above the value tier.
+ *
+ * A separate permission from `CPC_DECIDE`, and held by no committee role. The
+ * committee approving on the CEO's behalf is precisely what a second approval
+ * exists to prevent, and an action that accepted either would not be able to
+ * tell the two apart.
+ */
+export async function recordCeoDecisionAction(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const user = await requirePermission(P.CPC_CEO_APPROVE);
+    const caseId = String(formData.get("caseId") ?? "");
+    const decision = String(formData.get("decision") ?? "") as "APPROVED" | "REJECTED";
+    if (decision !== "APPROVED" && decision !== "REJECTED") {
+      throw new ValidationError("Say whether the Office of the CEO approved or declined the award.");
+    }
+    const kase = await recordCeoDecision(user, {
+      caseId,
+      decision,
+      comment: blank(formData.get("comment")),
+    });
+    touch(caseId, kase.meetingId ?? undefined);
+    revalidatePath("/pr");
+    return {
+      ok: true,
+      data: null,
+      message:
+        decision === "APPROVED"
+          ? `${kase.number} approved by the Office of the CEO — the requisition has moved to PO preparation.`
+          : `${kase.number} declined by the Office of the CEO and returned to procurement.`,
+    };
+  } catch (e) {
+    return toActionError(e);
+  }
 }

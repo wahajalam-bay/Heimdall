@@ -28,6 +28,7 @@ import {
   type ProcurementKind,
 } from "@/lib/kind";
 import { escalationChain } from "@/server/org";
+import { availableQuantity } from "@/server/inventory";
 import { attest } from "@/server/attestation";
 
 /**
@@ -52,6 +53,14 @@ export type PrItemInput = {
   notes?: string | null;
   /** GOODS or SERVICES. Omitted, the requisition's kind applies. */
   procurementKind?: ProcurementKind;
+  /**
+   * Annexure 1 "Item Code".
+   *
+   * A catalogue line has one already, through `item.sku`. This carries the code
+   * for something not in the catalogue, which the form has a column for and
+   * which is most of what a requisition asks for.
+   */
+  itemCode?: string | null;
 };
 
 export type PrInput = {
@@ -73,6 +82,17 @@ export type PrInput = {
   costCenter?: string | null;
   deliveryStoreId?: string | null;
   deliveryLocationNote?: string | null;
+  /**
+   * Annexure 1 "Req Location" — where the goods are wanted, which is not always
+   * the store that receives them. Kept apart from `deliveryLocationNote`, which
+   * is a note about the delivery rather than the requesting location.
+   */
+  requiredLocation?: string | null;
+  /**
+   * Annexure 1 "Document Comments" — a note about the requisition as a whole,
+   * distinct from the business justification for buying.
+   */
+  documentComments?: string | null;
   requiredDate: Date;
   priority?: string;
   budgetAmount?: number | null;
@@ -227,6 +247,27 @@ export async function createPr(user: SessionUser, input: PrInput, db: DbClient =
     input.deliveryStoreId ??
     (await suggestDeliveryStore(input.entityId, input.procurementType, input.siteId, input.projectId, db));
 
+  // What was on the shelf when this was raised.
+  //
+  // Only for a catalogue line with a delivery store — anything else has no
+  // bucket to read, and a zero would read as "none in stock" rather than "not
+  // checked". Available, not on-hand: stock already reserved against another
+  // demand is not available to this one, and telling the requester otherwise is
+  // how two people order the same thing.
+  const checkedAt = new Date();
+  const stockAtRequest = new Map<number, number>();
+  if (deliveryStoreId) {
+    for (const it of items) {
+      if (!it.itemId) continue;
+      try {
+        stockAtRequest.set(it.lineNo, await availableQuantity(it.itemId, deliveryStoreId, db));
+      } catch {
+        // A missing bucket is not a reason to refuse the requisition. The column
+        // stays blank, which is honest, and the form says why.
+      }
+    }
+  }
+
   const pr = await db.purchaseRequisition.create({
     data: {
       number,
@@ -241,6 +282,8 @@ export async function createPr(user: SessionUser, input: PrInput, db: DbClient =
       costCenter: input.costCenter ?? null,
       deliveryStoreId,
       deliveryLocationNote: input.deliveryLocationNote ?? null,
+      requiredLocation: input.requiredLocation ?? null,
+      documentComments: input.documentComments ?? null,
       requiredDate: input.requiredDate,
       priority: input.priority ?? "NORMAL",
       budgetAmount: input.budgetAmount ?? null,
@@ -271,6 +314,14 @@ export async function createPr(user: SessionUser, input: PrInput, db: DbClient =
           requiredDate: it.requiredDate ?? null,
           disposition: it.disposition ?? "INVENTORY",
           notes: it.notes ?? null,
+          itemCode: it.itemCode ?? null,
+          // Annexure 1's "In Stock" column, snapshotted here rather than read
+          // live by the form. The column's whole point is what the requester
+          // could see when they decided to buy — a live figure would answer a
+          // different question, and would quietly rewrite the sheet every time
+          // somebody reprinted it.
+          inStockAtRequest: stockAtRequest.get(it.lineNo) ?? null,
+          stockCheckedAt: stockAtRequest.has(it.lineNo) ? checkedAt : null,
         })),
       },
     },
@@ -327,6 +378,19 @@ export async function updatePr(user: SessionUser, prId: string, input: PrInput, 
       deliveryStoreId: pr.deliveryStoreId,
     };
 
+    // The lines are replaced wholesale, so the stock snapshot has to be carried
+    // across by line number. It records what the requester could see when the
+    // requisition was raised; re-reading it on every edit would turn it into a
+    // live figure, which is a different fact and a misleading one on a form
+    // somebody signed.
+    const priorStock = new Map<number, { qty: number | null; at: Date | null }>();
+    for (const row of await tx.purchaseRequisitionItem.findMany({
+      where: { prId },
+      select: { lineNo: true, inStockAtRequest: true, stockCheckedAt: true },
+    })) {
+      priorStock.set(row.lineNo, { qty: row.inStockAtRequest, at: row.stockCheckedAt });
+    }
+
     await tx.purchaseRequisitionItem.deleteMany({ where: { prId } });
     const updated = await tx.purchaseRequisition.update({
       where: { id: prId },
@@ -340,6 +404,8 @@ export async function updatePr(user: SessionUser, prId: string, input: PrInput, 
         costCenter: input.costCenter ?? null,
         deliveryStoreId: input.deliveryStoreId ?? null,
         deliveryLocationNote: input.deliveryLocationNote ?? null,
+        requiredLocation: input.requiredLocation ?? null,
+        documentComments: input.documentComments ?? null,
         requiredDate: input.requiredDate,
         priority: input.priority ?? "NORMAL",
         budgetAmount: input.budgetAmount ?? null,
@@ -366,6 +432,9 @@ export async function updatePr(user: SessionUser, prId: string, input: PrInput, 
             requiredDate: it.requiredDate ?? null,
             disposition: it.disposition ?? "INVENTORY",
             notes: it.notes ?? null,
+            itemCode: it.itemCode ?? null,
+            inStockAtRequest: priorStock.get(it.lineNo)?.qty ?? null,
+            stockCheckedAt: priorStock.get(it.lineNo)?.at ?? null,
           })),
         },
       },

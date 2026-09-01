@@ -5,6 +5,7 @@ import { userHasPermission, type SessionUser } from "@/lib/rbac";
 import { DOMAIN_ACTIONS, assertAuthority, type Actor } from "@/lib/actor";
 import { writeAudit } from "@/lib/audit";
 import { notify, usersForRoles } from "@/lib/notify";
+import { raiseException } from "@/lib/exceptions-service";
 
 /**
  * The control calendar, and escalation of things nobody has picked up.
@@ -441,6 +442,218 @@ export async function acknowledgeException(
     db,
   );
   return updated;
+}
+
+/**
+ * Tells somebody when an approval has sat past its SLA.
+ *
+ * Every approval step carries `slaHours`, and the due date it produced was read
+ * in exactly one place: when an approver finally acted, to note that they were
+ * late. That is the one moment lateness no longer matters. A step nobody touched
+ * had no deadline at all in practice — it simply waited.
+ *
+ * What this does **not** do is move the approval. The assigned approver remains
+ * the only person who can decide it. Delegation is the sanctioned way to hand
+ * that over, with dates and a scope; letting a missed deadline transfer
+ * authority would turn every SLA breach into a route around the approver, which
+ * is the opposite of a control.
+ *
+ * So escalation here means: tell the approver's manager, count it on the step,
+ * and raise a tracked APPROVAL_DELAY exception owned by the manager — which then
+ * climbs the same ladder as every other exception through
+ * `escalateOverdueExceptions`. One mechanism, not two.
+ *
+ * `stuck` counts steps whose approver has nobody above them in the organogram.
+ * Reported, not hidden: a top-of-line approver sitting on a requisition is a
+ * real situation and the sweep must not pretend it moved.
+ */
+export async function escalateOverdueApprovals(
+  actor: Actor,
+  opts: { maxLevel?: number; graceHours?: number } = {},
+  db: DbClient = prisma,
+): Promise<{ escalated: number; stuck: number; raised: number; notified: number }> {
+  assertAuthority(actor, DOMAIN_ACTIONS.APPROVAL_ESCALATE, {
+    permission: [P.EXCEPTION_MANAGE, P.AUDIT_VIEW],
+  });
+
+  const maxLevel = opts.maxLevel ?? 3;
+  // A step is not escalated the second it turns overdue. An approver an hour
+  // late does not need their manager told; the grace is what separates "late"
+  // from "stalled".
+  const graceHours = opts.graceHours ?? 24;
+  const cutoff = new Date(Date.now() - graceHours * 3_600_000);
+
+  const overdue = await db.approvalAction.findMany({
+    where: {
+      action: "PENDING",
+      dueAt: { not: null, lte: cutoff },
+      escalationLevel: { lt: maxLevel },
+    },
+    include: {
+      instance: {
+        select: {
+          id: true,
+          documentType: true,
+          documentId: true,
+          documentRef: true,
+          entityId: true,
+          status: true,
+          currentSequence: true,
+        },
+      },
+    },
+    take: 200,
+  });
+
+  let escalated = 0;
+  let stuck = 0;
+  let raised = 0;
+  const told = new Set<string>();
+
+  for (const step of overdue) {
+    // Only the step actually being waited on. A later step in the same chain has
+    // a due date too, and it is not late — nobody has been asked yet.
+    if (step.instance.status !== "PENDING" || step.sequence !== step.instance.currentSequence) continue;
+
+    // Who is waited on. A step assigned by role has no single person, so the
+    // holders of that role are the ones sitting on it, and their managers are
+    // who hears about it.
+    const waitingOn = step.actorId
+      ? await db.user.findMany({
+          where: { id: step.actorId },
+          select: { id: true, name: true, reportsToId: true },
+        })
+      : step.assignedRoleCode
+        ? await db.user.findMany({
+            where: {
+              active: true,
+              roles: { some: { role: { code: step.assignedRoleCode } } },
+              ...(step.instance.entityId
+                ? {
+                    OR: [
+                      { primaryEntityId: step.instance.entityId },
+                      { entityAccess: { some: { entityId: step.instance.entityId } } },
+                    ],
+                  }
+                : {}),
+            },
+            select: { id: true, name: true, reportsToId: true },
+          })
+        : [];
+
+    const managerIds = [...new Set(waitingOn.map((u) => u.reportsToId).filter((v): v is string => Boolean(v)))];
+    if (managerIds.length === 0) {
+      stuck += 1;
+      continue;
+    }
+    const managers = await db.user.findMany({
+      where: { id: { in: managerIds }, active: true },
+      select: { id: true, name: true },
+    });
+    if (managers.length === 0) {
+      stuck += 1;
+      continue;
+    }
+
+    const lateBy = step.dueAt ? Math.floor((Date.now() - step.dueAt.getTime()) / 3_600_000) : 0;
+    const owner = managers[0];
+
+    await db.approvalAction.update({
+      where: { id: step.id },
+      data: {
+        escalationLevel: step.escalationLevel + 1,
+        escalatedAt: new Date(),
+        escalatedToId: owner.id,
+      },
+    });
+    escalated += 1;
+
+    // The tracked object, so this appears on the exceptions board rather than
+    // only in a notification somebody may not read. `raiseException` will not
+    // stack a second open APPROVAL_DELAY on the same document, so a repeat sweep
+    // updates rather than multiplies.
+    const ex = await raiseException(
+      {
+        type: "APPROVAL_DELAY",
+        severity: step.escalationLevel >= 1 ? "HIGH" : "MEDIUM",
+        title: `${step.instance.documentRef} — "${step.stepName}" overdue by ${lateBy}h`,
+        description:
+          `${step.instance.documentType} ${step.instance.documentRef} has waited at "${step.stepName}" since ` +
+          `${step.assignedAt.toISOString().slice(0, 10)} and was due ${step.dueAt?.toISOString().slice(0, 10)}. ` +
+          `Waiting on ${waitingOn.map((u) => u.name).join(", ") || step.assignedRoleCode || "an unassigned step"}. ` +
+          `Escalated to ${owner.name}. The approval has not moved — only who has been told.`,
+        documentType: step.instance.documentType,
+        documentId: step.instance.documentId,
+        documentRef: step.instance.documentRef,
+        entityId: step.instance.entityId,
+        ownerId: owner.id,
+        blocking: false,
+        dueInHours: 48,
+      },
+      db,
+      actor,
+    );
+    if (ex) raised += 1;
+
+    const fresh = managers.filter((m) => !told.has(m.id));
+    for (const m of fresh) told.add(m.id);
+    if (fresh.length) {
+      await notify(
+        {
+          userIds: fresh.map((m) => m.id),
+          entityId: step.instance.entityId,
+          type: "APPROVAL_ESCALATED",
+          priority: "HIGH",
+          title: `Approval overdue: ${step.instance.documentRef}`,
+          body:
+            `"${step.stepName}" has been pending ${lateBy}h past its deadline. ` +
+            `It still sits with ${waitingOn.map((u) => u.name).join(", ") || step.assignedRoleCode}; ` +
+            `you are being told, not asked to decide it.`,
+          linkType: step.instance.documentType,
+          linkId: step.instance.documentId,
+          linkUrl: linkFor(step.instance.documentType, step.instance.documentId),
+        },
+        db,
+      );
+    }
+
+    await writeAudit(
+      {
+        entityType: "ApprovalAction",
+        entityId: step.id,
+        entityRef: step.instance.documentRef,
+        action: "APPROVAL_ESCALATED",
+        newValue: {
+          step: step.stepName,
+          overdueHours: lateBy,
+          level: step.escalationLevel + 1,
+          escalatedTo: owner.name,
+          waitingOn: waitingOn.map((u) => u.name),
+        },
+        actor,
+      },
+      db,
+    );
+  }
+
+  return { escalated, stuck, raised, notified: told.size };
+}
+
+/** Where a notification about an overdue approval should point. */
+function linkFor(documentType: string, documentId: string): string {
+  switch (documentType) {
+    case "PR":
+    case "MATERIAL_DEMAND":
+      return `/pr/${documentId}`;
+    case "PO":
+      return `/po/${documentId}`;
+    case "INVOICE":
+      return `/invoices/${documentId}`;
+    case "PETTY_CASH":
+      return `/petty-cash/${documentId}`;
+    default:
+      return "/alerts";
+  }
 }
 
 /**

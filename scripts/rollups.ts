@@ -12,7 +12,11 @@ import { prisma } from "../src/lib/db";
 import { recomputeAllVendorPerformance } from "../src/server/vendors";
 import { sweepMissingGrns } from "../src/server/grn";
 import { systemActor } from "@/lib/actor";
-import { rollControlCalendar, escalateOverdueExceptions } from "../src/server/controls";
+import {
+  rollControlCalendar,
+  escalateOverdueApprovals,
+  escalateOverdueExceptions,
+} from "../src/server/controls";
 import { lapsePoAcknowledgements } from "../src/server/po";
 import { warnExpiringPrequalifications } from "../src/server/prequalification";
 import { raiseSplitCases } from "../src/server/split-detector";
@@ -38,6 +42,16 @@ async function main() {
   const calendar = await rollControlCalendar(scheduler, prisma);
   console.log(
     `  control calendar: ${calendar.opened} period(s) opened, ${calendar.missed} marked missed, ${calendar.notified} notified`,
+  );
+
+  // Approvals first: a stalled approval raises an APPROVAL_DELAY exception, and
+  // the exception sweep below is what then climbs it. Running them the other way
+  // round would leave each new exception waiting a full cycle before anybody
+  // above the manager heard about it.
+  const stalled = await escalateOverdueApprovals(scheduler, {}, prisma);
+  console.log(
+    `  approval escalation: ${stalled.escalated} step(s) past SLA escalated, ${stalled.raised} exception(s) raised, ` +
+      `${stalled.stuck} with nobody above the approver, ${stalled.notified} notified`,
   );
 
   const escalated = await escalateOverdueExceptions(scheduler, {}, prisma);

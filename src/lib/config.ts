@@ -33,6 +33,8 @@ export const CONFIG_KEYS = {
   SPLIT_MIN_ORDERS: "compliance.split_min_orders",
   // Price Competitiveness Policy — ZAM/PUR/SOP-01.
   ENFORCE_PRICE_COMPETITIVENESS: "sourcing.enforce_price_competitiveness",
+  // PC-023 CEO approval above the value tier — see server/cpc.ts.
+  ENFORCE_CEO_APPROVAL: "policy.enforce_ceo_approval",
   // Purchase order acknowledgement — ZAM §4.6.
   PO_ACKNOWLEDGEMENT_DAYS: "po.acknowledgement_days",
   // Inventory costing — see server/costing.ts and BD-008.
@@ -1087,6 +1089,16 @@ export const CONFIG_DEFS: ConfigDef[] = [
     group: "Sourcing",
     valueType: "number",
     default: 0,
+  },
+
+  {
+    key: CONFIG_KEYS.ENFORCE_CEO_APPROVAL,
+    label: "Hold a committee-approved case above the CEO tier for the Office of the CEO",
+    description:
+      "PC-023: 'All purchases above PKR 1,500,000 are to be approved by Office of CEO.' The requirement was already computed and printed on screen — and read by nothing, so a case over the tier said the CEO must approve it and then approved without them. With this on, such a case stops at PENDING_CEO after the committee's vote and releases only once the Office of the CEO records a decision. It ships OFF, and the reason is the honest one: no user holds the CEO_OFFICE role, so switching it on before somebody does would stop every purchase above the tier with nobody able to release it. Naming the Office of the CEO is the go-live step for this control.",
+    group: "Policy",
+    valueType: "boolean",
+    default: false,
   },
 
   {

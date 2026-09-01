@@ -27,7 +27,7 @@ import { Timeline } from "@/components/ui/workflow";
 import { DocumentsPanel } from "@/components/domain/DocumentsPanel";
 import { humanize } from "@/lib/domain";
 import { fmtDate, fmtDateTime, money, percent, qty, round2 } from "@/lib/format";
-import { CastVoteForm, ResolveCaseForm } from "../../CpcForms";
+import { CastVoteForm, CeoDecisionForm, ResolveCaseForm } from "../../CpcForms";
 
 export const dynamic = "force-dynamic";
 
@@ -104,12 +104,18 @@ export default async function CpcCaseDetailPage({ params }: { params: Promise<{ 
 
   const canDecide = userHasPermission(user, P.CPC_DECIDE);
   const canManage = userHasPermission(user, P.CPC_MANAGE);
+  // PC-023's second approval. A separate permission, held by no committee role,
+  // so the committee cannot approve on the CEO's behalf.
+  const canDecideAsCeo = userHasPermission(user, P.CPC_CEO_APPROVE);
   const isMember = kase.members.some((m) => m.userId === user.id);
   const myVote = kase.decisions.find((d) => d.memberId === user.id);
   const required = kase.members.filter((m) => m.required);
   const votedIds = new Set(kase.decisions.map((d) => d.memberId));
   const outstanding = required.filter((m) => !votedIds.has(m.userId));
   const decided = ["APPROVED", "REJECTED", "RETURNED", "CLARIFICATION"].includes(kase.status);
+  // Approved by the committee, still waiting on the Office of the CEO. Not
+  // "decided" — the requisition has not moved and must not read as if it had.
+  const awaitingCeo = kase.status === "PENDING_CEO";
 
   const notes: string[] = [];
   if (selected && lowest && selected.id !== lowest.id) {
@@ -171,7 +177,15 @@ export default async function CpcCaseDetailPage({ params }: { params: Promise<{ 
                 existingVote={myVote?.vote ?? null}
               />
             )}
-            {!decided && canManage && (
+            {awaitingCeo && canDecideAsCeo && (
+              <CeoDecisionForm
+                caseId={kase.id}
+                number={kase.number}
+                amount={money(kase.amount)}
+                threshold={money(kase.ceoThresholdAtRaise ?? 0)}
+              />
+            )}
+            {!decided && !awaitingCeo && canManage && (
               <ResolveCaseForm
                 caseId={kase.id}
                 number={kase.number}
@@ -191,10 +205,21 @@ export default async function CpcCaseDetailPage({ params }: { params: Promise<{ 
         }
       />
 
+      {awaitingCeo && (
+        <InlineAlert tone="warning">
+          The committee approved this case, and it is <span className="font-600">not cleared</span>. PC-023 requires the
+          Office of the CEO above {money(kase.ceoThresholdAtRaise ?? 0)} and this award is {money(kase.amount)}, so the
+          requisition is held and no purchase order can be raised until they decide. The threshold shown is the one that
+          applied when the case was raised, not today&rsquo;s.
+        </InlineAlert>
+      )}
       {kase.status === "APPROVED" && (
         <InlineAlert tone="success">
-          The committee approved this case{kase.decidedAt ? ` on ${fmtDateTime(kase.decidedAt)}` : ""}. The requisition has
-          moved to PO preparation — a purchase order cannot be raised without this clearance.
+          The committee approved this case{kase.decidedAt ? ` on ${fmtDateTime(kase.decidedAt)}` : ""}.
+          {kase.ceoDecidedAt
+            ? ` The Office of the CEO approved it on ${fmtDateTime(kase.ceoDecidedAt)} — PC-023 applies above ${money(kase.ceoThresholdAtRaise ?? 0)}.`
+            : ""}{" "}
+          The requisition has moved to PO preparation — a purchase order cannot be raised without this clearance.
         </InlineAlert>
       )}
       {["REJECTED", "RETURNED", "CLARIFICATION"].includes(kase.status) && (

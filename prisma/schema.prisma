@@ -57,6 +57,8 @@ model User {
 
   requisitions       PurchaseRequisition[] @relation("PRRequester")
   approvalActions    ApprovalAction[]
+  approvalsEscalatedTo ApprovalAction[]    @relation("ApprovalEscalatedTo")
+  cpcCeoDecisions      CpcCase[]           @relation("CpcCeoDecision")
   rfqsCreated        Rfq[]                 @relation("RfqCreatedBy")
   negotiations       Negotiation[]
   posCreated         PurchaseOrder[]       @relation("PoCreatedBy")
@@ -662,7 +664,24 @@ model ApprovalAction {
   dueAt            DateTime?
   actedAt          DateTime?
 
+  /// ── SLA escalation ────────────────────────────────────────────
+  ///
+  /// `slaHours` set a due date and nothing ever read it while the step was still
+  /// waiting. Lateness was noticed only when somebody finally acted — which is
+  /// the one moment it no longer matters. A step nobody touched sat forever.
+  ///
+  /// Escalating does **not** move the approval. Whoever was assigned is still
+  /// the only person who can decide it; delegation is the sanctioned way to hand
+  /// that over, and letting a missed deadline transfer authority would make the
+  /// deadline a way around the approver. What escalation does is tell somebody
+  /// above them, on the record, and keep count.
+  escalationLevel Int       @default(0)
+  escalatedAt     DateTime?
+  escalatedToId   String?
+  escalatedTo     User?     @relation("ApprovalEscalatedTo", fields: [escalatedToId], references: [id])
+
   @@index([instanceId, sequence])
+  @@index([action, dueAt])
   @@map("approval_actions")
 }
 
@@ -1144,10 +1163,33 @@ model CpcCase {
   recommendation String?
   riskNotes      String?
 
-  /// PENDING | SCHEDULED | UNDER_REVIEW | APPROVED | REJECTED | RETURNED | CLARIFICATION | DEFERRED
+  /// PENDING | SCHEDULED | UNDER_REVIEW | PENDING_CEO | APPROVED | REJECTED | RETURNED | CLARIFICATION | DEFERRED
+  ///
+  /// PENDING_CEO is where a case the committee has approved waits for the Office
+  /// of the CEO. It is a distinct state rather than a flag on APPROVED, because
+  /// the difference matters downstream: an approved case releases the requisition
+  /// to purchase order preparation, and one still waiting on the CEO must not.
   status    String    @default("PENDING")
   createdAt DateTime  @default(now())
   decidedAt DateTime?
+
+  /// ── PC-023 · the Office of the CEO ──────────────────────────────────────
+  ///
+  /// "All purchases above PKR 1,500,000 are to be approved by Office of CEO."
+  /// The requirement was computed and put in a sentence on screen, and nothing
+  /// read it — so a case over the tier announced that the CEO must approve it
+  /// and then approved without them.
+  ///
+  /// Snapshotted at case creation. The threshold is configuration and moves; a
+  /// case decided under the old tier must not be retrospectively found wanting,
+  /// and one raised above the tier must not escape by the tier being lifted.
+  ceoApprovalRequired  Boolean   @default(false)
+  ceoThresholdAtRaise  Float?
+  ceoDecision          String?
+  ceoDecidedById       String?
+  ceoDecidedBy         User?     @relation("CpcCeoDecision", fields: [ceoDecidedById], references: [id])
+  ceoDecidedAt         DateTime?
+  ceoComment           String?
 
   members   CpcCaseMember[]
   decisions CpcDecision[]

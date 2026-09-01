@@ -386,6 +386,14 @@ export const CPC_CASE_STATUSES = [
   "PENDING",
   "SCHEDULED",
   "UNDER_REVIEW",
+  /**
+   * The committee has approved it and the Office of the CEO has not.
+   *
+   * PC-023 puts a second approval above PKR 1.5m, and this is where a case waits
+   * for it. Distinct from APPROVED because an approved case releases the
+   * requisition to purchase order preparation and one still waiting must not.
+   */
+  "PENDING_CEO",
   "APPROVED",
   "REJECTED",
   "RETURNED",
