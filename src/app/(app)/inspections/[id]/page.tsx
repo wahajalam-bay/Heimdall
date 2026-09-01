@@ -26,7 +26,12 @@ import { DocumentsPanel } from "@/components/domain/DocumentsPanel";
 import { ActionButton } from "@/components/ui/forms";
 import { humanize } from "@/lib/domain";
 import { fmtDateTime, qty } from "@/lib/format";
-import { assignInspectorAction } from "@/app/(app)/receiving/actions";
+import {
+  assignInspectorAction,
+  returnFromInspectionAction,
+  signOffInspectionAction,
+} from "@/app/(app)/receiving/actions";
+import { signoffsFor } from "@/server/inspection-matrix";
 import { InspectionForm } from "./InspectionForm";
 
 export const dynamic = "force-dynamic";
@@ -75,7 +80,7 @@ export default async function InspectionDetailPage({ params }: { params: Promise
   });
   if (!insp) notFound();
 
-  const [events, inspectors] = await Promise.all([
+  const [events, inspectors, signoffs, existingReturn] = await Promise.all([
     documentTimeline("Inspection", insp.id),
     prisma.user.findMany({
       where: {
@@ -85,7 +90,13 @@ export default async function InspectionDetailPage({ params }: { params: Promise
       select: { id: true, name: true, title: true },
       orderBy: { name: "asc" },
     }),
+    signoffsFor(insp.id),
+    prisma.vendorReturn.findFirst({
+      where: { inspectionId: insp.id, status: { not: "CANCELLED" } },
+      select: { id: true, number: true, status: true, totalValue: true },
+    }),
   ]);
+  const outstanding = signoffs.filter((sg) => sg.outstanding);
 
   const template =
     INSPECTION_TEMPLATES.find((t) => t.code === insp.templateCode) ??
@@ -190,10 +201,142 @@ export default async function InspectionDetailPage({ params }: { params: Promise
           {insp.findings ?? "The goods have failed technical inspection and must not be taken into inventory."}
         </InlineAlert>
       )}
+      {["REJECTED", "CONDITIONAL"].includes(insp.result) && canPerform && (
+        <SectionCard
+          title="Return to vendor"
+          description={
+            existingReturn
+              ? "A return has already been raised against this inspection."
+              : "ZAM/PUR/SOP-01 Store Flow step 3: if inspection fails, a Return-to-Vendor document is lodged by the relevant inspector. The failed quantities come from this inspection and the prices from the order — nothing is retyped."
+          }
+        >
+          {existingReturn ? (
+            <DefList
+              items={[
+                {
+                  label: "Return",
+                  value: <RefLink href={`/receiving/returns/${existingReturn.id}`}>{existingReturn.number}</RefLink>,
+                },
+                { label: "Status", value: humanize(existingReturn.status) },
+                { label: "Value", value: qty(existingReturn.totalValue) },
+              ]}
+            />
+          ) : failed > 0 ? (
+            <div className="space-y-3">
+              <p className="text-xs leading-5 text-muted">
+                {qty(failed)} across {insp.items.filter((li) => li.quantityFailed > 0).length} line(s) failed and
+                can go back to {insp.po?.vendor.name ?? "the vendor"}.
+              </p>
+              <ActionButton
+                action={returnFromInspectionAction}
+                payload={{ inspectionId: insp.id }}
+                label="Lodge return to vendor"
+                tone="danger-soft"
+                reasonLabel="Why the goods are going back (optional — the inspection findings are used if blank)"
+                confirm={`Raise a return to ${insp.po?.vendor.name ?? "the vendor"} for the failed lines on ${insp.number}?`}
+              />
+            </div>
+          ) : (
+            <InlineAlert tone="warning">
+              No failed quantity is recorded on any line, so there is nothing to send back. Record the failed
+              quantities on the inspection first.
+            </InlineAlert>
+          )}
+        </SectionCard>
+      )}
+
       {insp.result === "CONDITIONAL" && insp.conditions && (
         <InlineAlert tone="warning">
           <span className="font-600">Conditional acceptance: </span>
           {insp.conditions}
+        </InlineAlert>
+      )}
+
+      {signoffs.length > 0 && (
+        <SectionCard
+          title="Required sign-offs"
+          description="ZAM/PUR/SOP-01's Store Process Flow chart puts each check with a named function. §4.7 requires the form to be signed by all concerns, so the inspection cannot close while one is blank."
+          bodyClassName="px-0 py-0"
+        >
+          <div className="table-wrap">
+            <table className="dt">
+              <thead>
+                <tr>
+                  <th style={{ width: "10rem" }}>Check</th>
+                  <th style={{ width: "8rem" }}>Owner</th>
+                  <th style={{ width: "8rem" }}>Verdict</th>
+                  <th style={{ minWidth: "12rem" }}>Signed</th>
+                  <th style={{ width: "12rem" }} className="no-print" />
+                </tr>
+              </thead>
+              <tbody>
+                {signoffs.map((sg) => (
+                  <tr key={sg.id}>
+                    <td>{sg.typeLabel}</td>
+                    <td>
+                      <Badge tone="info">{sg.ownerLabel}</Badge>
+                    </td>
+                    <td>
+                      {sg.verdict ? (
+                        <Badge
+                          tone={sg.verdict === "PASS" ? "success" : sg.verdict === "FAIL" ? "danger" : "warning"}
+                        >
+                          {sg.verdict}
+                        </Badge>
+                      ) : (
+                        <span className="text-[var(--c-text-tertiary)]">Outstanding</span>
+                      )}
+                    </td>
+                    <td className="text-2xs">
+                      {sg.signedAt ? (
+                        <>
+                          {sg.signedByName}
+                          <span className="mt-0.5 block text-[var(--c-text-tertiary)]">
+                            {fmtDateTime(sg.signedAt)}
+                          </span>
+                          {sg.notes && <span className="mt-0.5 block">{sg.notes}</span>}
+                        </>
+                      ) : (
+                        <span className="text-[var(--c-text-tertiary)]">
+                          {sg.ownerRoleCode ? `Awaiting ${sg.ownerLabel}` : "No role holds this function yet"}
+                        </span>
+                      )}
+                    </td>
+                    <td className="no-print">
+                      {sg.outstanding && isOpen && canPerform && (
+                        <div className="flex flex-wrap gap-1.5">
+                          <ActionButton
+                            action={signOffInspectionAction}
+                            payload={{ signoffId: sg.id, inspectionId: insp.id, verdict: "PASS" }}
+                            label="Pass"
+                            tone="success"
+                            size="xs"
+                          />
+                          <ActionButton
+                            action={signOffInspectionAction}
+                            payload={{ signoffId: sg.id, inspectionId: insp.id, verdict: "FAIL" }}
+                            label="Fail"
+                            tone="danger-soft"
+                            size="xs"
+                            reasonLabel="What was wrong?"
+                            reasonRequired
+                          />
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </SectionCard>
+      )}
+
+      {outstanding.length > 0 && isOpen && (
+        <InlineAlert tone="warning">
+          {outstanding.length === 1 ? "One check is" : `${outstanding.length} checks are`} still unsigned:{" "}
+          {outstanding.map((sg) => `${sg.typeLabel.toLowerCase()} (${sg.ownerLabel})`).join(", ")}. The inspection
+          cannot be closed until all concerns have signed — §4.7.
         </InlineAlert>
       )}
 

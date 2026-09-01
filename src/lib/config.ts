@@ -1183,6 +1183,20 @@ export async function getConfigBundle(
   return out;
 }
 
+/**
+ * Modules that memoise a setting register here, so a change takes effect at once
+ * rather than when their cache happens to expire.
+ *
+ * A callback rather than an import, because the memoising module already imports
+ * this one and a cycle between configuration and the things configured by it is
+ * how a build starts returning `undefined` for constants.
+ */
+const invalidators: Array<() => void> = [];
+
+export function registerConfigInvalidator(fn: () => void) {
+  invalidators.push(fn);
+}
+
 export async function setConfig(
   key: string,
   value: unknown,
@@ -1194,22 +1208,28 @@ export async function setConfig(
   const valueType = def?.valueType ?? "string";
   const serialized = JSON.stringify(value);
   const existing = await db.configSetting.findFirst({ where: { key, entityId } });
-  if (existing) {
-    return db.configSetting.update({
-      where: { id: existing.id },
-      data: { value: serialized, valueType, updatedBy },
-    });
-  }
-  return db.configSetting.create({
-    data: {
-      key,
-      value: serialized,
-      valueType,
-      label: def?.label ?? key,
-      description: def?.description ?? null,
-      group: def?.group ?? "General",
-      entityId,
-      updatedBy,
-    },
-  });
+
+  const row = existing
+    ? await db.configSetting.update({
+        where: { id: existing.id },
+        data: { value: serialized, valueType, updatedBy },
+      })
+    : await db.configSetting.create({
+        data: {
+          key,
+          value: serialized,
+          valueType,
+          label: def?.label ?? key,
+          description: def?.description ?? null,
+          group: def?.group ?? "General",
+          entityId,
+          updatedBy,
+        },
+      });
+
+  // After the write, not before. Clearing first leaves a window in which another
+  // request repopulates the memo from the value this call is about to replace,
+  // which is the one outcome the invalidation exists to prevent.
+  for (const fn of invalidators) fn();
+  return row;
 }

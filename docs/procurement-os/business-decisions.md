@@ -28,6 +28,7 @@ exactly that case.
 | BD-010 | Prohibited role combinations | Segregation of duties | **OPEN — no combination stated** |
 | BD-011 | Payment pack for a service invoice | Service payments | **OPEN — Annexure A assumes a GRN** |
 | BD-012 | Undertaking and GD document types | Payment pack accuracy | **OPEN — no exact type exists** |
+| BD-013 | Who inspects construction, MEP, machinery and vehicles | Inspection routing | **OPEN — the chart covers 6 of 17 categories** |
 
 ---
 
@@ -402,3 +403,43 @@ Two rows of master data; the reason it is a decision rather than a change is tha
 somebody should confirm the retention period and who may view them.
 
 **Question.** Approve adding both types, and state their retention period.
+
+---
+
+## BD-013 · The inspection chart does not cover most of what the business buys — **OPEN**
+
+**What the SOP says.** ZAM/PUR/SOP-01's Store Process Flow prints a twenty-one
+cell chart: three inspection types by seven category groups, with Store, Admin or
+IT in each cell. All twenty-one are now loaded, verbatim.
+
+**The gap the transcription exposed.** The chart's seven columns are
+Stationery, Giveaways, Furniture, Housekeeping & Grocery, IT / Network / Mobiles,
+Electronic Appliances and Printed Collateral. The system holds seventeen
+categories. **Six map onto the chart. Eleven do not:**
+
+| Not on the chart |
+|---|
+| Construction — Blocks & Masonry, Cement & Aggregate, Steel & Rebar |
+| Fit-out & Finishes · HVAC & Air Conditioning |
+| Machinery & Equipment · MEP Electrical · MEP Plumbing |
+| Safety & PPE · Professional Services · Vehicles & Transport |
+
+That is the construction and MEP side of the business — plausibly the larger
+half by value — and the SOP's chart says nothing about who inspects it.
+
+**What the system does about it.** Nothing it was not told to. A category with no
+column falls back to the existing template routing, and the inspection screen
+says the chart is silent rather than showing an owner. Reading a Store column
+across to a steel delivery, because the chart happens to have one, would be
+putting words in the SOP's mouth — and it would put a storekeeper's name against
+a structural check nobody qualified performed.
+
+**Two chart columns also have no category:** Giveaways and Electronic
+Appliances. Adding either category and re-running the seed points it at its
+column; no code changes.
+
+**Question.** Who performs the technical, qualitative and quantitative checks on
+construction, MEP, machinery, vehicles and safety equipment? Eleven categories
+times three checks is thirty-three cells the chart does not contain. Each new row
+is a single insert once the answer exists.
+

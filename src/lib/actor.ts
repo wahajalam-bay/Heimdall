@@ -52,6 +52,7 @@ export const DOMAIN_ACTIONS = {
   INSPECTION_SCHEDULE: "inspection.schedule",
   INVENTORY_MOVEMENT_POST: "inventory.movementPost",
   POLICY_LAPSE_EXPIRED: "policy.lapseExpired",
+  VENDOR_RETURN_CREATE: "vendorReturn.create",
   PO_FULFILMENT_RECOMPUTE: "po.fulfilmentRecompute",
   PO_TRANSITION: "po.transition",
   PR_TRANSITION: "pr.transition",

@@ -24,6 +24,8 @@ import {
   resolveVariance,
 } from "@/server/receiving-exceptions";
 import { PERMISSIONS as P } from "@/lib/permissions";
+import { signOffInspection } from "@/server/inspection-matrix";
+import { returnFromInspection } from "@/server/receiving-exceptions";
 
 const blank = (v: FormDataEntryValue | null) => {
   const s = typeof v === "string" ? v.trim() : "";
@@ -622,4 +624,54 @@ export async function returnOptions() {
     }),
   ]);
   return { vendors, orders, items };
+}
+
+/**
+ * One function's sign-off on an inspection.
+ *
+ * The role check is inside `signOffInspection`, where it belongs — this is a URL
+ * and the only check that counts is the one the mutation makes.
+ */
+export async function signOffInspectionAction(formData: FormData): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const signoffId = String(formData.get("signoffId") ?? "");
+    const inspectionId = String(formData.get("inspectionId") ?? "");
+    const verdict = String(formData.get("verdict") ?? "PASS") as "PASS" | "FAIL" | "CONDITIONAL";
+    await signOffInspection(user, {
+      signoffId,
+      verdict,
+      notes: blank(formData.get("reason")) ?? blank(formData.get("notes")),
+    });
+    revalidatePath(`/inspections/${inspectionId}`);
+    return { ok: true, data: null, message: "Sign-off recorded." };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+/**
+ * Lodges the RTV a failed inspection calls for.
+ *
+ * Nothing about the return is retyped: the quantities come from the inspection
+ * and the prices from the order, inside `returnFromInspection`.
+ */
+export async function returnFromInspectionAction(formData: FormData): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const inspectionId = String(formData.get("inspectionId") ?? "");
+    const ret = await returnFromInspection(user, {
+      inspectionId,
+      reason: blank(formData.get("reason")),
+    });
+    revalidatePath(`/inspections/${inspectionId}`);
+    revalidatePath("/receiving");
+    return {
+      ok: true,
+      data: null,
+      message: `${ret.number} raised for ${ret.totalValue ? "PKR " + ret.totalValue.toLocaleString() : "the failed lines"}. It still needs authorising before the goods leave site.`,
+    };
+  } catch (e) {
+    return toActionError(e);
+  }
 }

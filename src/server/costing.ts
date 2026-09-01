@@ -1,5 +1,5 @@
 import { prisma, type DbClient } from "@/lib/db";
-import { CONFIG_KEYS, getConfigBundle } from "@/lib/config";
+import { CONFIG_KEYS, getConfigBundle, registerConfigInvalidator } from "@/lib/config";
 import { round2 } from "@/lib/format";
 
 /**
@@ -62,11 +62,39 @@ export type CostingPolicy = {
  * per movement is not a rounding error — it is two more round trips holding a
  * pooled connection open. One query answers both.
  */
+/**
+ * A short in-process memo on the two settings.
+ *
+ * `postMovement` calls this once per movement, and a purchase order that posts
+ * twenty lines is twenty extra round trips inside a transaction that already
+ * holds a pooled connection open. These two values change by hand, perhaps
+ * twice in the system's life; reading them afresh for every line is not caution,
+ * it is latency. Short enough that a change takes effect while somebody is still
+ * looking at the screen they changed it on.
+ */
+const POLICY_TTL_MS = 30_000;
+const policyMemo = new Map<string, { at: number; value: Omit<CostingPolicy, "active"> }>();
+
+export function clearCostingPolicyCache() {
+  policyMemo.clear();
+}
+
+// A change on the Business rules screen takes effect on the next movement, not
+// when the memo happens to expire.
+registerConfigInvalidator(clearCostingPolicyCache);
+
 export async function costingPolicy(
   entityId: string | null | undefined,
   at: Date = new Date(),
   db: DbClient = prisma,
 ): Promise<CostingPolicy> {
+  const key = entityId ?? "__global__";
+  const held = policyMemo.get(key);
+  if (held && Date.now() - held.at < POLICY_TTL_MS) {
+    const { method, from } = held.value;
+    return { method, from, active: from !== null && at.getTime() >= from.getTime() };
+  }
+
   const bundle = await getConfigBundle(
     [CONFIG_KEYS.COSTING_METHOD, CONFIG_KEYS.COST_LAYERS_FROM],
     entityId ?? null,
@@ -84,6 +112,7 @@ export async function costingPolicy(
     if (!Number.isNaN(d.getTime())) from = d;
   }
 
+  policyMemo.set(key, { at: Date.now(), value: { method, from } });
   return { method, from, active: from !== null && at.getTime() >= from.getTime() };
 }
 

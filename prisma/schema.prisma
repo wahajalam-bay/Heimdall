@@ -112,6 +112,7 @@ model User {
   paymentPackVerifications PaymentPackItem[] @relation("PaymentPackVerifiedBy")
   paymentPackExceptions    PaymentPackItem[] @relation("PaymentPackExceptionBy")
   minStockSet Item[] @relation("MinStockSetBy")
+  inspectionSignoffs InspectionSignoff[] @relation("InspectionSignoffBy")
   @@index([email])
   @@map("users")
 }
@@ -218,6 +219,7 @@ model Entity {
   itemCodeRules ItemCodeRule[]
 
   paymentPackRequirements PaymentPackRequirement[]
+  inspectionResponsibilities InspectionResponsibility[]
   @@map("entities")
 }
 
@@ -392,6 +394,11 @@ model Category {
   budgets          Budget[]
   itemCodeRules    ItemCodeRule[]
 
+  /// Which column of the SOP's inspection chart this category falls under.
+  /// Null means the chart is silent about it — the chart covers seven office and
+  /// consumable groups and says nothing about construction, MEP, machinery or
+  /// vehicles — and silence is reported rather than guessed at.
+  inspectionGroup String?
   @@map("categories")
 }
 
@@ -1433,6 +1440,8 @@ model Inspection {
 
   rejections RejectionRecord[]
 
+  signoffs InspectionSignoff[]
+  vendorReturns VendorReturn[]
   @@index([deliveryId])
   @@map("inspections")
 }
@@ -3380,6 +3389,13 @@ model VendorReturn {
   items      VendorReturnItem[]
   rejections RejectionRecord[]
 
+  /// The inspection that failed, when the return comes from one.
+  /// ZAM/PUR/SOP-01 Store Flow step 3: "If inspection fails, a Return-to-Vendor
+  /// (RTV) document will be lodged by the relevant inspector within the ERP."
+  /// Held here rather than inferred through the rejection records, so a second
+  /// return cannot be raised against the same failed inspection by accident.
+  inspectionId String?
+  inspection   Inspection? @relation(fields: [inspectionId], references: [id])
   @@index([vendorId])
   @@index([status])
   @@map("vendor_returns")
@@ -4025,4 +4041,90 @@ model CostLayerConsumption {
   @@index([transactionId])
   @@index([layerId])
   @@map("cost_layer_consumptions")
+}
+
+/// Who inspects what, from the Store Process Flow chart.
+///
+/// ZAM/PUR/SOP-01, Store – Process Flow, Goods Receiving Flow step 2 prints a
+/// twenty-one cell chart: three inspection types down the side, seven category
+/// groups across the top, and Store / Admin / IT in the cells. The system had a
+/// single `inspectionType` defaulting to `GENERAL` and routed everything to one
+/// technical inspector, so an Admin sign-off on furniture and an IT sign-off on
+/// mobiles simply did not exist.
+///
+/// The chart is data, not code, because it is the sort of thing that changes by
+/// memo. Each row cites the cell it came from.
+model InspectionResponsibility {
+  id String @id @default(cuid())
+
+  /// Null applies to every entity.
+  entityId String?
+  entity   Entity? @relation(fields: [entityId], references: [id])
+
+  /// The chart's column heading, verbatim.
+  categoryGroup String
+
+  /// TECHNICAL | QUALITATIVE | QUANTITATIVE — the chart's three rows.
+  inspectionType String
+
+  /// STORE | ADMIN | IT — what the cell says.
+  ownerFunction String
+
+  /// The system role that function resolves to. Null means the function has no
+  /// role yet, which is a gap to be filled rather than a reason to route the
+  /// inspection somewhere else.
+  ownerRoleCode String?
+
+  sequence        Int     @default(0)
+  active          Boolean @default(true)
+  sourceReference String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([entityId, categoryGroup, inspectionType])
+  @@index([categoryGroup, active])
+  @@map("inspection_responsibilities")
+}
+
+/// One required sign-off on one inspection.
+///
+/// The chart can name three different functions for a single delivery — Admin
+/// for the technical and qualitative check on furniture, Store for the count —
+/// and §4.7 says the form is "filled and signed by all concerns". One
+/// `signedByName` text field could hold one name, so the other two concerns had
+/// nowhere to sign and no way to be chased.
+///
+/// The rows are written when the inspection is scheduled, from the matrix as it
+/// stood at that moment. A later change to the chart does not silently rewrite
+/// who was supposed to have signed an inspection that already happened.
+model InspectionSignoff {
+  id String @id @default(cuid())
+
+  inspectionId String
+  inspection   Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+
+  inspectionType String
+  ownerFunction  String
+  ownerRoleCode  String?
+
+  /// PASS | FAIL | CONDITIONAL — this function's own verdict, which is not
+  /// necessarily the inspection's overall one.
+  verdict String?
+  notes   String?
+
+  signedById String?
+  signedBy   User?     @relation("InspectionSignoffBy", fields: [signedById], references: [id])
+  signedAt   DateTime?
+
+  /// The attestation this sign-off produced, so the signature and its hash live
+  /// where every other signature in the system lives.
+  attestationId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([inspectionId, inspectionType])
+  @@index([inspectionId])
+  @@map("inspection_signoffs")
 }

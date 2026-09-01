@@ -331,17 +331,26 @@ export async function createVendorReturn(
     vendorId: string;
     poId?: string | null;
     grnId?: string | null;
+    /** Set when the return follows a failed inspection. */
+    inspectionId?: string | null;
     reason: string;
     replacementRequired?: boolean;
     items: ReturnLineInput[];
     rejectionIds?: string[];
   },
   db: DbClient = prisma,
+  /**
+   * Grounds, when the return follows from an authorized operation elsewhere.
+   *
+   * ZAM/PUR/SOP-01 Store Flow step 3 puts the RTV in the hands of "the relevant
+   * inspector", who need not also hold the general returns permission. Omitted,
+   * the caller must hold that permission in their own right; supplied, the
+   * originating permission is re-verified rather than assumed.
+   */
+  authority: Authority = { permission: [P.RETURN_CREATE] },
 ) {
   return withTransaction(db, async (tx) => {
-    if (!userHasPermission(user, P.RETURN_CREATE)) {
-      throw new ForbiddenError("You do not have permission to raise vendor returns.");
-    }
+    assertAuthority(user, DOMAIN_ACTIONS.VENDOR_RETURN_CREATE, authority);
     if (!input.items.length) throw new ValidationError("A return needs at least one line.");
     if (!input.reason?.trim()) throw new ValidationError("State why the goods are going back.");
 
@@ -367,6 +376,7 @@ export async function createVendorReturn(
         vendorId: input.vendorId,
         poId: input.poId ?? null,
         grnId: input.grnId ?? null,
+        inspectionId: input.inspectionId ?? null,
         status: "DRAFT",
         reason: input.reason.trim(),
         totalValue: round2(lines.reduce((a, l) => a + l.lineValue, 0)),
@@ -542,4 +552,123 @@ export async function receivingExceptionStats(entityIds: string[] | null, db: Db
     openReturns,
     replacementOverdue,
   };
+}
+
+
+/* ── Return to vendor, from a failed inspection ───────────── */
+
+/**
+ * Raises the RTV a failed inspection calls for, without re-entry.
+ *
+ * ZAM/PUR/SOP-01 Store – Process Flow, step 3: "If incoming goods pass
+ * inspection, Store Manager will proceed to Step 4. **If inspection fails, a
+ * Return-to-Vendor (RTV) document will be lodged by the relevant inspector
+ * within the ERP.**"
+ *
+ * Vendor returns existed as a module and nothing connected them to an
+ * inspection. Somebody who had just recorded a failure had to open another
+ * screen and retype the vendor, the order, the lines, the quantities and the
+ * prices — which is how a failed inspection quietly becomes no return at all,
+ * and how the quantity on the return stops matching the quantity that failed.
+ *
+ * The failed quantities come from the inspection; the prices come from the
+ * order. Neither is asked for again, so neither can drift.
+ *
+ * The inspector may lodge it, as the SOP says, whether or not they also hold the
+ * general returns permission — the authority to condemn the goods is what the
+ * SOP treats as the authority to send them back.
+ */
+export async function returnFromInspection(
+  user: SessionUser,
+  input: { inspectionId: string; reason?: string | null; replacementRequired?: boolean },
+  db: DbClient = prisma,
+) {
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.RETURN_CREATE, P.INSPECTION_PERFORM)) {
+      throw new ForbiddenError(
+        "Lodging a return against a failed inspection needs either the returns permission or the authority to inspect.",
+      );
+    }
+
+    const inspection = await tx.inspection.findUnique({
+      where: { id: input.inspectionId },
+      include: {
+        items: { include: { poItem: { select: { unitPrice: true, unit: true } } } },
+        po: { select: { id: true, number: true, vendorId: true, vendor: { select: { name: true } } } },
+        delivery: { select: { grns: { select: { id: true } } } },
+      },
+    });
+    if (!inspection) throw new NotFoundError("Inspection");
+    if (!inspection.po) {
+      throw new RuleViolationError(
+        `${inspection.number} is not against a purchase order, so there is no vendor to return the goods to.`,
+      );
+    }
+    if (!["REJECTED", "CONDITIONAL"].includes(inspection.result)) {
+      throw new RuleViolationError(
+        `${inspection.number} is ${inspection.result.toLowerCase()}. A return to vendor follows a failed inspection, not a passed one.`,
+      );
+    }
+
+    const existing = await tx.vendorReturn.findFirst({
+      where: { inspectionId: inspection.id, status: { not: "CANCELLED" } },
+      select: { number: true },
+    });
+    if (existing) {
+      throw new RuleViolationError(
+        `${existing.number} has already been raised against ${inspection.number}. Amend that return rather than raising a second one.`,
+      );
+    }
+
+    const failed = inspection.items.filter((i) => i.quantityFailed > 0);
+    if (!failed.length) {
+      throw new RuleViolationError(
+        `Nothing on ${inspection.number} was recorded as failed, so there is nothing to send back. ` +
+          "Record the failed quantities on the inspection first.",
+      );
+    }
+
+    const lines: ReturnLineInput[] = failed.map((i) => ({
+      itemId: i.itemId,
+      description: i.description,
+      quantity: round2(i.quantityFailed),
+      unit: i.poItem?.unit ?? "EA",
+      // The order's price, not a fresh entry. A return valued at a number
+      // somebody typed is a number nobody can reconcile to the invoice.
+      unitValue: i.poItem?.unitPrice ?? 0,
+      reasonCode: i.verdict === "FAIL" ? "INSPECTION_FAIL" : "INSPECTION_CONDITIONAL",
+    }));
+
+    // The findings that condemned the goods, so the vendor record connects the
+    // inspection, the rejection and the return rather than holding three
+    // unrelated documents.
+    const rejections = await tx.rejectionRecord.findMany({
+      where: { inspectionId: inspection.id, returnId: null },
+      select: { id: true },
+    });
+
+    const reason =
+      input.reason?.trim() ||
+      `Failed inspection ${inspection.number}` +
+        (inspection.findings ? ` — ${inspection.findings}` : "");
+
+    return createVendorReturn(
+      user,
+      {
+        vendorId: inspection.po.vendorId,
+        poId: inspection.po.id,
+        grnId: inspection.delivery?.grns[0]?.id ?? null,
+        inspectionId: inspection.id,
+        reason,
+        replacementRequired: input.replacementRequired ?? true,
+        items: lines,
+        rejectionIds: rejections.map((r) => r.id),
+      },
+      tx,
+      // The authority to condemn the goods is what the SOP treats as the
+      // authority to send them back. Named as grounds and re-verified, not
+      // waved through.
+      { cascade: `the failed inspection ${inspection.number}`, from: [P.RETURN_CREATE, P.INSPECTION_PERFORM] },
+    );
+  });
 }

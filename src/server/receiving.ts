@@ -10,6 +10,13 @@ import { DOMAIN_ACTIONS, assertAuthority } from "@/lib/actor";
 import { assertEntityAccess, userHasPermission, type SessionUser } from "@/lib/rbac";
 import type { DiscrepancyType } from "@/lib/domain";
 import { round2 } from "@/lib/format";
+import {
+  assertSignoffsComplete,
+  createSignoffs,
+  responsibilitiesForCategory,
+  INSPECTION_FUNCTION_LABELS,
+  type InspectionFunction,
+} from "./inspection-matrix";
 
 /**
  * Physical receipt chain: inward gate pass → physical verification (delivery)
@@ -569,7 +576,14 @@ export async function scheduleInspection(
     include: { prItem: { include: { category: true } } },
   });
   const categoryCode = poItems[0]?.prItem?.category?.code ?? null;
+  const categoryId = poItems[0]?.prItem?.categoryId ?? null;
   const template = templateForCategoryCode(categoryCode);
+
+  // ZAM/PUR/SOP-01's inspection chart: three checks, each with its own owner.
+  // Where the chart is silent — construction, MEP, machinery, vehicles — the
+  // existing template routing stands and the inspection says so rather than
+  // pretending the chart answered.
+  const matrix = await responsibilitiesForCategory(categoryId, delivery.po.entityId, db);
 
   const number = await nextNumber(SEQ.INSPECTION, db);
   const slaHours = await getConfigNumber(CONFIG_KEYS.SLA_INSPECTION_HOURS, delivery.po.entityId, db);
@@ -605,6 +619,9 @@ export async function scheduleInspection(
     },
   });
 
+  // The sign-offs the chart requires, snapshotted as it stands now.
+  await createSignoffs(inspection.id, matrix.responsibilities, db);
+
   const roleForType: Record<string, string> = {
     IT: "IT_USER",
     CIVIL: "PM_USER",
@@ -614,13 +631,37 @@ export async function scheduleInspection(
     QUALITY: "TECHNICAL_INSPECTOR",
   };
 
+  // The chart's owners get the task, not one generic inspector. Distinct
+  // functions only: furniture wants Admin twice and Store once, and telling
+  // Admin twice about the same delivery is noise.
+  const chartRoles = [
+    ...new Set(
+      matrix.responsibilities
+        .map((r) => r.ownerRoleCode)
+        .filter((c): c is string => !!c),
+    ),
+  ];
+  const fallbackRole = roleForType[template.type] ?? "TECHNICAL_INSPECTOR";
+  const targetRoles = chartRoles.length ? chartRoles : [fallbackRole];
+  const owners = matrix.responsibilities.length
+    ? [
+        ...new Set(
+          matrix.responsibilities.map(
+            (r) => INSPECTION_FUNCTION_LABELS[r.ownerFunction as InspectionFunction] ?? r.ownerFunction,
+          ),
+        ),
+      ].join(", ")
+    : null;
+
   await createTask(
     {
       title: `Technical inspection required — ${inspection.number}`,
-      description: `${template.label} · ${delivery.po.number} at ${delivery.store.name}`,
+      description:
+        `${template.label} · ${delivery.po.number} at ${delivery.store.name}` +
+        (owners ? ` · ${matrix.categoryGroup}: ${owners} to sign` : ""),
       taskType: "INSPECTION",
       assigneeId: input.inspectorId ?? null,
-      assignedRoleCode: input.inspectorId ? null : (roleForType[template.type] ?? "TECHNICAL_INSPECTOR"),
+      assignedRoleCode: input.inspectorId ? null : targetRoles[0],
       entityId: delivery.po.entityId,
       documentType: "INSPECTION",
       documentId: inspection.id,
@@ -634,7 +675,7 @@ export async function scheduleInspection(
   await notify(
     {
       userIds: input.inspectorId ? [input.inspectorId] : [],
-      roleCodes: input.inspectorId ? [] : [roleForType[template.type] ?? "TECHNICAL_INSPECTOR"],
+      roleCodes: input.inspectorId ? [] : targetRoles,
       entityId: delivery.po.entityId,
       type: "INSPECTION_REQUIRED",
       title: `Inspection ${inspection.number} pending`,
@@ -653,7 +694,14 @@ export async function scheduleInspection(
       entityId: inspection.id,
       entityRef: inspection.number,
       action: "INSPECTION_SCHEDULED",
-      newValue: { template: template.code, lines: poItems.length, delivery: delivery.number },
+      newValue: {
+        template: template.code,
+        lines: poItems.length,
+        delivery: delivery.number,
+        chartGroup: matrix.categoryGroup,
+        signoffs: matrix.responsibilities.map((r) => `${r.inspectionType}:${r.ownerFunction}`),
+        offChart: matrix.unmapped,
+      },
       caseKey: delivery.po.pr?.number ?? null,
       actor: user,
     },
@@ -705,6 +753,17 @@ export async function recordInspection(
     }
     if (!input.signedByName?.trim()) {
       throw new ValidationError("The inspection must be signed by the responsible inspector.");
+    }
+    // §4.7: the form is "filled and signed by all concerns". Where the SOP's
+    // chart named the concerns, every one of them has to have signed before the
+    // inspection closes. A form closed with the Admin technical check
+    // outstanding is a form with a blank on it, and a blank on a signed form is
+    // worse than no form — it looks complete.
+    //
+    // A re-inspection request is not a closure, so it is exempt: the point of
+    // sending it back is that the checks are not finished.
+    if (input.result !== "RE_INSPECTION_REQUIRED") {
+      await assertSignoffsComplete(inspection.id, inspection.number, tx);
     }
     if (input.result === "CONDITIONAL" && !input.conditions?.trim()) {
       throw new ValidationError("Record the conditions attached to a conditional approval.");
