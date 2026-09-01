@@ -21,6 +21,11 @@ export type ConfigDef = {
 export const CONFIG_KEYS = {
   // Payment document pack — see server/payment-pack.ts.
   ENFORCE_PAYMENT_PACK: "invoice.enforce_payment_document_pack",
+  // Minimum stock and replenishment — see server/replenishment.ts, ZAM §3.3.
+  MIN_STOCK_WINDOW_DAYS: "inventory.min_stock_window_days",
+  MIN_STOCK_LEAD_DAYS: "inventory.min_stock_lead_days",
+  MIN_STOCK_SAFETY_DAYS: "inventory.min_stock_safety_days",
+  MIN_STOCK_MIN_MOVEMENTS: "inventory.min_stock_min_movements",
   // Inventory costing — see server/costing.ts and BD-008.
   COSTING_METHOD: "inventory.costing_method",
   COST_LAYERS_FROM: "inventory.cost_layers_from",
@@ -1015,6 +1020,44 @@ export const CONFIG_DEFS: ConfigDef[] = [
     group: "Accounting treatment",
     valueType: "json",
     default: [],
+  },
+
+  /* ── Minimum stock ───────────────────────────────────────────────────── */
+  {
+    key: CONFIG_KEYS.MIN_STOCK_WINDOW_DAYS,
+    label: "Consumption window for minimum stock (days)",
+    description:
+      "How far back the suggested minimum reads the issue history. ZAM/PUR/SOP-01 §3.3 allows a minimum level derived from past consumption; this is the span of past it looks at. Long enough to see a pattern, short enough that last year's usage does not govern this year's shelf.",
+    group: "Stores",
+    valueType: "number",
+    default: 180,
+  },
+  {
+    key: CONFIG_KEYS.MIN_STOCK_LEAD_DAYS,
+    label: "Replenishment lead time (days)",
+    description:
+      "How long a requisition takes to become stock on a shelf. The suggested minimum is this many days of average consumption plus the safety days, so the store does not run out while the order is in flight.",
+    group: "Stores",
+    valueType: "number",
+    default: 14,
+  },
+  {
+    key: CONFIG_KEYS.MIN_STOCK_SAFETY_DAYS,
+    label: "Safety cover (days)",
+    description:
+      "Extra days of consumption held on top of the lead time, for the weeks demand runs above average.",
+    group: "Stores",
+    valueType: "number",
+    default: 7,
+  },
+  {
+    key: CONFIG_KEYS.MIN_STOCK_MIN_MOVEMENTS,
+    label: "Issues needed before a minimum is suggested",
+    description:
+      "Below this many issues in the window, no figure is suggested at all. An item issued once has no consumption pattern, and a suggestion drawn from a single movement would look exactly as authoritative as one drawn from a year of them.",
+    group: "Stores",
+    valueType: "number",
+    default: 3,
   },
 
   /* ── Inventory costing ───────────────────────────────────────────────── */

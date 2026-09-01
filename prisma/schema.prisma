@@ -111,6 +111,7 @@ model User {
   serialMovements   SerialMovement[] @relation("SerialMovementBy")
   paymentPackVerifications PaymentPackItem[] @relation("PaymentPackVerifiedBy")
   paymentPackExceptions    PaymentPackItem[] @relation("PaymentPackExceptionBy")
+  minStockSet Item[] @relation("MinStockSetBy")
   @@index([email])
   @@map("users")
 }
@@ -415,6 +416,17 @@ model Item {
   trackExpiry   Boolean @default(false)
   reorderLevel  Float?
   active        Boolean @default(true)
+  /// Where `reorderLevel` came from. ZAM/PUR/SOP-01 §3.3 gives Manager Logistics
+  /// two grounds for a minimum stock level — past consumption, or the advice of
+  /// the requesting department's POC — and the two are not interchangeable. A
+  /// number nobody can attribute is a number nobody defends when stock runs out.
+  ///
+  /// MANUAL | CONSUMPTION | POC_ADVICE
+  minStockBasis     String?
+  minStockBasisNote String?
+  minStockSetAt     DateTime?
+  minStockSetById   String?
+  minStockSetBy     User?     @relation("MinStockSetBy", fields: [minStockSetById], references: [id])
 
   requisitionItems PurchaseRequisitionItem[]
   quoteItems       QuoteItem[]

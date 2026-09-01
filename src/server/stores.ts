@@ -9,6 +9,7 @@ import { round2 } from "@/lib/format";
 import { availableQuantity, postMovement, requireStore, stockUnitCost } from "./inventory";
 import { CONFIG_KEYS, getConfigBool, getConfigNumber } from "@/lib/config";
 import { consumeReservation, releaseFor } from "./reservations";
+import { alertBelowMinimum } from "./replenishment";
 
 /**
  * Store issuance, inter-store transfers and stock adjustments.
@@ -334,7 +335,7 @@ export async function issueStock(
   input: { issueId: string; issuedQuantities?: Record<string, number> },
   db: DbClient = prisma,
 ) {
-  return withTransaction(db, async (tx) => {
+  return withTransaction(db, async (tx, defer) => {
     if (!userHasPermission(user, P.STORE_ISSUE)) throw new ForbiddenError("Not permitted.");
     const issue = await tx.storeIssue.findUnique({
       where: { id: input.issueId },
@@ -396,6 +397,21 @@ export async function issueStock(
 
       await tx.storeIssueItem.update({ where: { id: li.id }, data: { issuedQty: round2(already + qty) } });
       anyIssued = true;
+      // ZAM/PUR/SOP-01 Store Flow (c) and (d): after the exit is recorded, the
+      // balance is checked against the minimum, and reaching it alerts the
+      // procurement associate. Deferred until the issue has committed — an
+      // alert is not worth rolling an issue back for, and a notification sent
+      // inside a transaction that later aborts announces something that did not
+      // happen.
+      const alertItemId = li.itemId;
+      defer({
+        label: `below-minimum check for ${li.item.sku}`,
+        run: () =>
+          alertBelowMinimum(alertItemId, issue.storeId, {
+            entityId: issue.store.entityId,
+            triggeredBy: issue.number,
+          }),
+      });
       if (already + qty + 1e-9 < target) allIssued = false;
 
       // Move asset custody where a tag was named.
