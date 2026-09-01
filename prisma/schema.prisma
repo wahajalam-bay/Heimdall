@@ -113,6 +113,8 @@ model User {
   paymentPackExceptions    PaymentPackItem[] @relation("PaymentPackExceptionBy")
   minStockSet Item[] @relation("MinStockSetBy")
   inspectionSignoffs InspectionSignoff[] @relation("InspectionSignoffBy")
+  minutesPrepared      NegotiationMinute[]      @relation("MinutePreparedBy")
+  minuteParticipations NegotiationParticipant[] @relation("MinuteParticipant")
   @@index([email])
   @@map("users")
 }
@@ -220,6 +222,7 @@ model Entity {
 
   paymentPackRequirements PaymentPackRequirement[]
   inspectionResponsibilities InspectionResponsibility[]
+  negotiationMinutes NegotiationMinute[]
   @@map("entities")
 }
 
@@ -721,6 +724,7 @@ model PurchaseRequisition {
   requirement   Requirement?     @relation(fields: [requirementId], references: [id])
   allocations   PrPoAllocation[]
 
+  negotiationMinutes NegotiationMinute[]
   @@index([entityId, status])
   @@index([status])
   @@map("purchase_requisitions")
@@ -803,6 +807,7 @@ model Rfq {
   comparatives   Comparative[]
   purchaseOrders PurchaseOrder[]
 
+  negotiationMinutes NegotiationMinute[]
   @@index([prId])
   @@map("rfqs")
 }
@@ -2186,6 +2191,8 @@ model Vendor {
 
   manualComparativeEntries ComparativeManualEntry[]
   serialUnits SerialUnit[]
+  negotiationMinutes NegotiationMinute[] 
+  negotiationAppearances NegotiationParticipant[]
   @@index([status])
   @@map("vendors")
 }
@@ -4139,4 +4146,119 @@ model InspectionSignoff {
   @@unique([inspectionId, inspectionType])
   @@index([inspectionId])
   @@map("inspection_signoffs")
+}
+
+/// Negotiation Minutes.
+///
+/// ZAM/PUR/SOP-01 §4.5.1: "A price negotiating call or meeting will be conducted
+/// by procurement department with the vendors. Negotiation will be based on;
+/// financial evaluation/competitive price, payment terms, product/ service
+/// quality, on time delivery, after sales services, warranties etc.
+/// **Preparation of Comparative Statement, Negotiation Minutes, approval
+/// documents and conclusion is to be documented.**"
+///
+/// The system recorded negotiation *rounds* — a number moving from one figure to
+/// another — which is the outcome of a negotiation and not the minutes of one.
+/// The minutes are what say who was in the room, what was discussed against each
+/// of the six bases the SOP names, and what was concluded. A price that fell by
+/// eight per cent with no record of what was conceded to get there is a number
+/// nobody can defend to an auditor.
+model NegotiationMinute {
+  id     String @id @default(cuid())
+  number String @unique
+
+  /// The sourcing exercise these minutes belong to.
+  rfqId String?
+  rfq   Rfq?    @relation(fields: [rfqId], references: [id])
+  prId  String?
+  pr    PurchaseRequisition? @relation(fields: [prId], references: [id])
+
+  entityId String?
+  entity   Entity? @relation(fields: [entityId], references: [id])
+
+  /// CALL | MEETING | EMAIL | PORTAL | WHATSAPP — §4.5.1 allows a call or a
+  /// meeting; the others are here because the petty cash clause allows written
+  /// quotations over social media and the same evidence problem applies.
+  channel  String   @default("CALL")
+  heldAt   DateTime
+  location String?
+
+  /// DRAFT | FINALISED — finalised minutes are the record; a draft is not.
+  status String @default("DRAFT")
+
+  /// What was concluded. §4.5.1 requires the conclusion to be documented, and a
+  /// set of minutes with no conclusion documents a conversation, not a decision.
+  conclusion String?
+
+  /// The vendor the minutes conclude for, where they conclude for one.
+  recommendedVendorId String?
+  recommendedVendor   Vendor? @relation(fields: [recommendedVendorId], references: [id])
+
+  preparedById String
+  preparedBy   User   @relation("MinutePreparedBy", fields: [preparedById], references: [id])
+
+  finalisedAt DateTime?
+
+  participants NegotiationParticipant[]
+  bases        NegotiationBasisNote[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([rfqId])
+  @@index([status])
+  @@map("negotiation_minutes")
+}
+
+/// Who was in the room, on which side.
+///
+/// Held as rows rather than a free-text list because "who attended" is the fact
+/// an auditor asks about first, and a sentence cannot be queried. A vendor
+/// representative is usually not a system user, so the name is captured as
+/// written rather than joined.
+model NegotiationParticipant {
+  id       String            @id @default(cuid())
+  minuteId String
+  minute   NegotiationMinute @relation(fields: [minuteId], references: [id], onDelete: Cascade)
+
+  /// COMPANY | VENDOR
+  side String
+
+  userId   String?
+  user     User?   @relation("MinuteParticipant", fields: [userId], references: [id])
+  vendorId String?
+  vendor   Vendor? @relation(fields: [vendorId], references: [id])
+
+  name        String
+  designation String?
+  attended    Boolean @default(true)
+
+  @@index([minuteId])
+  @@map("negotiation_participants")
+}
+
+/// What was discussed against one of the SOP's named negotiation bases.
+///
+/// §4.5.1 lists six and then says "etc.", so the list is open rather than
+/// closed — `OTHER` exists for that, and it must be labelled.
+model NegotiationBasisNote {
+  id       String            @id @default(cuid())
+  minuteId String
+  minute   NegotiationMinute @relation(fields: [minuteId], references: [id], onDelete: Cascade)
+
+  /// PRICE | PAYMENT_TERMS | QUALITY | DELIVERY | AFTER_SALES | WARRANTY | OTHER
+  basis String
+  /// Set for OTHER, so an unnamed basis cannot hide in the list.
+  label String?
+
+  /// False where the basis was not discussed. Recorded rather than omitted: a
+  /// negotiation that never raised payment terms is a fact worth having.
+  discussed Boolean @default(true)
+  notes     String?
+
+  sequence Int @default(0)
+
+  @@unique([minuteId, basis, label])
+  @@index([minuteId])
+  @@map("negotiation_basis_notes")
 }

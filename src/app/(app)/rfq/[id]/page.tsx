@@ -25,6 +25,8 @@ import {
 import { DocumentsPanel } from "@/components/domain/DocumentsPanel";
 import { Timeline } from "@/components/ui/workflow";
 import { documentTimeline } from "@/server/timeline";
+import { minutesFor, NEGOTIATION_BASIS_LABELS } from "@/server/negotiation-minutes";
+import { NegotiationMinutes } from "./NegotiationMinutes";
 import { DEFAULT_COMPARATIVE_CRITERIA } from "@/server/sourcing";
 import { humanize, toneFor } from "@/lib/domain";
 import { fmtDate, fmtDateTime, money, percent, qty, round2, toInputDate } from "@/lib/format";
@@ -97,7 +99,7 @@ export default async function RfqDetailPage({ params }: { params: Promise<{ id: 
   });
   if (!rfq) notFound();
 
-  const [minQuotes, defaultTax, events, allVendors] = await Promise.all([
+  const [minQuotes, defaultTax, events, allVendors, minutes] = await Promise.all([
     getConfigNumber(CONFIG_KEYS.MIN_QUOTATIONS, rfq.pr.entityId),
     getConfigNumber(CONFIG_KEYS.DEFAULT_TAX_RATE, rfq.pr.entityId),
     documentTimeline("Rfq", rfq.id),
@@ -106,6 +108,7 @@ export default async function RfqDetailPage({ params }: { params: Promise<{ id: 
       select: { id: true, name: true, code: true, status: true },
       orderBy: { name: "asc" },
     }),
+    minutesFor({ rfqId: rfq.id }),
   ]);
 
   const canEnterQuotes = userHasPermission(user, P.QUOTE_ENTER);
@@ -446,6 +449,42 @@ export default async function RfqDetailPage({ params }: { params: Promise<{ id: 
             />
           </div>
         )}
+      </SectionCard>
+
+      <SectionCard
+        title="Negotiation minutes"
+        description="ZAM/PUR/SOP-01 §4.5.1: a price negotiating call or meeting, its six bases, and its conclusion, documented."
+      >
+        <NegotiationMinutes
+          rfqId={rfq.id}
+          canRecord={canNegotiate}
+          basisLabels={{ ...NEGOTIATION_BASIS_LABELS, CALL: "Call", MEETING: "Meeting", EMAIL: "Email", PORTAL: "Portal", WHATSAPP: "WhatsApp" }}
+          vendors={rfq.vendors.map((v) => ({ id: v.vendor.id, name: v.vendor.name }))}
+          minutes={minutes.map((m) => ({
+            id: m.id,
+            number: m.number,
+            status: m.status,
+            channel: m.channel,
+            heldAt: m.heldAt.toISOString(),
+            location: m.location,
+            conclusion: m.conclusion,
+            preparedByName: m.preparedBy.name,
+            recommendedVendorName: m.recommendedVendor?.name ?? null,
+            participants: m.participants.map((p) => ({
+              id: p.id,
+              side: p.side,
+              name: p.name,
+              designation: p.designation,
+            })),
+            bases: m.bases.map((b) => ({
+              id: b.id,
+              basis: b.basis,
+              label: b.label,
+              discussed: b.discussed,
+              notes: b.notes,
+            })),
+          }))}
+        />
       </SectionCard>
 
       {rfq.quotes.some((q) => q.negotiations.length > 0) && (

@@ -14,6 +14,7 @@ export const SEQ = {
   RFQ: "RFQ",
   QUOTE: "QT",
   COMPARATIVE: "CMP",
+  NEGOTIATION_MINUTE: "NGM",
   PO: "PO",
   GATE_PASS: "GP",
   SERVICE_ACCEPTANCE: "SAC",

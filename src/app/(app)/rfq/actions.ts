@@ -23,6 +23,11 @@ import {
 import { createCpcCase } from "@/server/cpc";
 import { recordTraderCase } from "@/server/vendors";
 import { PERMISSIONS as P } from "@/lib/permissions";
+import {
+  createNegotiationMinute,
+  finaliseNegotiationMinute,
+  recordBasis,
+} from "@/server/negotiation-minutes";
 
 const blank = (v: FormDataEntryValue | null) => {
   const s = typeof v === "string" ? v.trim() : "";
@@ -425,4 +430,94 @@ export async function eligibleVendors(entityId: string | null) {
     orderBy: [{ status: "asc" }, { name: "asc" }],
   });
   return vendors;
+}
+
+
+/* ── Negotiation minutes · ZAM/PUR/SOP-01 §4.5.1 ──────────── */
+
+export async function openMinutesAction(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const rfqId = String(formData.get("rfqId") ?? "");
+    const heldAt = String(formData.get("heldAt") ?? "");
+    if (!heldAt) throw new ValidationError("State when the negotiation took place.");
+
+    // Vendor attendees arrive as parallel arrays from the repeating rows.
+    const vendorIds = formData.getAll("vendorId").map(String);
+    const vendorNames = formData.getAll("vendorName").map(String);
+    const vendorTitles = formData.getAll("vendorTitle").map(String);
+
+    const vendors = vendorNames
+      .map((name, i) => ({
+        side: "VENDOR" as const,
+        vendorId: vendorIds[i] || null,
+        name,
+        designation: vendorTitles[i] || null,
+      }))
+      .filter((v) => v.name.trim());
+
+    const minute = await createNegotiationMinute(user, {
+      rfqId,
+      heldAt: new Date(heldAt),
+      channel: String(formData.get("channel") ?? "CALL"),
+      location: blank(formData.get("location")),
+      participants: [
+        {
+          side: "COMPANY",
+          userId: user.id,
+          name: user.name,
+          designation: user.title ?? "Procurement",
+        },
+        ...vendors,
+      ],
+    });
+
+    revalidatePath(`/rfq/${rfqId}`);
+    return { ok: true, data: null, message: `${minute.number} opened. Record what was discussed against each basis.` };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function recordBasisAction(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const rfqId = String(formData.get("rfqId") ?? "");
+    await recordBasis(user, {
+      minuteId: String(formData.get("minuteId") ?? ""),
+      basis: String(formData.get("basis") ?? "PRICE") as never,
+      label: blank(formData.get("label")),
+      discussed: formData.get("discussed") === "on" || formData.get("discussed") === "true",
+      notes: blank(formData.get("notes")),
+    });
+    revalidatePath(`/rfq/${rfqId}`);
+    return { ok: true, data: null, message: "Recorded." };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function finaliseMinutesAction(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const rfqId = String(formData.get("rfqId") ?? "");
+    const minute = await finaliseNegotiationMinute(user, {
+      minuteId: String(formData.get("minuteId") ?? ""),
+      conclusion: String(formData.get("conclusion") ?? ""),
+      recommendedVendorId: blank(formData.get("recommendedVendorId")),
+    });
+    revalidatePath(`/rfq/${rfqId}`);
+    return { ok: true, data: null, message: `${minute.number} finalised and signed.` };
+  } catch (e) {
+    return toActionError(e);
+  }
 }
