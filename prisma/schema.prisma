@@ -337,6 +337,7 @@ model Store {
   requirementLines RequirementItem[]
 
   serialUnits SerialUnit[]
+  costLayers CostLayer[]
   @@map("stores")
 }
 
@@ -439,6 +440,7 @@ model Item {
   returnLines VendorReturnItem[]
 
   serialUnits SerialUnit[]
+  costLayers CostLayer[]
   @@index([categoryId])
   @@map("items")
 }
@@ -1668,6 +1670,14 @@ model InventoryTransaction {
   performedById String
   performedAt   DateTime @default(now())
 
+  /// What FIFO says this movement cost, when cost layers covered it.
+  /// Null on every row posted before layers began and on any movement the
+  /// layers could not fully cover — a null is "not computed", which is not
+  /// the same claim as zero.
+  fifoValue     Float?
+  fifoUnitCost  Float?
+  /// WEIGHTED_AVERAGE | FIFO — which figure `value` above was taken from.
+  costingMethod String?
   @@index([itemId, storeId])
   @@index([sourceType, sourceId])
   @@map("inventory_transactions")
@@ -3916,4 +3926,91 @@ model PaymentPackItem {
 
   @@unique([documentType, documentId, documentTypeCode])
   @@index([documentType, documentId])
+}
+
+/// One receipt's worth of stock at the price that receipt was bought at.
+///
+/// The bucket carries a single weighted-average `unitCost`, which answers "what
+/// is this stock worth on average" but cannot answer "what did the units we just
+/// issued actually cost". Ten at 100 followed by ten at 120 averages to 110, and
+/// an issue of twelve is then valued at 1,320 — where FIFO says 10x100 + 2x120 =
+/// 1,240. The difference is real money and it lands in cost of sales.
+///
+/// So each inbound movement opens a layer, and each outbound movement consumes
+/// layers oldest-first, recording which layer each unit came from.
+///
+/// This is deliberately NOT the same thing as FEFO picking. FEFO decides which
+/// physical carton leaves the shelf, and it must keep ordering by expiry, because
+/// issuing the cheapest stock while the earliest-expiring stock rots would be a
+/// worse outcome than a costing discrepancy. FIFO decides what that carton is
+/// carried at. The two run side by side and can legitimately disagree.
+model CostLayer {
+  id String @id @default(cuid())
+
+  itemId  String
+  item    Item   @relation(fields: [itemId], references: [id])
+  storeId String
+  store   Store  @relation(fields: [storeId], references: [id])
+
+  /// The layer belongs to one bucket, so batch-tracked stock keeps its layers
+  /// separate from untracked stock of the same item.
+  batchNumber  String?
+  serialNumber String?
+
+  unitCost          Float
+  quantityReceived  Float
+  quantityRemaining Float
+
+  /// When the stock arrived. FIFO order is this, then `sequence` for receipts
+  /// landing in the same instant.
+  receivedAt DateTime
+  sequence   Int      @default(0)
+
+  /// The movement that opened the layer, so a layer can always be traced back.
+  sourceType    String
+  sourceId      String?
+  sourceRef     String?
+  transactionId String?
+  grnId         String?
+
+  entityId String?
+
+  /// Set when the layer runs out. Kept rather than deleted: an exhausted layer is
+  /// the evidence for every issue that drew on it.
+  closedAt DateTime?
+
+  consumptions CostLayerConsumption[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([itemId, storeId, receivedAt])
+  @@index([itemId, storeId, quantityRemaining])
+  @@index([transactionId])
+  @@map("cost_layers")
+}
+
+/// What one outbound movement took from one layer, at what price.
+///
+/// An issue of twelve against layers of ten and ten produces two rows, not an
+/// averaged one. The rows are what make the cost auditable — without them the
+/// FIFO figure is an assertion.
+model CostLayerConsumption {
+  id String @id @default(cuid())
+
+  layerId String
+  layer   CostLayer @relation(fields: [layerId], references: [id])
+
+  /// The outbound InventoryTransaction this consumption belongs to.
+  transactionId String
+
+  quantity Float
+  unitCost Float
+  value    Float
+
+  consumedAt DateTime @default(now())
+
+  @@index([transactionId])
+  @@index([layerId])
+  @@map("cost_layer_consumptions")
 }

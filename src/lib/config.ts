@@ -21,6 +21,9 @@ export type ConfigDef = {
 export const CONFIG_KEYS = {
   // Payment document pack — see server/payment-pack.ts.
   ENFORCE_PAYMENT_PACK: "invoice.enforce_payment_document_pack",
+  // Inventory costing — see server/costing.ts and BD-008.
+  COSTING_METHOD: "inventory.costing_method",
+  COST_LAYERS_FROM: "inventory.cost_layers_from",
   // Inventory ageing bands and the near-expiry window.
   AGEING_BANDS: "inventory.ageing_bands",
   NEAR_EXPIRY_DAYS: "inventory.near_expiry_days",
@@ -1012,6 +1015,26 @@ export const CONFIG_DEFS: ConfigDef[] = [
     group: "Accounting treatment",
     valueType: "json",
     default: [],
+  },
+
+  /* ── Inventory costing ───────────────────────────────────────────────── */
+  {
+    key: CONFIG_KEYS.COSTING_METHOD,
+    label: "Inventory costing method",
+    description:
+      "WEIGHTED_AVERAGE or FIFO — which figure an issue is valued at. Cost layers are maintained either way, so this can be switched without a back-fill and without restating a posted row. It ships WEIGHTED_AVERAGE because that is what every movement in the ledger was posted under; changing it changes what future issues cost, not what past ones did.",
+    group: "Stores",
+    valueType: "string",
+    default: "WEIGHTED_AVERAGE",
+  },
+  {
+    key: CONFIG_KEYS.COST_LAYERS_FROM,
+    label: "Cost layers begin (YYYY-MM-DD)",
+    description:
+      "Receipts from this date open a FIFO cost layer. Blank means layers are off. Stock received before the date has no layer and never will, so the first issues after the cutover will report part of their quantity as uncovered — that is honest, and better than inventing an opening layer at a price nobody paid.",
+    group: "Stores",
+    valueType: "string",
+    default: "",
   },
 
   /* ── Inventory ageing ─────────────────────────────────────────────────── */

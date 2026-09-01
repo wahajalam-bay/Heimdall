@@ -23,7 +23,7 @@ exactly that case.
 | BD-005 | Applicable tax rates | Tax Master, Cost Analysis, Invoice | **OPEN — no rate in any source** |
 | BD-006 | Vendor performance qualifying score and instrument | Performance rebuild | **OPEN** |
 | BD-007 | Does the committee threshold cover services | CPC routing | **OPEN** |
-| BD-008 | FIFO costing alongside FEFO picking | Inventory valuation | **OPEN — confirm, likely both** |
+| BD-008 | FIFO costing alongside FEFO picking | Inventory valuation | **CLOSED — both, side by side** |
 | BD-009 | Definition of an Exceptional Purchase | CEO routing | **OPEN** |
 | BD-010 | Prohibited role combinations | Segregation of duties | **OPEN — no combination stated** |
 | BD-011 | Payment pack for a service invoice | Service payments | **OPEN — Annexure A assumes a GRN** |
@@ -253,25 +253,59 @@ and one-time purchase.
 
 ---
 
-## BD-008 · FIFO costing alongside FEFO picking
+## BD-008 · FIFO costing alongside FEFO picking — **CLOSED**
 
-**Meeting requirement.** FIFO cost layers, with the worked example: 10 @ 100 then
-10 @ 120, an issue of 12 consuming 10 @ 100 and 2 @ 120.
+The meeting brief §11 states the requirement and its own worked example:
 
-**Current system.** FEFO — earliest expiry first — for physical picking, which is
-correct for expiry-sensitive stock and is *not* a costing method. There are no
-cost layers.
+> Receipt 1: 10 units @ 100, Receipt 2: 10 units @ 120, Issue 12: 10 @ 100, 2 @ 120.
+> Store the cost-layer consumption. Expiry-sensitive physical picking may continue
+> using FEFO where required. Do not corrupt existing inventory ledger history.
 
-**Impact.** Inventory valuation, issue cost, and the Expense Book's asset and
-consumable values.
+**Answered: both, and they are deliberately different answers to different
+questions.**
 
-**Recommendation.** Implement FIFO cost layers as a separate concern from picking
-order, so physical selection stays FEFO where expiry matters while cost
-consumption follows receipt order. Record which layer each issue consumed. The
-existing ledger is not rewritten; layers start from a stated date.
+| | FEFO | FIFO |
+|---|---|---|
+| Asks | which physical carton leaves the shelf | what that carton is carried at |
+| Orders by | earliest expiry | earliest receipt |
+| Lives in | `allocateOutbound` — unchanged | `server/costing.ts` — new |
 
-**Question.** Confirm both are wanted — FEFO for physical picking, FIFO for cost
-— and the date from which cost layers begin.
+They can legitimately disagree, and the system does not hide it. A carton picked
+for its expiry date may be valued against an older, cheaper layer; the
+consumption rows record exactly which layer each unit was drawn from, so the
+disagreement is inspectable rather than averaged away.
+
+**What was built.** `CostLayer` (one receipt at the price that receipt was bought
+at) and `CostLayerConsumption` (what one issue took from which layer). Every
+inbound movement opens a layer; every outbound movement draws the oldest first.
+The system's worked example reproduces the brief's exactly: FIFO 1,240 where the
+weighted average says 1,320.
+
+**Three things it deliberately does not do.**
+
+1. **It does not restate history.** Layers begin on a date the business sets
+   (`inventory.cost_layers_from`, blank by default). Every movement posted before
+   it keeps the weighted-average figure it was posted with, and its `fifoValue`
+   stays *null* — which reads as "not computed", a different claim from zero.
+2. **It does not invent an opening layer.** Stock received before the cutover has
+   no layer and never will. The first issues after the cutover therefore report
+   part of their quantity as **uncovered**, and no FIFO figure is claimed for
+   them. Manufacturing an opening layer at a price nobody paid would make the
+   report look complete while being wrong.
+3. **It does not switch the method on its own.** `inventory.costing_method` ships
+   `WEIGHTED_AVERAGE`, which is what every movement in the ledger was posted
+   under. Layers are maintained either way, so the business can see the FIFO
+   figure beside the average for as long as it likes before switching — and
+   switching changes what *future* issues cost, not what past ones did. Each
+   ledger row records which method its `value` came from, so no reader has to
+   guess.
+
+**A return goes back on the layer it left.** `postMovement` accepts
+`reversalOfTransactionId`; a positive movement that names its original issue
+restores those layers instead of opening a new one at today's price. Without it,
+handing back stock that cost 100 would quietly revalue it at the last receipt's
+price — a return would become a profit or a loss.
+
 
 ---
 

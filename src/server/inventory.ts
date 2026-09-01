@@ -5,6 +5,7 @@ import { writeAudit, type AuditActor } from "@/lib/audit";
 import { round2 } from "@/lib/format";
 import { PERMISSIONS as P } from "@/lib/permissions";
 import { DOMAIN_ACTIONS, assertAuthority, type Actor, type Authority } from "@/lib/actor";
+import { costingPolicy, openLayer, consumeLayers, layerBalance, returnToLayers } from "./costing";
 
 /**
  * Inventory ledger.
@@ -38,6 +39,16 @@ export type MovementInput = {
   source: MovementSource;
   reason?: string | null;
   performedById: string;
+  /**
+   * The outbound movement this one puts back, when it is a reversal — goods
+   * returned to store, an issue cancelled, a transfer that came home.
+   *
+   * It matters for costing. Without it a return opens a fresh cost layer at
+   * today's price, so handing back stock that cost 100 quietly revalues it at
+   * whatever the last receipt cost. With it, the units go back on the layers
+   * they actually left.
+   */
+  reversalOfTransactionId?: string | null;
 };
 
 /** The ledger row a movement produces. */
@@ -276,7 +287,7 @@ export async function postMovement(
     }
 
     const number = await nextNumber(SEQ.INV_TXN, tx);
-    const txn = await tx.inventoryTransaction.create({
+    let posted = await tx.inventoryTransaction.create({
       data: {
         number,
         itemId: input.itemId,
@@ -302,16 +313,114 @@ export async function postMovement(
       },
     });
 
+    // ── FIFO cost layers ────────────────────────────────────────────────
+    // Layers run alongside the weighted average rather than replacing it, and
+    // only from the date the business says they start. Before that date there
+    // are no layers and there never will be, so nothing here touches a row that
+    // was posted under the old treatment.
+    //
+    // Note the order: the bucket's weighted-average `value` is already on the
+    // ledger row above. What follows either records the FIFO figure beside it,
+    // or — when the entity has switched the method over — replaces it. Either
+    // way `costingMethod` says which one `value` is, so no reader has to guess.
+    const costing = await costingPolicy(input.entityId ?? existing?.entityId ?? null, posted.performedAt, tx);
+    if (costing.active) {
+      if (signed > 0 && input.reversalOfTransactionId) {
+        // A reversal puts stock back where it came from. Opening a new layer
+        // here would revalue returned goods at today's price, which is how a
+        // return quietly becomes a profit or a loss.
+        const back = await returnToLayers(
+          input.reversalOfTransactionId,
+          Math.abs(signed),
+          tx,
+        );
+        if (back > 0) {
+          posted = await tx.inventoryTransaction.update({
+            where: { id: posted.id },
+            data: {
+              fifoValue: back,
+              fifoUnitCost: round2(back / Math.abs(signed)),
+              costingMethod: costing.method,
+              ...(costing.method === "FIFO"
+                ? { value: back, unitCost: round2(back / Math.abs(signed)) }
+                : {}),
+            },
+          });
+        }
+      } else if (signed > 0) {
+        await openLayer(
+          { itemId: input.itemId, storeId: input.storeId, ...key },
+          {
+            quantity: Math.abs(signed),
+            unitCost: input.unitCost ?? inCost,
+            receivedAt: posted.performedAt,
+            sourceType: input.source.kind,
+            sourceId: input.source.id ?? null,
+            sourceRef: input.source.ref,
+            transactionId: posted.id,
+            grnId: input.source.kind === "GRN" ? input.source.id : null,
+            entityId: input.entityId ?? existing?.entityId ?? null,
+          },
+          tx,
+        );
+      } else if (signed < 0) {
+        const drawn = await consumeLayers(
+          { itemId: input.itemId, storeId: input.storeId, ...key },
+          Math.abs(signed),
+          { transactionId: posted.id, consumedAt: posted.performedAt },
+          tx,
+        );
+        // Only claim a FIFO cost when the layers actually covered the movement.
+        // A part-covered issue valued at the covered part alone would understate
+        // it, and the pre-cutover remainder has no FIFO answer to give — so the
+        // figure stays null and the weighted average continues to stand.
+        const fully = drawn.uncovered <= 1e-9 && drawn.unitCost !== null;
+        // Reassigned, not discarded: with the method switched to FIFO this row's
+        // `value` has just changed, and a caller handed the pre-update object
+        // would be reading a figure the ledger no longer holds.
+        posted = await tx.inventoryTransaction.update({
+          where: { id: posted.id },
+          data: {
+            fifoValue: fully ? drawn.value : null,
+            fifoUnitCost: fully ? drawn.unitCost : null,
+            costingMethod: fully && costing.method === "FIFO" ? "FIFO" : "WEIGHTED_AVERAGE",
+            ...(fully && costing.method === "FIFO"
+              ? { value: drawn.value, unitCost: drawn.unitCost! }
+              : {}),
+          },
+        });
+
+        // With FIFO governing, the bucket has to agree with its layers. Leaving
+        // it on the weighted average would let the two drift apart a little on
+        // every issue until nobody could say which figure the stock is worth.
+        if (fully && costing.method === "FIFO") {
+          const balance = await layerBalance(
+            { itemId: input.itemId, storeId: input.storeId, ...key },
+            tx,
+          );
+          // Only when the layers account for the whole bucket. A partially
+          // layered bucket restated from its layers alone would lose the value
+          // of the stock that predates them.
+          if (existing && Math.abs(balance.quantity - newQty) <= 1e-6 && balance.unitCost !== null) {
+            await tx.inventoryItem.update({
+              where: { id: existing.id },
+              data: { unitCost: balance.unitCost, totalValue: balance.value },
+            });
+          }
+        }
+      }
+    }
+
     await writeAudit(
       {
         entityType: "InventoryTransaction",
-        entityId: txn.id,
-        entityRef: txn.number,
+        entityId: posted.id,
+        entityRef: posted.number,
         action: `INVENTORY_${type}`,
         newValue: {
           itemId: input.itemId,
           storeId: input.storeId,
-          quantity: txn.quantity,
+          quantity: posted.quantity,
           balanceAfter: newQty,
           source: `${input.source.kind}:${input.source.ref}`,
         },
@@ -321,7 +430,7 @@ export async function postMovement(
       tx,
     );
 
-    return txn;
+    return posted;
   });
 }
 
