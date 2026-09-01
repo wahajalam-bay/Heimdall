@@ -10,6 +10,12 @@
  * is reported rather than revoked, because silently stripping access from a live
  * system on the strength of a code edit is not a decision a script should make.
  *
+ * A role defined in code and absent from the database *is* created — with no
+ * members. Reporting it and doing nothing left a new role as a code-only
+ * fiction: the permission existed, the definition existed, and nothing could
+ * hold it. Who joins the role stays a decision for a person; the role existing
+ * so somebody can be put in it does not.
+ *
  *   npx tsx scripts/sync-rbac.ts            # report and apply
  *   npx tsx scripts/sync-rbac.ts --dry-run  # report only
  */
@@ -52,11 +58,28 @@ async function main() {
   const missingRoles: string[] = [];
   const surplus: string[] = [];
 
+  const createdRoles: string[] = [];
+
   for (const def of ROLE_DEFINITIONS) {
-    const role = roleByCode.get(def.code);
+    let role = roleByCode.get(def.code);
     if (!role) {
       missingRoles.push(def.code);
-      continue;
+      if (dryRun) continue;
+      // Created empty. A role with no members is visible in the access review
+      // as a role nobody holds, which is the honest state for one whose members
+      // have not been decided yet.
+      const made = await prisma.role.create({
+        data: {
+          code: def.code,
+          name: def.name,
+          description: def.description,
+          rank: def.rank,
+        },
+        include: { permissions: true },
+      });
+      role = made;
+      roleByCode.set(def.code, made);
+      createdRoles.push(def.code);
     }
     const held = new Set(
       role.permissions
@@ -86,7 +109,12 @@ async function main() {
   console.log(`  ${grants.length} new role grant(s)`);
   if (grants.length) for (const g of grants) console.log(`      ${g}`);
 
-  if (missingRoles.length) console.log(`\n  Roles defined in code but absent here: ${missingRoles.join(", ")}`);
+  if (createdRoles.length) {
+    console.log(`\n  ${createdRoles.length} role(s) created with no members: ${createdRoles.join(", ")}`);
+    console.log("      They appear in the access review as roles nobody holds. Assign members deliberately.");
+  } else if (missingRoles.length) {
+    console.log(`\n  Roles defined in code but absent here: ${missingRoles.join(", ")}`);
+  }
   if (orphaned.length) console.log(`\n  Permissions in the database with no definition: ${orphaned.join(", ")}`);
   if (surplus.length) {
     console.log(`\n  Grants held beyond the definitions — left alone, review by hand:`);

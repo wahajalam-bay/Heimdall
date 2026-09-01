@@ -97,6 +97,40 @@ export type PackState = {
 };
 
 /**
+ * The company and transaction kind a pack belongs to, resolved from the document.
+ *
+ * Requirements are seeded per entity and per transaction type, so a pack read
+ * without that context finds nothing and reports every document as unknown. The
+ * caller usually has both to hand — and a caller that forgets produces a pack
+ * that is silently empty, which reads as "nothing is required" rather than as a
+ * mistake. So the context is derivable from the document itself, and the
+ * functions that mutate a pack derive it rather than trusting an argument.
+ */
+export async function packContextFor(
+  documentType: "INVOICE" | "PETTY_CASH",
+  documentId: string,
+  db: DbClient = prisma,
+): Promise<{ entityId: string | null; transactionType: string }> {
+  if (documentType === "PETTY_CASH") {
+    const pc = await db.pettyCashRequest.findUnique({
+      where: { id: documentId },
+      select: { entityId: true },
+    });
+    // Petty cash buys goods against a receipt; there is no service variant of
+    // the route in the SOP.
+    return { entityId: pc?.entityId ?? null, transactionType: "GOODS" };
+  }
+  const invoice = await db.invoice.findUnique({
+    where: { id: documentId },
+    select: { po: { select: { entityId: true, procurementKind: true } } },
+  });
+  return {
+    entityId: invoice?.po?.entityId ?? null,
+    transactionType: invoice?.po?.procurementKind ?? "GOODS",
+  };
+}
+
+/**
  * The documents in the chain behind an invoice, mapped to what they answer for.
  *
  * Walks outwards from the invoice: its order, the requisition that order came
@@ -406,7 +440,8 @@ export async function verifyPackItem(
     // somebody acts on it, and it is exactly those three that most need
     // verifying. Demanding a row first meant the four documents Annexure A
     // always requires were the four that could never be marked checked.
-    const pack = await paymentPack(input.documentType, input.documentId, {}, tx);
+    const context = await packContextFor(input.documentType, input.documentId, tx);
+    const pack = await paymentPack(input.documentType, input.documentId, context, tx);
     const state = pack.items.find((i) => i.documentTypeCode === input.documentTypeCode);
     if (!state) throw new NotFoundError("Payment pack item");
     if (!state.present) {

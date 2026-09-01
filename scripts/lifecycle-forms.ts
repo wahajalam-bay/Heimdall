@@ -8,10 +8,18 @@
  * taken on trust.
  *
  *   npx tsx scripts/lifecycle-forms.ts
+ *   npx tsx scripts/lifecycle-forms.ts --pr=PR-2026-00034   # resume that case
+ *
+ * The run is slow because it is real: every stage is a transaction against a
+ * remote database, and a case above the committee threshold climbs three
+ * approval ladders and a committee vote. `--pr` picks up an existing case and
+ * skips whatever it has already done, which is what makes iterating on the
+ * later stages bearable.
  *
  * Nothing is fabricated for the printing. Every field below is read back out of
  * the database through the same functions the pages call.
  */
+import { writeSync } from "node:fs";
 import { prisma } from "../src/lib/db";
 import type { SessionUser } from "../src/lib/rbac";
 import { PERMISSIONS as P } from "../src/lib/permissions";
@@ -43,20 +51,40 @@ import { attestationBlock } from "../src/server/attestation";
 import { systemActor } from "../src/lib/actor";
 import { availableQuantity } from "../src/server/inventory";
 
+/** `--pr=PR-2026-00034` resumes that case instead of raising a new one. */
+const RESUME = (process.argv.find((a) => a.startsWith("--pr=")) ?? "").slice(5).trim() || null;
+
 const RUN = Date.now().toString(36).toUpperCase().slice(-5);
 const QTY = 6;
 const UNIT_PRICE = 385_000;
+
+/**
+ * Unbuffered output.
+ *
+ * Redirecting this run to a file buffers `console.log`, so a run that takes half
+ * an hour shows nothing until it exits — which made a wedged run and a slow one
+ * look identical, and cost real time to tell apart. `writeSync` on fd 1 goes
+ * straight out.
+ */
+const say = (line: string) => {
+  try {
+    writeSync(1, `${line}
+`);
+  } catch {
+    console.log(line);
+  }
+};
 
 let failures = 0;
 let step = 0;
 
 function check(label: string, ok: boolean, detail: string) {
   if (!ok) failures += 1;
-  console.log(`  ${ok ? "PASS" : "FAIL"}  ${label.padEnd(56)} ${detail}`);
+  say(`  ${ok ? "PASS" : "FAIL"}  ${label.padEnd(56)} ${detail}`);
 }
 function stage(title: string) {
   step += 1;
-  console.log(`\n${String(step).padStart(2, "0")}. ${title}`);
+  say(`\n${String(step).padStart(2, "0")}. ${title}`);
 }
 
 /* ── Printing helpers ─────────────────────────────────────── */
@@ -68,23 +96,23 @@ const stamp = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 16).
 
 function form(title: string, ref: string) {
   const head = `${title}  ·  ${ref}`;
-  console.log(`\n\n${"═".repeat(78)}\n  ${head}\n${"═".repeat(78)}`);
+  say(`\n\n${"═".repeat(78)}\n  ${head}\n${"═".repeat(78)}`);
 }
 function pairs(rows: Array<[string, string]>) {
   const w = Math.max(...rows.map((r) => r[0].length));
-  for (const [k, v] of rows) console.log(`  ${k.padEnd(w)} : ${v}`);
+  for (const [k, v] of rows) say(`  ${k.padEnd(w)} : ${v}`);
 }
 function table(headers: string[], widths: number[], rows: string[][]) {
   const line = (cells: string[]) =>
     "  " + cells.map((c, i) => (i >= 3 ? c.padStart(widths[i]) : c.padEnd(widths[i]))).join("  ");
-  console.log(line(headers));
-  console.log("  " + widths.map((w) => "─".repeat(w)).join("  "));
-  for (const r of rows) console.log(line(r));
+  say(line(headers));
+  say("  " + widths.map((w) => "─".repeat(w)).join("  "));
+  for (const r of rows) say(line(r));
 }
 function sig(label: string, name: string | null, designation: string | null, when: string) {
-  console.log(`  ${label}`);
-  console.log(`    ${"_".repeat(34)}`);
-  console.log(`    ${name ?? "(unsigned)"}${designation ? `, ${designation}` : ""}   ${when}`);
+  say(`  ${label}`);
+  say(`    ${"_".repeat(34)}`);
+  say(`    ${name ?? "(unsigned)"}${designation ? `, ${designation}` : ""}   ${when}`);
 }
 
 /**
@@ -115,18 +143,20 @@ async function signerHolding(roleCode: string | null, entityId: string): Promise
 }
 
 async function main() {
-  console.log(`\nZameen Media — one case, end to end, then its forms\n`);
-  console.log(`  Run ${RUN}`);
+  say(`\nZameen Media — one case, end to end, then its forms\n`);
+  say(`  Run ${RUN}`);
 
   /* ── Fixtures, all resolved from live data ───────────── */
   const entity = await prisma.entity.findFirstOrThrow({ where: { code: "ZM" } });
-  const department = await prisma.department.findFirstOrThrow({
-    where: { entityId: entity.id, active: true },
-    orderBy: { name: "asc" },
-  });
-  const store = await prisma.store.findFirstOrThrow({
-    where: { entityId: entity.id, active: true, code: "ST-ZM-IT" },
-  });
+  const [department, store] = await Promise.all([
+    prisma.department.findFirstOrThrow({
+      where: { entityId: entity.id, active: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.store.findFirstOrThrow({
+      where: { entityId: entity.id, active: true, code: "ST-ZM-IT" },
+    }),
+  ]);
   // IT equipment: the category requires inspection, so Annexure 4 is genuinely
   // raised, and the SOP's chart routes its technical and qualitative checks to
   // IT rather than to the store — which is the whole point of the chart being
@@ -143,26 +173,56 @@ async function main() {
   });
   if (vendors.length < 3) throw new Error("The run needs three approved Zameen Media vendors.");
 
-  const requester = await withPermission(P.PR_CREATE, entity.id);
-  const officer = await withPermission(P.RFQ_ISSUE, entity.id);
-  const buyer = await withPermission(P.QUOTE_ENTER, entity.id);
-  const selector = await withPermission(P.VENDOR_SELECT, entity.id);
-  const poCreator = await withPermission(P.PO_CREATE, entity.id);
-  const security = await withPermission(P.GATE_PASS_CREATE);
-  const receiver = await withPermission(P.RECEIVE_GOODS, entity.id);
-  const inspector = await withPermission(P.INSPECTION_PERFORM);
-  const storeKeeper = await withPermissions([P.GRN_CREATE, P.GRN_POST], entity.id);
-  const financeUser = await withPermission(P.INVOICE_CREATE, entity.id);
-  const auditor = await withPermission(P.EXCEPTION_MANAGE);
+  // Resolved together rather than one after another. Each lookup joins users
+  // through roles to permissions and costs about five seconds against this
+  // database; eleven of them in series was a minute of doing nothing before the
+  // first stage even started.
+  const [
+    requester,
+    officer,
+    buyer,
+    selector,
+    poCreator,
+    security,
+    receiver,
+    inspector,
+    storeKeeper,
+    financeUser,
+    auditor,
+  ] = await Promise.all([
+    withPermission(P.PR_CREATE, entity.id),
+    withPermission(P.RFQ_ISSUE, entity.id),
+    withPermission(P.QUOTE_ENTER, entity.id),
+    withPermission(P.VENDOR_SELECT, entity.id),
+    withPermission(P.PO_CREATE, entity.id),
+    withPermission(P.GATE_PASS_CREATE),
+    withPermission(P.RECEIVE_GOODS, entity.id),
+    withPermission(P.INSPECTION_PERFORM),
+    withPermissions([P.GRN_CREATE, P.GRN_POST], entity.id),
+    withPermission(P.INVOICE_CREATE, entity.id),
+    withPermission(P.EXCEPTION_MANAGE),
+  ]);
 
-  console.log(
+  say(
     `  ${entity.name} · ${department.name} · ${store.name}\n` +
       `  ${item.sku} ${item.name} (${item.category.name}) · ${QTY} ${item.unit} at ${money(UNIT_PRICE)}`,
   );
 
   /* ── 1 · Requisition ─────────────────────────────────── */
   stage("Requisition — raised, submitted, approved through its chain");
-  const pr = await createPr(requester, {
+
+  const resumed = RESUME
+    ? await prisma.purchaseRequisition.findFirst({
+        where: { number: RESUME },
+        select: { id: true, number: true, status: true },
+      })
+    : null;
+  if (RESUME && !resumed) throw new Error(`No requisition numbered ${RESUME}.`);
+  if (resumed) {
+    say(`  Resuming ${resumed.number} at ${resumed.status} — earlier stages are already on the record.`);
+  }
+
+  const pr = resumed ?? (await createPr(requester, {
     entityId: entity.id,
     departmentId: department.id,
     procurementType: "ON_DEMAND",
@@ -188,27 +248,66 @@ async function main() {
         requiredDate: new Date(Date.now() + 14 * 86_400_000),
       },
     ],
-  });
-  check("requisition created", pr.status === "DRAFT", `${pr.number} · ${pr.status}`);
+  }));
+  check(
+    resumed ? "requisition resumed from the record" : "requisition created",
+    resumed ? true : pr.status === "DRAFT",
+    `${pr.number} · ${pr.status}`,
+  );
 
-  await submitPr(requester, pr.id, prisma);
   let guard = 0;
-  while (guard++ < 8) {
-    const next = await currentApprover("PR", pr.id, entity.id);
-    if (!next) break;
-    await decidePr(next, pr.id, "APPROVED", `Approved on lifecycle run ${RUN}.`, prisma);
+  if (!resumed) {
+    await submitPr(requester, pr.id, prisma);
+    while (guard++ < 8) {
+      const next = await currentApprover("PR", pr.id, entity.id);
+      if (!next) break;
+      await decidePr(next, pr.id, "APPROVED", `Approved on lifecycle run ${RUN}.`, prisma);
+    }
   }
   const approvedPr = await prisma.purchaseRequisition.findUniqueOrThrow({ where: { id: pr.id } });
+  // A resumed case is normally well past approval, so the check is that it got
+  // there — not that it is sitting on the doorstep.
+  const PAST_APPROVAL = [
+    "APPROVED",
+    "PROCUREMENT_REVIEW",
+    "SOURCING",
+    "CPC_REVIEW",
+    "PO_PREPARATION",
+    "PO_ISSUED",
+    "PARTIALLY_RECEIVED",
+    "RECEIVED",
+    "CLOSED",
+  ];
   check(
     "requisition approved and its signature captured",
-    ["APPROVED", "PROCUREMENT_REVIEW", "SOURCING"].includes(approvedPr.status),
+    PAST_APPROVAL.includes(approvedPr.status),
     `${approvedPr.number} · ${approvedPr.status}`,
   );
 
   /* ── 2 · Sourcing ────────────────────────────────────── */
   stage("Sourcing — RFQ to three vendors, three quotations");
-  if (approvedPr.status !== "SOURCING") await startSourcing(officer, pr.id, prisma);
-  const rfq = await createRfq(
+  const heldRfq = await prisma.rfq.findFirst({
+    where: { prId: pr.id },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, number: true, status: true, _count: { select: { quotes: true } } },
+  });
+  if (heldRfq && heldRfq._count.quotes >= 3) {
+    check(
+      "sourcing already on the record",
+      true,
+      `${heldRfq.number} · ${heldRfq._count.quotes} quotation(s)`,
+    );
+  }
+  const skipSourcing = Boolean(heldRfq && heldRfq._count.quotes >= 3);
+
+  if (!skipSourcing && approvedPr.status !== "SOURCING") {
+    // A resumed case may already be past sourcing, in which case the transition
+    // is refused and rightly so. That is not a failure of the run.
+    await startSourcing(officer, pr.id, prisma).catch(() => undefined);
+  }
+  const rfq = skipSourcing
+    ? heldRfq!
+    : await createRfq(
     officer,
     {
       prId: pr.id,
@@ -219,11 +318,11 @@ async function main() {
     },
     prisma,
   );
-  await issueRfq(officer, rfq.id, prisma);
+  if (!skipSourcing) await issueRfq(officer, rfq.id, prisma);
 
   const prItem = await prisma.purchaseRequisitionItem.findFirstOrThrow({ where: { prId: pr.id } });
   const prices = [UNIT_PRICE * 1.06, UNIT_PRICE, UNIT_PRICE * 1.02];
-  for (const [i, vendor] of vendors.entries()) {
+  for (const [i, vendor] of skipSourcing ? [] : vendors.entries()) {
     await upsertQuote(
       buyer,
       {
@@ -252,21 +351,36 @@ async function main() {
       prisma,
     );
   }
-  check("three quotations recorded", true, `Q/${RUN}/1-3 from ${vendors.map((v) => v.name).join(", ")}`);
+  if (!skipSourcing) {
+    check("three quotations recorded", true, `Q/${RUN}/1-3 from ${vendors.map((v) => v.name).join(", ")}`);
+  }
 
   /* ── 3 · Comparative ─────────────────────────────────── */
   stage("Comparative — the lowest compliant quotation wins");
-  const comparative = await buildComparative(
-    officer,
-    { rfqId: rfq.id, notes: `Comparative for lifecycle run ${RUN}.` },
-    prisma,
-  );
+  const heldComparative = await prisma.comparative.findFirst({
+    where: { prId: pr.id },
+    orderBy: { updatedAt: "desc" },
+  });
+  const selectedCount = heldComparative
+    ? await prisma.comparativeLine.count({ where: { comparativeId: heldComparative.id, isSelected: true } })
+    : 0;
+  const comparativeDone = Boolean(heldComparative && selectedCount > 0);
+  const comparative = comparativeDone
+    ? heldComparative!
+    : await buildComparative(
+        officer,
+        { rfqId: rfq.id, notes: `Comparative for lifecycle run ${RUN}.` },
+        prisma,
+      );
   const lines = await prisma.comparativeLine.findMany({
     where: { comparativeId: comparative.id },
     include: { vendor: true },
   });
-  const award = lines.filter((l) => l.technicalCompliance === "COMPLIANT").sort((a, b) => a.netTotal - b.netTotal)[0];
-  await recommendVendor(
+  const award = comparativeDone
+    ? lines.find((l) => l.isSelected)!
+    : lines.filter((l) => l.technicalCompliance === "COMPLIANT").sort((a, b) => a.netTotal - b.netTotal)[0];
+  if (!comparativeDone)
+    await recommendVendor(
     selector,
     {
       comparativeId: comparative.id,
@@ -276,7 +390,7 @@ async function main() {
     prisma,
   );
   check(
-    "award recorded against the lowest compliant vendor",
+    comparativeDone ? "award already on the record" : "award recorded against the lowest compliant vendor",
     true,
     `${award.vendor.name} at ${money(award.netTotal)}`,
   );
@@ -289,7 +403,15 @@ async function main() {
     true,
     `${requirement.required ? "required" : "not required"} — ${requirement.reason}`,
   );
-  if (requirement.required) {
+  const heldCase = await prisma.cpcCase.findFirst({
+    where: { prId: pr.id, status: { notIn: ["REJECTED"] } },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, number: true, status: true },
+  });
+  if (heldCase) {
+    check("committee case already on the record", true, `${heldCase.number} · ${heldCase.status}`);
+  }
+  if (requirement.required && !heldCase) {
     const kase = await createCpcCase(
       officer,
       {
@@ -320,7 +442,15 @@ async function main() {
 
   /* ── 5 · Purchase order ──────────────────────────────── */
   stage("Purchase order — approved, signed, issued, distributed, acknowledged");
-  const po = await createPoFromCase(
+  const heldPo = await prisma.purchaseOrder.findFirst({
+    where: { prId: pr.id, status: { notIn: ["CANCELLED"] } },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, number: true, status: true },
+  });
+  const poDone = Boolean(heldPo && ["ISSUED", "PARTIALLY_RECEIVED", "FULLY_RECEIVED", "CLOSED"].includes(heldPo.status));
+  const po = poDone
+    ? heldPo!
+    : heldPo ?? (await createPoFromCase(
     poCreator,
     {
       prId: pr.id,
@@ -331,30 +461,33 @@ async function main() {
       warrantyTerms: "Manufacturer warranty as supplied.",
     },
     prisma,
-  );
-  await submitPoForApproval(poCreator, po.id, prisma);
-  guard = 0;
-  while (guard++ < 8) {
-    const next = await currentApprover("PO", po.id, entity.id);
-    if (!next) break;
-    await decidePo(next, po.id, "APPROVED", `Approved on lifecycle run ${RUN}.`, prisma);
+  ));
+
+  if (!poDone) {
+    await submitPoForApproval(poCreator, po.id, prisma).catch(() => undefined);
+    guard = 0;
+    while (guard++ < 8) {
+      const next = await currentApprover("PO", po.id, entity.id);
+      if (!next) break;
+      await decidePo(next, po.id, "APPROVED", `Approved on lifecycle run ${RUN}.`, prisma);
+    }
+    await issuePo(poCreator, po.id, prisma);
+    await recordPoDistribution(
+      poCreator,
+      { poId: po.id, channel: "EMAIL", reference: `mail/${RUN}/po` },
+      prisma,
+    );
+    await recordPoAcknowledgement(
+      poCreator,
+      {
+        poId: po.id,
+        state: "ACKNOWLEDGED",
+        byName: `${award.vendor.name} — sales desk`,
+        notes: "Confirmed quantity, rate and delivery date by return email.",
+      },
+      prisma,
+    );
   }
-  await issuePo(poCreator, po.id, prisma);
-  await recordPoDistribution(
-    poCreator,
-    { poId: po.id, channel: "EMAIL", reference: `mail/${RUN}/po` },
-    prisma,
-  );
-  await recordPoAcknowledgement(
-    poCreator,
-    {
-      poId: po.id,
-      state: "ACKNOWLEDGED",
-      byName: `${award.vendor.name} — sales desk`,
-      notes: "Confirmed quantity, rate and delivery date by return email.",
-    },
-    prisma,
-  );
   const issued = await prisma.purchaseOrder.findUniqueOrThrow({
     where: { id: po.id },
     include: { items: true, authorisedSignatory: true },
@@ -367,7 +500,14 @@ async function main() {
 
   /* ── 6 · Receiving ───────────────────────────────────── */
   stage("Receiving — gate pass, delivery in full, inspection signed by each concern");
-  const gatePass = await createGatePass(
+  const heldDelivery = await prisma.delivery.findFirst({
+    where: { poId: po.id },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, number: true, gatePassId: true },
+  });
+  const gatePass = heldDelivery?.gatePassId
+    ? await prisma.gatePass.findUniqueOrThrow({ where: { id: heldDelivery.gatePassId } })
+    : await createGatePass(
     security,
     {
       direction: "INWARD",
@@ -383,7 +523,9 @@ async function main() {
     prisma,
   );
   const poItem = issued.items[0];
-  const received = await recordDelivery(
+  const received = heldDelivery
+    ? { delivery: heldDelivery }
+    : await recordDelivery(
     receiver,
     {
       poId: po.id,
@@ -406,7 +548,11 @@ async function main() {
     prisma,
   );
   const delivery = received.delivery;
-  check("delivery recorded in full against the order", true, `${delivery.number} · ${QTY} ${item.unit}`);
+  check(
+    heldDelivery ? "delivery already on the record" : "delivery recorded in full against the order",
+    true,
+    `${delivery.number} · ${QTY} ${item.unit}`,
+  );
 
   const inspection = await prisma.inspection.findFirst({
     where: { deliveryId: delivery.id },
@@ -423,7 +569,7 @@ async function main() {
       // a real deployment would route it.
       const signer = await signerHolding(s.ownerRoleCode, entity.id);
       if (!signer) {
-        console.log(`        (${s.typeLabel}: nobody holds ${s.ownerRoleCode ?? s.ownerLabel})`);
+        say(`        (${s.typeLabel}: nobody holds ${s.ownerRoleCode ?? s.ownerLabel})`);
         continue;
       }
       await signOffInspection(
@@ -431,9 +577,9 @@ async function main() {
         { signoffId: s.id, verdict: "PASS", notes: `${s.typeLabel} verified on run ${RUN}.` },
         prisma,
       ).catch((e) => {
-        console.log(`        (${s.typeLabel}: ${e instanceof Error ? e.message.slice(0, 90) : e})`);
+        say(`        (${s.typeLabel}: ${e instanceof Error ? e.message.slice(0, 90) : e})`);
       });
-      console.log(`        ${s.typeLabel.padEnd(14)} signed by ${signer.name} (${s.ownerLabel})`);
+      say(`        ${s.typeLabel.padEnd(14)} signed by ${signer.name} (${s.ownerLabel})`);
     }
     const after = await signoffsFor(inspection.id, prisma);
     check(
@@ -442,7 +588,12 @@ async function main() {
       after.map((s) => `${s.typeLabel}=${s.signedAt ? "signed" : "blank"}`).join(" · "),
     );
 
-    await recordInspection(
+    // An inspection already closed is not re-closed. The domain refuses it and
+    // is right to — a second approval of the same inspection would be a second
+    // set of numbers on a form somebody already signed.
+    const inspectionOpen = !["APPROVED", "REJECTED"].includes(inspection.result ?? "");
+    if (inspectionOpen)
+      await recordInspection(
       inspector,
       {
         inspectionId: inspection.id,
@@ -459,9 +610,12 @@ async function main() {
       },
       prisma,
     );
+    if (!inspectionOpen) {
+      check("inspection already closed on the record", true, `${inspection.number} · ${inspection.result}`);
+    }
     // Annexure 4's two blocks are two different signatures.
     await signAnnexure4(receiver, { inspectionId: inspection.id, block: "LOGISTICS" }, prisma).catch(
-      (e) => console.log(`        (logistics block: ${e instanceof Error ? e.message.slice(0, 90) : e})`),
+      (e) => say(`        (logistics block: ${e instanceof Error ? e.message.slice(0, 90) : e})`),
     );
   }
 
@@ -469,7 +623,12 @@ async function main() {
   stage("Goods receipt — posted to inventory for what was accepted");
   const stockBefore = item.id ? await availableQuantity(item.id, store.id, prisma) : 0;
   const deliveryItem = await prisma.deliveryItem.findFirstOrThrow({ where: { deliveryId: delivery.id } });
-  const grn = await createGrn(
+  const heldGrn = await prisma.grn.findFirst({
+    where: { deliveryId: delivery.id, status: { not: "CANCELLED" } },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, number: true, status: true },
+  });
+  const grn = heldGrn ?? (await createGrn(
     storeKeeper,
     {
       deliveryId: delivery.id,
@@ -490,7 +649,7 @@ async function main() {
       post: true,
     },
     prisma,
-  );
+  ));
   const posted = await prisma.grn.findUniqueOrThrow({ where: { id: grn.id }, include: { items: true } });
   const stockAfter = await availableQuantity(item.id, store.id, prisma);
   check(
@@ -501,7 +660,12 @@ async function main() {
 
   /* ── 8 · Invoice, pack and payment ───────────────────── */
   stage("Invoice — matched, Annexure A assembled, handed to finance");
-  const registered = await registerInvoice(
+  const heldInvoice = await prisma.invoice.findFirst({
+    where: { poId: po.id },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, number: true },
+  });
+  const registered = heldInvoice ?? (await registerInvoice(
     financeUser,
     {
       poId: po.id,
@@ -521,7 +685,7 @@ async function main() {
       grnIds: [grn.id],
     },
     prisma,
-  );
+  ));
   if (!registered) throw new Error("Invoice registration returned nothing.");
   await verifyInvoice(financeUser, registered.id, prisma).catch(() => undefined);
   const matched = await prisma.invoice.findUniqueOrThrow({ where: { id: registered.id } });
@@ -577,7 +741,7 @@ async function main() {
     `Lifecycle run ${RUN} — match passed and the document pack is complete.`,
     prisma,
   ).catch((e) => {
-    console.log(`        (handoff: ${e instanceof Error ? e.message.slice(0, 120) : e})`);
+    say(`        (handoff: ${e instanceof Error ? e.message.slice(0, 120) : e})`);
     return null;
   });
   check(
@@ -595,7 +759,7 @@ async function main() {
     include: { owner: { select: { name: true, reportsToId: true } } },
   });
   if (!ex) {
-    console.log("        (this case raised no exception — a clean run raises none, which is the point)");
+    say("        (this case raised no exception — a clean run raises none, which is the point)");
     // Nothing to escalate from this case. Show the sweep against whatever else
     // stands overdue, so the mechanism is still exercised on real rows.
     const swept = await escalateOverdueExceptions(auditor, {}, prisma);
@@ -623,7 +787,7 @@ async function main() {
         ? `${after.number} · level ${ex.escalationLevel} → ${after.escalationLevel} · ${ownerName} → ${after.escalatedTo?.name}`
         : `${after.number} · owner ${ownerName} reports to nobody · ${swept.stuck} stuck`,
     );
-    console.log(
+    say(
       `        sweep: ${swept.escalated} escalated, ${swept.stuck} stuck, ${swept.notified} notified`,
     );
   }
@@ -664,7 +828,7 @@ async function main() {
     include: { instance: { select: { documentRef: true, currentSequence: true } } },
   });
   if (!pendingStep) {
-    console.log("        (this requisition needed no approval, so there is no step to age)");
+    say("        (this requisition needed no approval, so there is no step to age)");
   } else {
     // Age it past its deadline and past the grace period. The sweep's own grace
     // is what separates "an approver an hour late" from "a stalled document",
@@ -707,14 +871,14 @@ async function main() {
       Boolean(delay),
       delay ? `${delay.number} · ${delay.severity} · owned by ${delay.owner?.name}` : "none raised",
     );
-    console.log(
+    say(
       `        sweep: ${swept.escalated} step(s) escalated, ${swept.raised} exception(s) raised, ` +
         `${swept.stuck} with nobody above the approver, ${swept.notified} notified`,
     );
   }
 
   /* ══ THE FORMS ═══════════════════════════════════════ */
-  console.log(`\n\n${"█".repeat(78)}\n  THE FORMS, PRINTED FROM THE RECORDS ABOVE\n${"█".repeat(78)}`);
+  say(`\n\n${"█".repeat(78)}\n  THE FORMS, PRINTED FROM THE RECORDS ABOVE\n${"█".repeat(78)}`);
 
   /* ── Annexure 1 ──────────────────────────────────────── */
   const prFull = await prisma.purchaseRequisition.findUniqueOrThrow({
@@ -742,8 +906,8 @@ async function main() {
     ["Approved by", prFull.approvedBy?.name ?? prSig?.name ?? "—"],
     ["Approval status", prFull.status],
   ]);
-  console.log(`\n  Description / comments:\n    ${prFull.title}\n    ${prFull.justification ?? ""}`);
-  console.log();
+  say(`\n  Description / comments:\n    ${prFull.title}\n    ${prFull.justification ?? ""}`);
+  say("");
   table(
     ["Sr", "Item code", "Description", "Qty", "UOM", "Unit cost", "Total", "In stock"],
     [3, 12, 30, 6, 5, 11, 12, 9],
@@ -758,15 +922,15 @@ async function main() {
       li.inStockAtRequest != null ? String(li.inStockAtRequest) : "—",
     ]),
   );
-  console.log(`\n  Document comments: ${prFull.documentComments ?? ""}`);
-  console.log();
+  say(`\n  Document comments: ${prFull.documentComments ?? ""}`);
+  say("");
   sig(
     "HOD / Regional Head",
     prSig?.name ?? null,
     prSig?.designation ?? null,
     prSig?.signedAt ? `Date ${day(prSig.signedAt)}   Time ${prSig.signedAt.toISOString().slice(11, 16)}` : "Date __  Time __",
   );
-  console.log(`    Stamp: ${prSig?.stampRef ?? "[   affix stamp   ]"}`);
+  say(`    Stamp: ${prSig?.stampRef ?? "[   affix stamp   ]"}`);
 
   /* ── Purchase order ──────────────────────────────────── */
   const poFull = await prisma.purchaseOrder.findUniqueOrThrow({
@@ -792,7 +956,7 @@ async function main() {
     ["Currency", poFull.currency],
     ["Status", poFull.status],
   ]);
-  console.log();
+  say("");
   table(
     ["Sr", "Item code", "Description", "Qty", "UOM", "Unit price", "Tax %", "Line total"],
     [3, 12, 30, 6, 5, 12, 6, 13],
@@ -807,24 +971,24 @@ async function main() {
       money(li.lineTotal),
     ]),
   );
-  console.log(
+  say(
     `\n  Subtotal ${money(poFull.subtotal)}   Tax ${money(poFull.taxAmount)}   TOTAL ${poFull.currency} ${money(poFull.total)}`,
   );
-  console.log();
+  say("");
   sig(
     "Authorised signatory — Procurement (§4.6)",
     poFull.authorisedSignatory?.name ?? null,
     poFull.authorisedSignatory?.title ?? null,
     poFull.signedAt ? stamp(poFull.signedAt) : "Date __",
   );
-  console.log();
+  say("");
   sig(
     "Supplier acknowledgement",
     poFull.acknowledgedByName,
     poFull.acknowledgementStatus,
     poFull.acknowledgedAt ? stamp(poFull.acknowledgedAt) : "Date __",
   );
-  console.log(
+  say(
     `    Distributed by ${poFull.distributionChannel ?? "—"} ${poFull.distributionRef ?? ""} on ${day(poFull.distributedAt)}`,
   );
 
@@ -852,7 +1016,7 @@ async function main() {
       ["Against order", inspFull.po?.number ?? "—"],
       ["Result", inspFull.result ?? "—"],
     ]);
-    console.log();
+    say("");
     table(
       ["Sr", "Item code", "Description", "Inspd", "Passed", "Rejected", "Verdict"],
       [3, 12, 30, 7, 7, 9, 9],
@@ -874,20 +1038,20 @@ async function main() {
       }),
       { insp: 0, pass: 0, fail: 0 },
     );
-    console.log(
+    say(
       `\n  Received ${QTY}   Inspected ${t.insp}   Accepted ${t.pass}   Returned ${t.fail}  ${item.unit}`,
     );
-    console.log(`\n  Sign-offs required by the SOP's inspection chart:`);
+    say(`\n  Sign-offs required by the SOP's inspection chart:`);
     for (const m of marks) {
-      console.log(
+      say(
         `    ${m.typeLabel.padEnd(22)} ${m.ownerLabel.padEnd(16)} ${
           m.signedAt ? `${m.verdict} by ${m.signedByName} on ${day(m.signedAt)}` : "UNSIGNED"
         }`,
       );
     }
-    console.log();
+    say("");
     sig("Logistics (Received by)", a4.logistics?.name ?? null, a4.logistics?.designation ?? null, a4.logistics?.signedAt ? day(a4.logistics.signedAt) : "Date __");
-    console.log();
+    say("");
     sig(
       "Concerned Department (Signature — POC)",
       a4.department?.name ?? null,
@@ -895,7 +1059,7 @@ async function main() {
       a4.department?.signedAt ? day(a4.department.signedAt) : "Date __",
     );
     if (!a4.department) {
-      console.log(`    (the department's POC has not signed — §3.2 requires them, and the inspector cannot stand in)`);
+      say(`    (the department's POC has not signed — §3.2 requires them, and the inspector cannot stand in)`);
     }
   }
 
@@ -924,11 +1088,11 @@ async function main() {
     ["Value", `${grnFull.po.currency} ${money(grnFull.totalValue)}`],
     ["Status", grnFull.status],
   ]);
-  console.log(`\n  The receiving chain:`);
-  console.log(`    Inward gate pass  ${grnFull.gatePass?.serial ?? "none"}  ${day(grnFull.gatePass?.arrivedAt)}  ${grnFull.gatePass?.vehicleNumber ?? ""}`);
-  console.log(`    Delivery          ${grnFull.delivery?.number ?? "none"}  ${day(grnFull.delivery?.deliveryDate)}  DN ${grnFull.delivery?.deliveryNoteRef ?? "—"}`);
-  console.log(`    Inspection        ${grnFull.inspection?.number ?? grnFull.inspectionStatus}  ${grnFull.inspection?.result ?? ""}`);
-  console.log();
+  say(`\n  The receiving chain:`);
+  say(`    Inward gate pass  ${grnFull.gatePass?.serial ?? "none"}  ${day(grnFull.gatePass?.arrivedAt)}  ${grnFull.gatePass?.vehicleNumber ?? ""}`);
+  say(`    Delivery          ${grnFull.delivery?.number ?? "none"}  ${day(grnFull.delivery?.deliveryDate)}  DN ${grnFull.delivery?.deliveryNoteRef ?? "—"}`);
+  say(`    Inspection        ${grnFull.inspection?.number ?? grnFull.inspectionStatus}  ${grnFull.inspection?.result ?? ""}`);
+  say("");
   table(
     ["Sr", "Item code", "Description", "Ordrd", "Recvd", "Accptd", "Rejctd", "Line value"],
     [3, 12, 26, 7, 7, 8, 8, 13],
@@ -943,9 +1107,9 @@ async function main() {
       money(li.lineValue),
     ]),
   );
-  console.log();
+  say("");
   sig("Received by — Store", grnFull.receivedBy.name, grnFull.receivedBy.title, stamp(grnFull.receivedAt));
-  console.log();
+  say("");
   sig("Posted to inventory by", grnFull.postedBy?.name ?? null, grnFull.postedBy?.title ?? null, stamp(grnFull.postedAt));
 
   /* ── Annexure A ──────────────────────────────────────── */
@@ -962,7 +1126,7 @@ async function main() {
     ["Three-way match", invFull.matchStatus],
     ["Status", invFull.status],
   ]);
-  console.log();
+  say("");
   table(
     ["Document", "Required", "What we hold", "Ref", "Checked by"],
     [26, 12, 16, 18, 20],
@@ -982,20 +1146,20 @@ async function main() {
       i.verified ? (i.verifiedByName ?? "—") : "—",
     ]),
   );
-  console.log(
+  say(
     `\n  Complete: ${pack.complete}   Blockers: ${pack.blockers.join(", ") || "none"}   Unchecked: ${pack.unverified.join(", ") || "none"}`,
   );
   if (handoff) {
-    console.log(`\n  Handed to finance as ${handoff.number} for ${money(handoff.amount)} — the pack was complete and checked.`);
+    say(`\n  Handed to finance as ${handoff.number} for ${money(handoff.amount)} — the pack was complete and checked.`);
   }
 
   /* ── Summary ─────────────────────────────────────────── */
-  console.log(
+  say(
     `\n\n  Chain: ${prFull.number} → ${rfq.number} → ${comparative.number} → ${poFull.number} → ` +
       `${grnFull.gatePass?.serial ?? "—"} → ${grnFull.delivery?.number ?? "—"} → ${inspFull?.number ?? "—"} → ` +
       `${grnFull.number} → ${invFull.number}${handoff ? ` → ${handoff.number}` : ""}`,
   );
-  console.log(`\n  ${failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`}\n`);
+  say(`\n  ${failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`}\n`);
   await prisma.$disconnect();
   process.exit(failures ? 1 : 0);
 }
