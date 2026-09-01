@@ -428,6 +428,10 @@ export async function upsertQuote(user: SessionUser, input: QuoteInput, db: DbCl
 
     const payload = {
       quoteRef: input.quoteRef ?? null,
+      // Which version of the scope this quotation answers. An RFQ amended after
+      // quotes are in leaves them answering a different question, and a
+      // comparative that mixes versions is comparing different questions.
+      rfqVersion: rfq.revisionVersion,
       quoteDate: input.quoteDate ?? new Date(),
       validUntil: input.validUntil ?? null,
       subtotal,

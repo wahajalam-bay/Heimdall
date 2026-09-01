@@ -30,6 +30,7 @@ import {
 import { escalationChain } from "@/server/org";
 import { availableQuantity } from "@/server/inventory";
 import { attest } from "@/server/attestation";
+import { captureePrRevision, stampApprovedVersion } from "@/server/revisions";
 
 /**
  * Purchase Requisition / ZD Material Demand service.
@@ -693,6 +694,10 @@ export async function submitPr(user: SessionUser, prId: string, db: DbClient = p
   const deptApprovalRequired = await getConfigBool(CONFIG_KEYS.DEPT_APPROVAL_REQUIRED, pr.entityId, db);
   const primaryCategoryId = pr.items[0]?.categoryId ?? null;
 
+  // The version going to the approvers, captured before they see it. An
+  // approval is given against a state of the document, and this is that state.
+  await captureePrRevision(user, pr.id, {}, db);
+
   const approval = await startApproval(
     {
       documentType: pr.procurementType === "MATERIAL_DEMAND" ? "MATERIAL_DEMAND" : "PR",
@@ -903,6 +908,10 @@ export async function decidePr(
   // requisition moved, not who put their name to it in what office. The
   // attestation carries the designation held at the moment of signing, because
   // offices change and the record must not.
+  // Which version this approval covers. Without it an amendment could change the
+  // document underneath a standing approval and nothing would say so.
+  if (decision === "APPROVED") await stampApprovedVersion(pr.id, db);
+
   await attest(
     user,
     {

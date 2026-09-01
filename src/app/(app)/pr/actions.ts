@@ -23,6 +23,7 @@ import {
   type PrItemInput,
 } from "@/server/pr";
 import { uploadDocument } from "@/server/documents";
+import { amendPr } from "@/server/revisions";
 
 /** Requisition line items arrive as a JSON payload from the line editor. */
 const itemSchema = z.object({
@@ -469,4 +470,30 @@ export async function bulkRemindApprovers(ids: string[], reason: string | null) 
   revalidatePath("/pr");
   revalidatePath("/workspace");
   return results;
+}
+
+/**
+ * Controlled amendment of an approved requisition.
+ *
+ * The route that did not exist. It does not edit the requisition — it reopens
+ * it, having captured the approved version and recorded why, so the change is a
+ * visible amendment with a trail rather than a quiet edit.
+ */
+export async function amendPrAction(formData: FormData): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const prId = String(formData.get("prId") ?? "");
+    const pr = await amendPr(user, { prId, reason: String(formData.get("reason") ?? "") });
+    revalidatePath("/pr");
+    revalidatePath(`/pr/${prId}`);
+    return {
+      ok: true,
+      data: null,
+      message:
+        `${pr.number} is now version ${pr.revisionVersion} and back with the requester. ` +
+        "The approval already given stands against the version it was given for, and this version needs its own.",
+    };
+  } catch (e) {
+    return toActionError(e);
+  }
 }

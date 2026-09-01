@@ -9,6 +9,7 @@ import { Breadcrumbs, TabNav } from "@/components/ui/nav";
 import { Badge, Card, MetaItem, PageHeader, StatusBadge } from "@/components/ui/primitives";
 import { LifecycleRail, buildRail } from "@/components/ui/workflow";
 import { DocumentsPanel } from "@/components/domain/DocumentsPanel";
+import { RevisionPanel } from "@/components/domain/RevisionPanel";
 import { ExceptionsPanel } from "@/components/domain/ExceptionsPanel";
 import { PRIORITY_TONE, REQUISITION_RAIL, humanize } from "@/lib/domain";
 import { fmtDate, fmtDateTime, money } from "@/lib/format";
@@ -104,6 +105,12 @@ export default async function ProcurementCasePage({
 
   const caps: CaseCapabilities = {
     canEdit: ["DRAFT", "RETURNED"].includes(pr.status) && (isOwner || userHasPermission(user, P.PR_EDIT)),
+    // Amendment is for a requisition past approval, and only while no live order
+    // stands on it — amending underneath an order would leave the order
+    // describing a demand that no longer exists.
+    canAmend:
+      ["APPROVED", "PROCUREMENT_REVIEW", "SOURCING", "CPC_REVIEW", "PO_PREPARATION"].includes(pr.status) &&
+      userHasPermission(user, P.PR_EDIT, P.PR_CREATE),
     canSubmit: ["DRAFT", "RETURNED"].includes(pr.status) && (isOwner || userHasPermission(user, P.PR_SUBMIT)),
     canDecide: actability.can && userHasPermission(user, P.PR_APPROVE),
     decideReason: actability.reason ?? null,
@@ -244,7 +251,15 @@ export default async function ProcurementCasePage({
         <div className="pt-4">
           {tab === "overview" && <OverviewPanel pr={pr} cpcInfo={cpcInfo} />}
           {tab === "items" && <ItemsPanel pr={pr} coverage={coverage} />}
-          {tab === "approvals" && <ApprovalsPanel trails={trails} />}
+          {tab === "approvals" && (
+            <div className="space-y-4">
+              {/* Version history sits with the approvals because the question it
+                  answers is an approval question: does the approval on file
+                  still cover what the document says now. */}
+              <RevisionPanel documentType="PR" documentId={pr.id} showCoverage />
+              <ApprovalsPanel trails={trails} />
+            </div>
+          )}
           {tab === "rfq" && <RfqPanel pr={pr} />}
           {tab === "quotes" && <QuotesPanel pr={pr} />}
           {tab === "comparison" && <ComparisonPanel pr={pr} />}

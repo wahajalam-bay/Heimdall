@@ -23,6 +23,7 @@ import {
 import { createCpcCase } from "@/server/cpc";
 import { recordTraderCase } from "@/server/vendors";
 import { PERMISSIONS as P } from "@/lib/permissions";
+import { amendRfq, cancelRfq, reissueRfq } from "@/server/revisions";
 import {
   createNegotiationMinute,
   finaliseNegotiationMinute,
@@ -517,6 +518,80 @@ export async function finaliseMinutesAction(
     });
     revalidatePath(`/rfq/${rfqId}`);
     return { ok: true, data: null, message: `${minute.number} finalised and signed.` };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+/* ── Amendment, cancellation and reissue ──────────────────── */
+
+export async function amendRfqAction(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const rfqId = String(formData.get("rfqId") ?? "");
+    const deadline = String(formData.get("responseDeadline") ?? "").trim();
+    const { rfq, staleQuotes } = await amendRfq(user, {
+      rfqId,
+      reason: String(formData.get("reason") ?? ""),
+      scope: blank(formData.get("scope")),
+      responseDeadline: deadline ? new Date(deadline) : null,
+    });
+    revalidatePath("/rfq");
+    revalidatePath(`/rfq/${rfqId}`);
+    return {
+      ok: true,
+      data: null,
+      message:
+        `${rfq.number} amended to version ${rfq.revisionVersion}.` +
+        (staleQuotes
+          ? ` ${staleQuotes} quotation(s) answered the previous scope and are now marked as such — they are not comparable with quotes against this version until re-confirmed.`
+          : ""),
+    };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function cancelRfqAction(formData: FormData): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const rfqId = String(formData.get("rfqId") ?? "");
+    const rfq = await cancelRfq(user, { rfqId, reason: String(formData.get("reason") ?? "") });
+    revalidatePath("/rfq");
+    revalidatePath(`/rfq/${rfqId}`);
+    return {
+      ok: true,
+      data: null,
+      message: `${rfq.number} cancelled. Reissue it if the same requirement is going back out — the link keeps the second attempt visible as one.`,
+    };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function reissueRfqAction(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const rfqId = String(formData.get("rfqId") ?? "");
+    const deadline = String(formData.get("responseDeadline") ?? "").trim();
+    if (!deadline) throw new ValidationError("Give the new response deadline.");
+    const created = await reissueRfq(user, {
+      rfqId,
+      scope: blank(formData.get("scope")),
+      responseDeadline: new Date(deadline),
+    });
+    revalidatePath("/rfq");
+    return {
+      ok: true,
+      data: { id: created.id },
+      message: `${created.number} raised as a reissue, with the same vendors invited. Issue it when the scope is right.`,
+    };
   } catch (e) {
     return toActionError(e);
   }

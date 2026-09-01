@@ -31,6 +31,13 @@ import { attest } from "./attestation";
 export type GatePassInput = {
   direction?: "INWARD" | "OUTWARD";
   poId?: string | null;
+  /**
+   * An outward pass carries goods somewhere, and the two reasons the SOP knows
+   * are a return to the vendor and a disposal. Naming which makes the pass
+   * answerable: goods left the building, and this is the case that authorised it.
+   */
+  disposalCaseId?: string | null;
+  vendorReturnId?: string | null;
   vendorId?: string | null;
   storeId: string;
   vehicleNumber?: string | null;
@@ -55,10 +62,32 @@ export async function createGatePass(user: SessionUser, input: GatePassInput, db
     const store = await tx.store.findUnique({ where: { id: input.storeId } });
     if (!store) throw new NotFoundError("Receiving store");
 
+    const direction = input.direction ?? "INWARD";
+
     let vendorId = input.vendorId ?? null;
     let po = null;
+    // What the order says, used to fill in what security did not type. The gate
+    // is the worst place in the building to be transcribing a purchase order by
+    // hand: the vendor is arriving, the lorry is waiting, and a mistyped
+    // quantity here becomes a discrepancy three steps later.
+    let prefilled: string[] = [];
     if (input.poId) {
-      po = await tx.purchaseOrder.findUnique({ where: { id: input.poId }, include: { vendor: true, pr: true } });
+      po = await tx.purchaseOrder.findUnique({
+        where: { id: input.poId },
+        include: {
+          vendor: true,
+          pr: true,
+          items: {
+            select: {
+              description: true,
+              quantity: true,
+              unit: true,
+              acceptedQty: true,
+              item: { select: { sku: true } },
+            },
+          },
+        },
+      });
       if (!po) throw new NotFoundError("Purchase order");
       const receivable = ["ISSUED", "PARTIALLY_RECEIVED", "APPROVED"];
       if (!receivable.includes(po.status)) {
@@ -67,6 +96,37 @@ export async function createGatePass(user: SessionUser, input: GatePassInput, db
         );
       }
       vendorId = po.vendorId;
+    }
+
+    // An outward pass says where the goods are going and on whose authority.
+    let outwardRef: string | null = null;
+    if (direction === "OUTWARD") {
+      if (input.disposalCaseId) {
+        const disposal = await tx.disposalCase.findUnique({
+          where: { id: input.disposalCaseId },
+          select: { id: true, number: true, stage: true },
+        });
+        if (!disposal) throw new NotFoundError("Disposal case");
+        // Goods leaving on a disposal that has not reached approval is the
+        // movement the scrap policy's eight stages exist to prevent. The stages
+        // that come after approval — bidding, sale, payment — are all points at
+        // which goods legitimately move.
+        const beforeApproval = ["FLAGGED", "ASSESSMENT", "AUDIT_REVIEW", "PENDING_APPROVAL", "REJECTED", "CANCELLED"];
+        if (beforeApproval.includes(disposal.stage)) {
+          throw new RuleViolationError(
+            `Disposal ${disposal.number} is at ${disposal.stage.toLowerCase().replace(/_/g, " ")}. ` +
+              "Goods cannot leave the premises against a disposal that has not been approved.",
+          );
+        }
+        outwardRef = `Disposal ${disposal.number}`;
+      } else if (input.vendorReturnId) {
+        const ret = await tx.vendorReturn.findUnique({
+          where: { id: input.vendorReturnId },
+          select: { id: true, number: true },
+        });
+        if (!ret) throw new NotFoundError("Vendor return");
+        outwardRef = `Return to vendor ${ret.number}`;
+      }
     }
 
     const number = await nextNumber(SEQ.GATE_PASS, tx);
@@ -87,11 +147,41 @@ export async function createGatePass(user: SessionUser, input: GatePassInput, db
         driverPhone: input.driverPhone ?? null,
         deliveryNoteRef: input.deliveryNoteRef ?? null,
         invoiceRef: input.invoiceRef ?? null,
-        materialSummary: input.materialSummary ?? null,
-        declaredQuantity: input.declaredQuantity ?? null,
+        // Filled from the order where security left it blank, and left alone
+        // where they typed something — what the person at the gate actually saw
+        // beats what the order predicted.
+        materialSummary:
+          input.materialSummary?.trim() ||
+          (po
+            ? (() => {
+                const lines = po.items.map((i) => {
+                  const outstanding = i.quantity - i.acceptedQty;
+                  return `${i.item?.sku ? `${i.item.sku} ` : ""}${i.description} — ${outstanding > 0 ? outstanding : i.quantity} ${i.unit}`;
+                });
+                prefilled.push("material summary");
+                return lines.slice(0, 6).join("; ") + (lines.length > 6 ? `; and ${lines.length - 6} more line(s)` : "");
+              })()
+            : outwardRef) ||
+          null,
+        declaredQuantity:
+          input.declaredQuantity ??
+          (po
+            ? (() => {
+                prefilled.push("declared quantity");
+                // The balance still owed, not the whole order: a second delivery
+                // against a part-received order is not bringing the lot again.
+                const outstanding = po.items.reduce(
+                  (a, i) => a + Math.max(i.quantity - i.acceptedQty, 0),
+                  0,
+                );
+                return outstanding > 0 ? outstanding : null;
+              })()
+            : null),
         declaredPackages: input.declaredPackages ?? null,
         securityCheckedById: user.id,
-        securityRemarks: input.securityRemarks ?? null,
+        securityRemarks:
+          input.securityRemarks?.trim() ||
+          (outwardRef ? `Outward against ${outwardRef}.` : null),
         recordedById: user.id,
         arrivedAt: input.arrivedAt ?? new Date(),
         status: "RECORDED",

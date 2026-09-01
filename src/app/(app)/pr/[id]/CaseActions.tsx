@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ActionButton, Modal, Spinner } from "@/components/ui/forms";
 import { BlockedNotice, InlineAlert } from "@/components/ui/primitives";
 import {
+  amendPrAction,
   cancelPrAction,
   decidePrAction,
   holdPrAction,
@@ -17,6 +18,8 @@ import {
 
 export type CaseCapabilities = {
   canEdit: boolean;
+  /** An approved requisition can be amended — reopened with a reason, not edited. */
+  canAmend: boolean;
   canSubmit: boolean;
   canDecide: boolean;
   decideReason: string | null;
@@ -71,6 +74,17 @@ export function CaseActions({
           <Link href={`/pr/${prId}/edit`} className="btn btn-secondary btn-sm">
             Edit
           </Link>
+        )}
+
+        {caps.canAmend && (
+          <ActionButton
+            action={amendPrAction}
+            payload={{ prId }}
+            label="Amend"
+            reasonLabel="Why the requisition is being amended"
+            reasonRequired
+            confirm={`Amend ${prNumber}? It goes back to the requester as a new version, and the approval already given will no longer cover it.`}
+          />
         )}
 
         {caps.canSubmit && (

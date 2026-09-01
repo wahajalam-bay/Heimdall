@@ -60,6 +60,7 @@ model User {
   approvalsEscalatedTo ApprovalAction[]    @relation("ApprovalEscalatedTo")
   cpcCeoDecisions      CpcCase[]           @relation("CpcCeoDecision")
   cpcRosterSeats       CpcRosterMember[]   @relation("CpcRosterUser")
+  revisionsCreated     DocumentRevision[]  @relation("RevisionCreatedBy")
   cpcDecisionsCirculated CpcCase[]         @relation("CpcDecisionCirculatedBy")
 
   // Build-outs and the RNC.
@@ -774,6 +775,16 @@ model PurchaseRequisition {
   /// distinct from the business justification for buying.
   documentComments String?
 
+  /// ── Controlled amendment ────────────────────────────────────────────────
+  ///
+  /// The version the document currently reflects, and the version the standing
+  /// approval was given against. When they differ, the approval no longer covers
+  /// what is there — which is the whole reason to keep both.
+  revisionVersion  Int     @default(1)
+  approvedVersion  Int?
+  amendmentCount   Int     @default(0)
+  lastAmendmentReason String?
+
   /// Annexure 1 "Approved By". `approvedAt` recorded when, never who.
   approvedById String?
   approvedBy   User?   @relation("PrApprovedBy", fields: [approvedById], references: [id])
@@ -914,6 +925,21 @@ model Rfq {
   workOrders WorkOrder[]
   @@index([prId])
   @@map("rfqs")
+
+  /// ── Amendment, cancellation and reissue ─────────────────────────────────
+  ///
+  /// A quotation received against version 1 of a scope is not a quotation for
+  /// version 2, so an amended RFQ has to say which version each quote answered.
+  revisionVersion     Int     @default(1)
+  amendmentCount      Int     @default(0)
+  lastAmendmentReason String?
+  cancelledAt         DateTime?
+  cancelReason        String?
+  /// Where this RFQ replaces a cancelled one, so the second attempt is visibly
+  /// a second attempt rather than an unrelated enquiry.
+  reissueOfRfqId      String?
+  reissueOf           Rfq?    @relation("RfqReissue", fields: [reissueOfRfqId], references: [id])
+  reissues            Rfq[]   @relation("RfqReissue")
 }
 
 model RfqVendor {
@@ -985,6 +1011,11 @@ model VendorQuote {
 
   @@unique([rfqId, vendorId])
   @@map("vendor_quotes")
+
+  /// The RFQ version this quotation answered. An amendment after quotes are in
+  /// leaves them answering a scope that has changed, and a comparative that
+  /// mixes versions is comparing different questions.
+  rfqVersion Int @default(1)
 }
 
 model QuoteItem {
@@ -6134,4 +6165,63 @@ model StackingCategory {
   stacking GoodsStacking[]
 
   @@map("stacking_categories")
+}
+
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Document revisions  ·  controlled amendment
+
+   A requisition could not be edited once it left draft, which is a blunt
+   protection: an approved requisition that genuinely needs a change had no
+   route at all, so in practice the change happens by cancelling and re-raising,
+   and the trail is lost.
+
+   What was missing is versioning. An approval is given against a *state* of the
+   document, and the only way to know whether that approval still covers what is
+   there now is to keep the states. So each submission snapshots the document,
+   and an amendment after approval bumps the version and sends it back — with a
+   reason, and with what changed on the record.
+
+   The same applies to an RFQ: RFQ amendment, cancellation and reissue were all
+   absent, and a quotation received against version 1 of a scope is not a
+   quotation for version 2.
+   ───────────────────────────────────────────────────────────────────────── */
+
+model DocumentRevision {
+  id String @id @default(cuid())
+
+  /// PR | RFQ — the kind of document this is a revision of.
+  documentType String
+  documentId   String
+  documentRef  String
+
+  /// 1 for the first submission, then up.
+  version Int
+
+  /// The document and its lines as they stood, as JSON. Held as a snapshot
+  /// rather than a diff because a diff can only be read against the thing it
+  /// came from, and the point of this is to be able to read a past version on
+  /// its own.
+  snapshot String
+
+  /// A content hash of the snapshot, so a version can be compared to an
+  /// attestation's `signedContent` hash without re-serialising it.
+  contentHash String
+
+  /// Why this version exists. Null on the first — nothing was amended.
+  amendmentReason String?
+  /// What actually changed from the previous version, in words, so the approver
+  /// re-reading it does not have to diff two JSON blobs.
+  changeSummary String?
+
+  createdById String
+  createdBy   User     @relation("RevisionCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  /// True while this is the version the document currently reflects.
+  isCurrent Boolean @default(true)
+
+  @@unique([documentType, documentId, version])
+  @@index([documentType, documentId])
+  @@map("document_revisions")
 }
