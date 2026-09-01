@@ -23,6 +23,8 @@ import { Timeline } from "@/components/ui/workflow";
 import { SEVERITY_TONE, humanize } from "@/lib/domain";
 import { ageDays, fmtDate, fmtDateTime, money } from "@/lib/format";
 import { ResolveExceptionForm } from "../ExceptionActions";
+import { ActionButton } from "@/components/ui/forms";
+import { acknowledgeExceptionAction } from "@/app/(app)/analytics/controls/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +43,8 @@ export default async function ExceptionDetailPage({ params }: { params: Promise<
     where: { id },
     include: {
       owner: { select: { id: true, name: true, title: true } },
+      acknowledgedBy: { select: { name: true } },
+      escalatedTo: { select: { name: true, title: true } },
       raisedBy: { select: { id: true, name: true, title: true } },
       pr: {
         select: {
@@ -138,6 +142,19 @@ export default async function ExceptionDetailPage({ params }: { params: Promise<
               {exception.blocking ? <Badge tone="danger">Yes</Badge> : <Badge tone="neutral">No</Badge>}
             </MetaItem>
             <MetaItem label="Owner">{exception.owner?.name ?? "Unassigned"}</MetaItem>
+            <MetaItem label="Acknowledged">
+              {exception.acknowledgedAt
+                ? `${exception.acknowledgedBy?.name ?? "yes"} · ${fmtDate(exception.acknowledgedAt)}`
+                : isOpen
+                  ? "Not yet"
+                  : "—"}
+            </MetaItem>
+            {exception.escalationLevel > 0 && (
+              <MetaItem label="Escalated to">
+                {exception.escalatedTo?.name ?? "—"}
+                {exception.escalationLevel > 1 ? ` (×${exception.escalationLevel})` : ""}
+              </MetaItem>
+            )}
             <MetaItem label="Raised">{fmtDate(exception.createdAt)}</MetaItem>
             {isOpen && <MetaItem label="Open for">{age} days</MetaItem>}
           </>
@@ -152,6 +169,15 @@ export default async function ExceptionDetailPage({ params }: { params: Promise<
                 blocking={exception.blocking}
                 status={exception.status}
                 canWaive={canWaive}
+              />
+            )}
+            {isOpen && !exception.acknowledgedAt && (
+              <ActionButton
+                action={acknowledgeExceptionAction}
+                payload={{ exceptionId: exception.id }}
+                label="I have seen this"
+                tone="secondary"
+                reasonLabel="Anything to note (optional)"
               />
             )}
             {docHref && (

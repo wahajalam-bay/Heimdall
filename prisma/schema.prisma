@@ -133,6 +133,10 @@ model User {
   employeeReturnsMade      EmployeeReturn[] @relation("EmployeeReturnBy")
   employeeReturnsReceived  EmployeeReturn[] @relation("EmployeeReturnReceivedBy")
   employeeReturnsInspected EmployeeReturn[] @relation("EmployeeReturnInspectedBy")
+  exceptionsAcknowledged Exception[]  @relation("ExceptionAcknowledgedBy")
+  exceptionsEscalatedTo  Exception[]  @relation("ExceptionEscalatedTo")
+  controlRunsPerformed   ControlRun[] @relation("ControlRunPerformedBy")
+  controlRunsWaived      ControlRun[] @relation("ControlRunWaivedBy")
   @@index([email])
   @@map("users")
 }
@@ -244,6 +248,7 @@ model Entity {
   workOrders WorkOrder[]
   stockCounts StockCount[]
   employeeReturns EmployeeReturn[]
+  controlDefinitions ControlDefinition[]
   @@map("entities")
 }
 
@@ -2927,6 +2932,28 @@ model Exception {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
+  /// ── Acknowledgement and escalation ──────────────────────────────────────
+  ///
+  /// An exception with an owner and a due date is a record. It becomes a control
+  /// when somebody has to say they have seen it, and when nobody saying so has a
+  /// consequence.
+  ///
+  /// Acknowledgement is deliberately separate from resolution: "I know about
+  /// this" and "this is dealt with" are different claims, and collapsing them
+  /// means an owner cannot tell you they are on it without also telling you it
+  /// is finished.
+  acknowledgedById String?
+  acknowledgedBy   User?     @relation("ExceptionAcknowledgedBy", fields: [acknowledgedById], references: [id])
+  acknowledgedAt   DateTime?
+
+  /// How far up the reporting line this has been pushed. Zero is where it
+  /// started. Each step names who it went to, so an escalation is a fact about
+  /// two people rather than a flag.
+  escalationLevel Int       @default(0)
+  escalatedToId   String?
+  escalatedTo     User?     @relation("ExceptionEscalatedTo", fields: [escalatedToId], references: [id])
+  escalatedAt     DateTime?
+  escalationNote  String?
   @@index([status, severity])
   @@index([documentType, documentId])
   @@map("exceptions")
@@ -4871,4 +4898,95 @@ model EmployeeReturnItem {
   @@unique([returnId, lineNo])
   @@index([returnId])
   @@map("employee_return_items")
+}
+
+/// A recurring control and when it is next due.
+///
+/// The meeting requirements ask for a control calendar. The SOP scatters
+/// recurring obligations through its text — the internal auditor audits the
+/// store monthly, monthly repeat requisitions are compiled, vendor performance
+/// is evaluated, pre-qualifications expire — and nothing in the system knew any
+/// of them were due, so each depended on somebody remembering.
+///
+/// A control is a row: what it is, who owns it, how often, when it was last
+/// done, when it is next due. Owned by a **role** rather than a person, because
+/// people leave and the control does not; the run names the individual.
+model ControlDefinition {
+  id   String @id @default(cuid())
+  code String @unique
+
+  name        String
+  description String?
+
+  /// Where the obligation comes from, so nobody has to guess whether a control
+  /// is policy or somebody's preference.
+  sourceReference String?
+
+  entityId String?
+  entity   Entity? @relation(fields: [entityId], references: [id])
+
+  /// DAILY | WEEKLY | MONTHLY | QUARTERLY | HALF_YEARLY | ANNUAL
+  frequency String @default("MONTHLY")
+
+  /// The role that owns it. A named person would leave with them.
+  ownerRoleCode String?
+
+  /// Days after the period ends before it is late.
+  graceDays Int @default(5)
+
+  /// Where somebody goes to do it.
+  actionUrl String?
+
+  active          Boolean @default(true)
+  /// Set when the control exists in policy but is not yet being run, so the
+  /// calendar can show what it is not doing rather than hiding it.
+  awaitingRollout Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  runs ControlRun[]
+
+  @@index([active, frequency])
+  @@map("control_definitions")
+}
+
+/// One period of one control, and what happened in it.
+///
+/// A run is created for the period rather than when somebody acts, so a control
+/// nobody performed is a row with nothing in it — which is the whole point. A
+/// calendar that only holds what was done cannot tell you what was not.
+model ControlRun {
+  id           String            @id @default(cuid())
+  definitionId String
+  definition   ControlDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+
+  /// The period this run covers, as a label somebody reads: "2026-08", "2026-Q3".
+  periodLabel String
+  periodStart DateTime
+  periodEnd   DateTime
+  dueAt       DateTime
+
+  /// DUE | COMPLETED | MISSED | WAIVED | NOT_APPLICABLE
+  status String @default("DUE")
+
+  performedById String?
+  performedBy   User?     @relation("ControlRunPerformedBy", fields: [performedById], references: [id])
+  performedAt   DateTime?
+  evidenceRef   String?
+  notes         String?
+
+  /// A control not performed is either missed or excused, and an excuse has a
+  /// name against it.
+  waivedById String?
+  waivedBy   User?     @relation("ControlRunWaivedBy", fields: [waivedById], references: [id])
+  waivedAt   DateTime?
+  waiverReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([definitionId, periodLabel])
+  @@index([status, dueAt])
+  @@map("control_runs")
 }

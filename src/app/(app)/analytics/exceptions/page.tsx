@@ -50,6 +50,8 @@ export default async function ExceptionsPage({ searchParams }: { searchParams: P
       take: 600,
       include: {
         owner: { select: { id: true, name: true } },
+        acknowledgedBy: { select: { name: true } },
+        escalatedTo: { select: { name: true } },
         raisedBy: { select: { id: true, name: true } },
         pr: { select: { id: true, number: true } },
         po: { select: { id: true, number: true } },
@@ -94,6 +96,8 @@ export default async function ExceptionsPage({ searchParams }: { searchParams: P
     { key: "case", header: "Case", sortable: true, width: "11rem" },
     { key: "status", header: "Status", filterable: true, sortable: true, width: "10rem" },
     { key: "owner", header: "Owner", filterable: true, sortable: true, width: "13rem" },
+    { key: "held", header: "Held by", filterable: true, sortable: true, width: "13rem" },
+    { key: "seen", header: "Acknowledged", filterable: true, sortable: true, width: "11rem" },
     { key: "raisedBy", header: "Raised by", sortable: true, width: "13rem", defaultHidden: true },
     { key: "raised", header: "Raised", sortable: true, width: "9rem" },
     { key: "due", header: "Due", sortable: true, width: "9rem" },
@@ -128,6 +132,8 @@ export default async function ExceptionsPage({ searchParams }: { searchParams: P
         case: e.caseKey ?? "",
         status: humanize(e.status),
         owner: e.owner?.name ?? "Unassigned",
+        held: e.escalatedTo?.name ?? e.owner?.name ?? "Unassigned",
+        seen: e.acknowledgedAt ? "Seen" : isOpen ? "Not acknowledged" : "",
         raisedBy: e.raisedBy?.name ?? "System",
         raised: e.createdAt.toISOString(),
         due: e.dueAt ? e.dueAt.toISOString() : "",
@@ -148,6 +154,30 @@ export default async function ExceptionsPage({ searchParams }: { searchParams: P
         case: e.caseKey ?? "—",
         status: <StatusBadge status={e.status} />,
         owner: e.owner?.name ?? <span className="text-2xs text-[var(--c-text-tertiary)]">Unassigned</span>,
+        // Who is holding it now, which is the escalation target where it has
+        // been pushed up and the original owner where it has not.
+        held: e.escalatedTo ? (
+          <span>
+            {e.escalatedTo.name}
+            <span className="mt-0.5 block text-2xs text-[var(--c-danger)]">
+              escalated{e.escalationLevel > 1 ? ` ×${e.escalationLevel}` : ""}
+            </span>
+          </span>
+        ) : (
+          (e.owner?.name ?? <span className="text-2xs text-[var(--c-text-tertiary)]">Unassigned</span>)
+        ),
+        seen: e.acknowledgedAt ? (
+          <span>
+            <Badge tone="success">Seen</Badge>
+            <span className="mt-0.5 block text-2xs text-[var(--c-text-tertiary)]">
+              {e.acknowledgedBy?.name ?? ""}
+            </span>
+          </span>
+        ) : isOpen ? (
+          <span className="text-2xs text-[var(--c-warning)]">Not acknowledged</span>
+        ) : (
+          "—"
+        ),
         raisedBy: e.raisedBy?.name ?? "System",
         raised: fmtDate(e.createdAt),
         due: e.dueAt ? (

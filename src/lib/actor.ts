@@ -53,6 +53,8 @@ export const DOMAIN_ACTIONS = {
   INVENTORY_MOVEMENT_POST: "inventory.movementPost",
   POLICY_LAPSE_EXPIRED: "policy.lapseExpired",
   PQ_EXPIRY_WARN: "prequalification.expiryWarn",
+  CONTROL_CALENDAR_ROLL: "control.calendarRoll",
+  EXCEPTION_ESCALATE: "exception.escalate",
   VENDOR_RETURN_CREATE: "vendorReturn.create",
   PO_FULFILMENT_RECOMPUTE: "po.fulfilmentRecompute",
   PO_ACK_LAPSE: "po.acknowledgementLapse",
@@ -86,6 +88,8 @@ const SYSTEM_GRANTS: Record<SystemPurpose, readonly DomainAction[]> = {
     DOMAIN_ACTIONS.VENDOR_PERFORMANCE_COMPUTE,
     DOMAIN_ACTIONS.PO_ACK_LAPSE,
     DOMAIN_ACTIONS.PQ_EXPIRY_WARN,
+    DOMAIN_ACTIONS.CONTROL_CALENDAR_ROLL,
+    DOMAIN_ACTIONS.EXCEPTION_ESCALATE,
   ],
   /** One-off backfills run from `scripts/`, never from a request. */
   MIGRATION: [DOMAIN_ACTIONS.ALLOCATION_BACKFILL],
