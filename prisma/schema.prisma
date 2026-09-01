@@ -121,6 +121,14 @@ model User {
   workOrdersAudited  WorkOrder[] @relation("WorkOrderAudit")
   priceCompPrepared  PriceCompetitivenessReview[] @relation("PriceCompPreparedBy")
   priceCompEmergency PriceCompetitivenessReview[] @relation("PriceCompEmergencyBy")
+  disposalsInspected    DisposalCase[]    @relation("DisposalInspectedBy")
+  disposalsFinanced     DisposalCase[]    @relation("DisposalFinanceBy")
+  disposalsHeadConsult  DisposalCase[]    @relation("DisposalBusinessHead")
+  disposalWitnessed     DisposalWitness[] @relation("DisposalWitnessUser")
+  stockCountsCreated  StockCount[] @relation("StockCountCreatedBy")
+  stockCountsCounted  StockCount[] @relation("StockCountCountedBy")
+  stockCountsReviewed StockCount[] @relation("StockCountReviewedBy")
+  stockCountsApproved StockCount[] @relation("StockCountApprovedBy")
   @@index([email])
   @@map("users")
 }
@@ -230,6 +238,7 @@ model Entity {
   inspectionResponsibilities InspectionResponsibility[]
   negotiationMinutes NegotiationMinute[]
   workOrders WorkOrder[]
+  stockCounts StockCount[]
   @@map("entities")
 }
 
@@ -351,6 +360,7 @@ model Store {
 
   serialUnits SerialUnit[]
   costLayers CostLayer[]
+  stockCounts StockCount[]
   @@map("stores")
 }
 
@@ -470,6 +480,7 @@ model Item {
 
   serialUnits SerialUnit[]
   costLayers CostLayer[]
+  stockCountLines StockCountLine[]
   @@index([categoryId])
   @@map("items")
 }
@@ -2568,6 +2579,50 @@ model DisposalCase {
   bids         DisposalBid[]
   transactions InventoryTransaction[]
 
+  /// ── Scrap Material Policy · the eight stages and their evidence ──────────
+  ///
+  /// ZAM/PUR/SOP-01's disposal procedure is a table of eight rows, each with a
+  /// named process owner. The stage machine already existed; what did not was
+  /// the evidence each stage is supposed to produce, so a case could walk the
+  /// whole ladder with nothing behind any rung.
+
+  /// Stage 1 — "Physical Inspection of Scrap Material · Physical Inspection
+  /// Report will be maintained." Owner: Admin / related department / Logistics /
+  /// Internal Audit.
+  physicalInspectionById    String?
+  physicalInspectionBy      User?     @relation("DisposalInspectedBy", fields: [physicalInspectionById], references: [id])
+  physicalInspectionAt      DateTime?
+  physicalInspectionReport  String?
+
+  /// Stage 3 — "Finance will determine and give feedback for the depreciated
+  /// value & residual value." Held as two figures rather than one, because they
+  /// are two different numbers and the write-off is the difference.
+  netBookValue        Float?
+  residualValue       Float?
+  financeAssessedById String?
+  financeAssessedBy   User?     @relation("DisposalFinanceBy", fields: [financeAssessedById], references: [id])
+  financeAssessedAt   DateTime?
+  financeNotes        String?
+
+  /// Stage 4 — the SOP offers an alternative to committee approval: "In case of
+  /// insignificant value/quantum after consulting with relevant/concerned
+  /// business head". Taking that route is a choice somebody makes and defends,
+  /// so it names the head consulted rather than merely skipping the committee.
+  insignificantValue        Boolean @default(false)
+  businessHeadConsultedId   String?
+  businessHeadConsulted     User?     @relation("DisposalBusinessHead", fields: [businessHeadConsultedId], references: [id])
+  businessHeadConsultedAt   DateTime?
+  insignificanceJustification String?
+
+  /// Stage 8 — "Finance will update FAR at their end & inventory will update its
+  /// records accordingly." The FAR is Finance's system, so this records the
+  /// hand-off and its reference rather than pretending to own the register.
+  farUpdatedById String?
+  farUpdatedAt   DateTime?
+  farReference   String?
+  writeOffAmount Float?
+
+  witnesses DisposalWitness[]
   @@index([stage])
   @@map("disposal_cases")
 }
@@ -4519,4 +4574,163 @@ model PriceCompetitivenessReview {
 
   @@index([prId])
   @@map("price_competitiveness_reviews")
+}
+
+/// Who was present when the scrap was sold.
+///
+/// ZAM/PUR/SOP-01: "Scrap activity will be done in the presence of IA, Finance,
+/// Admin, Procurement and Logistics." Five functions, named, and the point of
+/// naming five is that no one of them can conduct the sale alone.
+///
+/// Rows rather than a checkbox, because "who was there" is the question asked
+/// about a disposal that later looks wrong, and a boolean cannot answer it.
+model DisposalWitness {
+  id         String       @id @default(cuid())
+  disposalId String
+  disposal   DisposalCase @relation(fields: [disposalId], references: [id], onDelete: Cascade)
+
+  /// INTERNAL_AUDIT | FINANCE | ADMIN | PROCUREMENT | LOGISTICS
+  function String
+
+  userId String?
+  user   User?   @relation("DisposalWitnessUser", fields: [userId], references: [id])
+  /// The name as given, for somebody who is not a system user.
+  name        String?
+  designation String?
+
+  attendedAt DateTime?
+  notes      String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([disposalId, function])
+  @@index([disposalId])
+  @@map("disposal_witnesses")
+}
+
+/// A physical stock count.
+///
+/// ZAM/PUR/SOP-01: "Internal auditor audits the store on monthly basis, to
+/// monitor stock and inventory status." The system had no count of any kind, so
+/// the ledger had never been checked against a shelf — which is the only thing
+/// that tells you whether the ledger is true.
+///
+/// Three decisions in the shape of this.
+///
+/// **The expected quantity is frozen when the sheet is opened.** Counting takes
+/// hours and stock keeps moving; comparing a hand count taken at ten o'clock
+/// against a balance read at four in the afternoon manufactures variances that
+/// are really just movements. The sheet records what the ledger said at the
+/// moment it was cut, and any movement afterwards is visible as a movement
+/// rather than as a discrepancy.
+///
+/// **A variance is not an adjustment.** Finding a difference and correcting the
+/// ledger are two acts by two people. The count records what was found; the
+/// adjustment posts through `postMovement` like every other stock change, with a
+/// reason, and only after somebody has approved it. A count that silently
+/// corrected the ledger would destroy the evidence it exists to create.
+///
+/// **Zero is a count.** A line left blank has not been counted; a line counted
+/// as zero has. Collapsing the two would let an uncounted shelf read as an empty
+/// one, which is the single most useful thing a count can catch.
+model StockCount {
+  id     String @id @default(cuid())
+  number String @unique
+
+  storeId String
+  store   Store  @relation(fields: [storeId], references: [id])
+
+  entityId String?
+  entity   Entity? @relation(fields: [entityId], references: [id])
+
+  /// FULL | CYCLE | SPOT — a full count covers the store, a cycle count a slice
+  /// of it on a rota, a spot count one thing somebody is suspicious about.
+  countType String @default("CYCLE")
+
+  /// DRAFT | COUNTING | REVIEW | APPROVED | ADJUSTED | CLOSED | CANCELLED
+  status String @default("DRAFT")
+
+  /// What the count was scoped to, for a cycle or spot count.
+  categoryId String?
+  locationId String?
+  scopeNote  String?
+
+  /// Frozen when the sheet is cut. Every line's expected quantity is as at this
+  /// moment, and the screen says so.
+  snapshotAt DateTime?
+
+  countedById String?
+  countedBy   User?     @relation("StockCountCountedBy", fields: [countedById], references: [id])
+  countedAt   DateTime?
+
+  /// The SOP puts the monthly store audit with Internal Audit, so the review is
+  /// a separate signature from the count.
+  reviewedById String?
+  reviewedBy   User?     @relation("StockCountReviewedBy", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+  reviewNotes  String?
+
+  approvedById String?
+  approvedBy   User?     @relation("StockCountApprovedBy", fields: [approvedById], references: [id])
+  approvedAt   DateTime?
+
+  adjustedAt DateTime?
+  closedAt   DateTime?
+
+  createdById String
+  createdBy   User   @relation("StockCountCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines StockCountLine[]
+
+  @@index([storeId, status])
+  @@index([status])
+  @@map("stock_counts")
+}
+
+model StockCountLine {
+  id      String     @id @default(cuid())
+  countId String
+  count   StockCount @relation(fields: [countId], references: [id], onDelete: Cascade)
+
+  lineNo Int
+
+  itemId String
+  item   Item   @relation(fields: [itemId], references: [id])
+
+  /// The bucket this line counts, so batch-tracked stock is counted per batch.
+  inventoryItemId String?
+  batchNumber     String?
+  serialNumber    String?
+  locationId      String?
+
+  unit String @default("EA")
+
+  /// What the ledger said when the sheet was cut.
+  expectedQty  Float @default(0)
+  expectedCost Float @default(0)
+
+  /// What was found. Null means not counted; zero means counted and empty, and
+  /// the two are deliberately different.
+  countedQty Float?
+
+  /// countedQty less expectedQty, held rather than computed on read so the sheet
+  /// says what it said when it was signed.
+  varianceQty   Float?
+  varianceValue Float?
+
+  /// Why the variance happened, in the counter's words. Required on any line
+  /// that differs: an unexplained variance is a number nobody can act on.
+  varianceReason String?
+
+  /// The ledger movement that corrected this line, once one has been posted.
+  adjustmentTxnId String?
+
+  notes String?
+
+  @@unique([countId, lineNo])
+  @@index([countId])
+  @@map("stock_count_lines")
 }

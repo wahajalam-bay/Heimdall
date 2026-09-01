@@ -10,6 +10,7 @@ import { userHasPermission, type SessionUser } from "@/lib/rbac";
 import type { AssetStatus, DisposalStage } from "@/lib/domain";
 import { round2 } from "@/lib/format";
 import { postMovement } from "./inventory";
+import { assertDisposalEvidence } from "./disposal-evidence";
 
 /**
  * Asset register, tagging, custody and the disposal / scrap lifecycle.
@@ -411,6 +412,9 @@ export async function advanceDisposal(
       }
     }
     if (to === "COMPLETED") {
+      // The Scrap Material Policy's eight stages each produce evidence. Gated on
+      // configuration and off by default: cases in flight have none of it.
+      await assertDisposalEvidence(kase.id, kase.number, kase.entityId, tx);
       const mgmtThreshold = await getConfigNumber(CONFIG_KEYS.DISPOSAL_MGMT_APPROVAL_THRESHOLD, kase.entityId, tx);
       const realised = input.realisedValue ?? kase.realisedValue ?? 0;
       if (realised >= mgmtThreshold && !kase.managementApprovedAt && from !== "MANAGEMENT_APPROVAL") {

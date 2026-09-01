@@ -96,6 +96,7 @@ export const NAV: NavGroup[] = [
       { label: "Ageing & Expiry", href: "/inventory/ageing", icon: "inventory", perms: [P.INVENTORY_VIEW] },
       { label: "Costing (FIFO)", href: "/inventory/costing", icon: "inventory", perms: [P.INVENTORY_VIEW] },
       { label: "Replenishment", href: "/inventory/replenishment", icon: "inventory", perms: [P.INVENTORY_VIEW] },
+      { label: "Stock counts", href: "/inventory/counts", icon: "verified", perms: [P.INVENTORY_VIEW] },
       { label: "Transfers", href: "/transfers", icon: "transfer", perms: [P.INVENTORY_VIEW, P.STORE_TRANSFER] },
     ],
   },

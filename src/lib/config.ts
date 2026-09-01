@@ -26,6 +26,8 @@ export const CONFIG_KEYS = {
   MIN_STOCK_LEAD_DAYS: "inventory.min_stock_lead_days",
   MIN_STOCK_SAFETY_DAYS: "inventory.min_stock_safety_days",
   MIN_STOCK_MIN_MOVEMENTS: "inventory.min_stock_min_movements",
+  // Scrap Material Policy evidence — ZAM/PUR/SOP-01 disposal procedure.
+  ENFORCE_DISPOSAL_EVIDENCE: "disposal.enforce_evidence",
   // Price Competitiveness Policy — ZAM/PUR/SOP-01.
   ENFORCE_PRICE_COMPETITIVENESS: "sourcing.enforce_price_competitiveness",
   // Purchase order acknowledgement — ZAM §4.6.
@@ -1082,6 +1084,16 @@ export const CONFIG_DEFS: ConfigDef[] = [
     group: "Sourcing",
     valueType: "number",
     default: 0,
+  },
+
+  {
+    key: CONFIG_KEYS.ENFORCE_DISPOSAL_EVIDENCE,
+    label: "Block disposal completion on missing Scrap Material Policy evidence",
+    description:
+      "The SOP's disposal procedure is eight stages, each producing something: an inspection report, photographs, Finance's depreciated and residual values, approval or a business-head consultation, quotes, five named functions present at the sale, and the FAR update. With this on, a case cannot complete while any is missing. It ships OFF because cases already in flight have none of it. The witness requirement is the one that matters most — a sale conducted without the five functions present is the failure the SOP wrote that sentence for.",
+    group: "Assets",
+    valueType: "boolean",
+    default: false,
   },
 
   /* ── Inventory costing ───────────────────────────────────────────────── */

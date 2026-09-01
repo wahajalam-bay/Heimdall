@@ -7,6 +7,8 @@ import { userHasPermission } from "@/lib/rbac";
 import { CONFIG_KEYS, getConfigNumber } from "@/lib/config";
 import { documentTimeline } from "@/server/timeline";
 import { AccessDenied } from "@/components/ui/guard";
+import { disposalEvidence } from "@/server/disposal-evidence";
+import { ScrapEvidence } from "./ScrapEvidence";
 import { Breadcrumbs } from "@/components/ui/nav";
 import {
   Badge,
@@ -78,7 +80,7 @@ export default async function DisposalDetailPage({ params }: { params: Promise<{
   });
   if (!kase) notFound();
 
-  const [events, threshold, approver, auditor, mgmtApprover, vendors] = await Promise.all([
+  const [events, threshold, approver, auditor, mgmtApprover, vendors, evidence, people] = await Promise.all([
     documentTimeline("DisposalCase", kase.id),
     getConfigNumber(CONFIG_KEYS.DISPOSAL_BIDDING_THRESHOLD, kase.entityId),
     kase.approvedById
@@ -95,9 +97,19 @@ export default async function DisposalDetailPage({ params }: { params: Promise<{
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
+    disposalEvidence(id),
+    prisma.user.findMany({
+      where: { active: true },
+      select: { id: true, name: true, title: true },
+      orderBy: { name: "asc" },
+      take: 400,
+    }),
   ]);
 
   const canCreate = userHasPermission(user, P.DISPOSAL_CREATE);
+  // Finance owns the valuation and the FAR update — the SOP says so, and the
+  // permission set follows rather than being widened to whoever is nearby.
+  const canFinance = userHasPermission(user, P.PAYMENT_RECORD, P.BUDGET_MANAGE, P.DISPOSAL_APPROVE);
   const canApprove = userHasPermission(user, P.DISPOSAL_APPROVE);
   const canAudit = userHasPermission(user, P.DISPOSAL_AUDIT_REVIEW);
   const canManagement = userHasPermission(user, P.DISPOSAL_MANAGEMENT_APPROVE);
@@ -442,6 +454,28 @@ export default async function DisposalDetailPage({ params }: { params: Promise<{
         </div>
 
         <div className="space-y-4">
+          <SectionCard
+            title="Scrap Material Policy"
+            description="The SOP's eight disposal stages, each with its named owner and what it has produced."
+            bodyClassName="px-3.5 py-3"
+          >
+            <ScrapEvidence
+              caseId={kase.id}
+              canRecord={canCreate || canAudit || canApprove}
+              canApprove={canApprove}
+              canFinance={canFinance}
+              people={people}
+              items={evidence.items}
+              missingWitnesses={evidence.missingWitnesses}
+              witnesses={evidence.witnesses.map((w) => ({
+                function: w.function,
+                label: w.label,
+                name: w.name,
+                attendedAt: w.attendedAt ? w.attendedAt.toISOString() : null,
+              }))}
+            />
+          </SectionCard>
+
           <SectionCard title="Case record">
             <DefList
               columns={1}

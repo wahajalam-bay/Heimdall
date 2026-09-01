@@ -38,6 +38,7 @@ export const SEQ = {
   BLACKLIST: "VBL",
   EXCEPTION: "EXC",
   INV_TXN: "ITX",
+  STOCK_COUNT: "STC",
   ISSUE: "SIS",
   TRANSFER: "STR",
   ASSET: "AST",
