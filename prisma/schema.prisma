@@ -1442,6 +1442,14 @@ model Inspection {
 
   signoffs InspectionSignoff[]
   vendorReturns VendorReturn[]
+  /// Annexure 4's header. The receiving date is when the goods arrived, which is
+  /// not the same day the inspection happened and the form prints both.
+  receivedDate DateTime?
+  /// Which department's POC has to sign the second block. Resolved from the
+  /// requisition at scheduling and held, so a later reorganisation does not
+  /// change who was supposed to have signed.
+  concernedDepartmentId String?
+  concernedPocId        String?
   @@index([deliveryId])
   @@map("inspections")
 }
@@ -1475,6 +1483,10 @@ model InspectionItem {
   criteriaResults String  @default("[]")
   notes           String?
 
+  /// Annexure 4 prints an expiry column. Held on the inspection line rather than
+  /// read off the stock bucket, because the inspection happens before the goods
+  /// are taken into inventory — there is no bucket to read yet.
+  expiryDate DateTime?
   @@unique([inspectionId, lineNo])
   @@map("inspection_items")
 }

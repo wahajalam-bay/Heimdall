@@ -17,6 +17,8 @@ import {
   INSPECTION_FUNCTION_LABELS,
   type InspectionFunction,
 } from "./inspection-matrix";
+import { primaryPoc } from "./org";
+import { attest } from "./attestation";
 
 /**
  * Physical receipt chain: inward gate pass → physical verification (delivery)
@@ -588,11 +590,23 @@ export async function scheduleInspection(
   const number = await nextNumber(SEQ.INSPECTION, db);
   const slaHours = await getConfigNumber(CONFIG_KEYS.SLA_INSPECTION_HOURS, delivery.po.entityId, db);
 
+  // Annexure 4's second signature block belongs to the requesting department's
+  // POC — §3.2 makes them, not the inspector, responsible for verifying that the
+  // specifications are what they asked for. Resolved now and held, so a later
+  // reorganisation does not change who was supposed to have signed.
+  const concernedDepartmentId = delivery.po.pr?.departmentId ?? null;
+  const concernedPoc = concernedDepartmentId
+    ? await primaryPoc(concernedDepartmentId, "PROCUREMENT", db)
+    : null;
+
   const inspection = await db.inspection.create({
     data: {
       number,
       poId: input.poId,
       deliveryId: input.deliveryId,
+      receivedDate: delivery.deliveryDate ?? delivery.createdAt,
+      concernedDepartmentId,
+      concernedPocId: concernedPoc?.userId ?? null,
       inspectionType: template.type,
       templateCode: template.code,
       inspectorId: input.inspectorId ?? null,
@@ -939,4 +953,162 @@ export async function mandatoryInspectionCategoryCodes(entityId: string | null, 
   const configured = await getConfigArray<string>(CONFIG_KEYS.REQUIRE_INSPECTION_CATEGORIES, entityId, db);
   const flagged = await db.category.findMany({ where: { requiresInspection: true }, select: { code: true } });
   return new Set([...configured, ...flagged.map((c) => c.code)]);
+}
+
+
+/* ── Annexure 4 · the two signature blocks ────────────────── */
+
+/**
+ * Annexure 4 prints two signature blocks, and they are not the same signature.
+ *
+ * ZAM/PUR/SOP-01 `image17.png`:
+ *
+ *   · **Logistics (Received by)** — Name, Designation, Sign, Date. Whoever took
+ *     delivery, certifying the count and condition.
+ *   · **Concerned Department (Signature - POC)** — Name, Designation, Sign,
+ *     Date. §3.2 makes the requesting department's POC responsible for verifying
+ *     that the specifications are what they asked for, and §3.2 again for the
+ *     concerned department head signing the Material Inspection form.
+ *
+ * The system held one `signedByName` text field, which could hold one name. That
+ * meant the department's verification — the whole point of the second block —
+ * did not exist as a fact anywhere.
+ *
+ * The blocks are deliberately separate. The inspector's own sign-off says the
+ * goods were checked; the department's says they are what was asked for. An
+ * inspector signing both is the inspection verifying itself.
+ */
+export const ANNEXURE_4_BLOCKS = ["LOGISTICS", "DEPARTMENT"] as const;
+export type Annexure4Block = (typeof ANNEXURE_4_BLOCKS)[number];
+
+export const ANNEXURE_4_BLOCK_LABELS: Record<Annexure4Block, string> = {
+  LOGISTICS: "Logistics (Received by)",
+  DEPARTMENT: "Concerned Department (POC)",
+};
+
+export async function signAnnexure4(
+  user: SessionUser,
+  input: { inspectionId: string; block: Annexure4Block; comment?: string | null },
+  db: DbClient = prisma,
+) {
+  return withTransaction(db, async (tx) => {
+    if (!ANNEXURE_4_BLOCKS.includes(input.block)) {
+      throw new ValidationError("Say which block of Annexure 4 is being signed.");
+    }
+
+    const inspection = await tx.inspection.findUnique({
+      where: { id: input.inspectionId },
+      include: {
+        items: { select: { lineNo: true, quantityInspected: true, quantityPassed: true, quantityFailed: true } },
+        delivery: { select: { receivedById: true, store: { select: { managerId: true } } } },
+      },
+    });
+    if (!inspection) throw new NotFoundError("Inspection");
+
+    if (input.block === "LOGISTICS") {
+      // Whoever took the delivery, the store manager, or anybody entitled to
+      // receive goods. The block certifies the count, and the count is theirs.
+      const entitled =
+        userHasPermission(user, P.RECEIVE_GOODS, P.GRN_POST) ||
+        user.id === inspection.delivery?.receivedById ||
+        user.id === inspection.delivery?.store?.managerId;
+      if (!entitled) {
+        throw new ForbiddenError(
+          "The Logistics block on Annexure 4 is signed by whoever received the goods.",
+        );
+      }
+    } else {
+      // §3.2: the concerned department's POC, not the inspector. Where no POC is
+      // appointed the department head may sign, and that substitution is
+      // recorded — but an inspector signing the department's block is refused
+      // outright, because that is the inspection verifying itself.
+      const isPoc = inspection.concernedPocId ? user.id === inspection.concernedPocId : false;
+      const isHod = userHasPermission(user, P.PR_APPROVE) && !inspection.concernedPocId;
+      if (!isPoc && !isHod) {
+        throw new ForbiddenError(
+          inspection.concernedPocId
+            ? "ZAM/PUR/SOP-01 §3.2 puts this signature with the requesting department's POC. Somebody else signing it is the inspection verifying itself."
+            : "No POC is appointed for the requesting department, so this block needs the department head. Appoint a POC on the organogram.",
+        );
+      }
+    }
+
+    const already = await tx.attestation.findFirst({
+      where: {
+        documentType: "INSPECTION",
+        documentId: inspection.id,
+        attestationType: input.block === "LOGISTICS" ? "PREPARED" : "REVIEWED",
+      },
+    });
+    if (already) {
+      throw new RuleViolationError(
+        `The ${ANNEXURE_4_BLOCK_LABELS[input.block]} block on ${inspection.number} has already been signed.`,
+      );
+    }
+
+    const signed = await attest(
+      user,
+      {
+        documentType: "INSPECTION",
+        documentId: inspection.id,
+        documentRef: inspection.number,
+        // PREPARED for the receiving block, REVIEWED for the department's — the
+        // two attestation kinds the rest of the system already means by "I did
+        // this" and "I checked it".
+        attestationType: input.block === "LOGISTICS" ? "PREPARED" : "REVIEWED",
+        decision: "APPROVED",
+        comment:
+          `Annexure 4 — ${ANNEXURE_4_BLOCK_LABELS[input.block]}` +
+          (input.comment?.trim() ? `: ${input.comment.trim()}` : ""),
+        // The line totals as signed, so a quantity edited afterwards is
+        // detectable rather than merely improbable.
+        signedContent: inspection.items.map((i) => ({
+          lineNo: i.lineNo,
+          inspected: i.quantityInspected,
+          passed: i.quantityPassed,
+          failed: i.quantityFailed,
+        })),
+      },
+      tx,
+    );
+
+    await writeAudit(
+      {
+        entityType: "Inspection",
+        entityId: inspection.id,
+        entityRef: inspection.number,
+        action: `ANNEXURE_4_${input.block}_SIGNED`,
+        newValue: { by: user.name, block: ANNEXURE_4_BLOCK_LABELS[input.block] },
+        reason: input.comment?.trim() || null,
+        actor: user,
+      },
+      tx,
+    );
+    return signed;
+  });
+}
+
+/** The two Annexure 4 blocks as they stand, for the form and the screen. */
+export async function annexure4Signatures(inspectionId: string, db: DbClient = prisma) {
+  const rows = await db.attestation.findMany({
+    where: {
+      documentType: "INSPECTION",
+      documentId: inspectionId,
+      attestationType: { in: ["PREPARED", "REVIEWED"] },
+    },
+    include: { signedBy: { select: { name: true, title: true } } },
+    orderBy: { signedAt: "asc" },
+  });
+  const pick = (t: string) => {
+    const r = rows.find((x) => x.attestationType === t);
+    return r
+      ? {
+          name: r.signedBy?.name ?? null,
+          designation: r.designation ?? r.roleAtSigning ?? r.signedBy?.title ?? null,
+          signedAt: r.signedAt,
+          comment: r.comment,
+        }
+      : null;
+  };
+  return { logistics: pick("PREPARED"), department: pick("REVIEWED") };
 }

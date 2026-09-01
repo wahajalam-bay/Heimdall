@@ -14,6 +14,7 @@ import {
   scheduleInspection,
   type DeliveryItemInput,
   type InspectionItemResult,
+  signAnnexure4,
 } from "@/server/receiving";
 import { createGrn, postGrn, cancelGrn, recordStacking, grnReadiness } from "@/server/grn";
 import {
@@ -671,6 +672,30 @@ export async function returnFromInspectionAction(formData: FormData): Promise<Ac
       data: null,
       message: `${ret.number} raised for ${ret.totalValue ? "PKR " + ret.totalValue.toLocaleString() : "the failed lines"}. It still needs authorising before the goods leave site.`,
     };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+/**
+ * One of Annexure 4's two signature blocks.
+ *
+ * Who may sign which block is decided inside `signAnnexure4`, against the
+ * inspection's own recorded POC — not here, and not by hiding the button.
+ */
+export async function signAnnexure4Action(formData: FormData): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const inspectionId = String(formData.get("inspectionId") ?? "");
+    const block = String(formData.get("block") ?? "LOGISTICS") as "LOGISTICS" | "DEPARTMENT";
+    await signAnnexure4(user, {
+      inspectionId,
+      block,
+      comment: blank(formData.get("reason")),
+    });
+    revalidatePath(`/inspections/${inspectionId}`);
+    revalidatePath(`/inspections/${inspectionId}/annexure-4`);
+    return { ok: true, data: null, message: "Annexure 4 signed." };
   } catch (e) {
     return toActionError(e);
   }

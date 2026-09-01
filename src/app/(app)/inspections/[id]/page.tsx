@@ -29,8 +29,10 @@ import { fmtDateTime, qty } from "@/lib/format";
 import {
   assignInspectorAction,
   returnFromInspectionAction,
+  signAnnexure4Action,
   signOffInspectionAction,
 } from "@/app/(app)/receiving/actions";
+import { annexure4Signatures } from "@/server/receiving";
 import { signoffsFor } from "@/server/inspection-matrix";
 import { InspectionForm } from "./InspectionForm";
 
@@ -80,7 +82,7 @@ export default async function InspectionDetailPage({ params }: { params: Promise
   });
   if (!insp) notFound();
 
-  const [events, inspectors, signoffs, existingReturn] = await Promise.all([
+  const [events, inspectors, signoffs, existingReturn, annexure, concernedPoc] = await Promise.all([
     documentTimeline("Inspection", insp.id),
     prisma.user.findMany({
       where: {
@@ -95,6 +97,10 @@ export default async function InspectionDetailPage({ params }: { params: Promise
       where: { inspectionId: insp.id, status: { not: "CANCELLED" } },
       select: { id: true, number: true, status: true, totalValue: true },
     }),
+    annexure4Signatures(insp.id),
+    insp.concernedPocId
+      ? prisma.user.findUnique({ where: { id: insp.concernedPocId }, select: { name: true, title: true } })
+      : Promise.resolve(null),
   ]);
   const outstanding = signoffs.filter((sg) => sg.outstanding);
 
@@ -251,6 +257,72 @@ export default async function InspectionDetailPage({ params }: { params: Promise
           {insp.conditions}
         </InlineAlert>
       )}
+
+      <SectionCard
+        title="Annexure 4"
+        description="The Goods / Material Inspection Note. Two signature blocks, and they are not the same signature: Logistics certifies what arrived and in what condition, the concerned department's POC certifies that it is what they asked for — §3.2."
+        actions={
+          <Link className="btn btn-secondary btn-sm" href={`/inspections/${insp.id}/annexure-4`}>
+            Open the form
+          </Link>
+        }
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <p className="text-2xs uppercase tracking-wide text-[var(--c-text-tertiary)]">Logistics (Received by)</p>
+            {annexure.logistics ? (
+              <p className="mt-1 text-xs">
+                {annexure.logistics.name}
+                <span className="mt-0.5 block text-2xs text-muted">
+                  {annexure.logistics.designation ?? ""} · {fmtDateTime(annexure.logistics.signedAt)}
+                </span>
+              </p>
+            ) : (
+              <div className="mt-1 space-y-2">
+                <p className="text-2xs text-muted">Unsigned.</p>
+                <ActionButton
+                  action={signAnnexure4Action}
+                  payload={{ inspectionId: insp.id, block: "LOGISTICS" }}
+                  label="Sign as Logistics"
+                  tone="secondary"
+                  size="xs"
+                  reasonLabel="Anything to note (optional)"
+                />
+              </div>
+            )}
+          </div>
+
+          <div>
+            <p className="text-2xs uppercase tracking-wide text-[var(--c-text-tertiary)]">
+              Concerned Department (POC)
+            </p>
+            {annexure.department ? (
+              <p className="mt-1 text-xs">
+                {annexure.department.name}
+                <span className="mt-0.5 block text-2xs text-muted">
+                  {annexure.department.designation ?? ""} · {fmtDateTime(annexure.department.signedAt)}
+                </span>
+              </p>
+            ) : (
+              <div className="mt-1 space-y-2">
+                <p className="text-2xs text-muted">
+                  {concernedPoc
+                    ? `Awaiting ${concernedPoc.name}${concernedPoc.title ? ` — ${concernedPoc.title}` : ""}.`
+                    : "No POC is appointed for the requesting department, so the department head must sign. Appoint one on the organogram."}
+                </p>
+                <ActionButton
+                  action={signAnnexure4Action}
+                  payload={{ inspectionId: insp.id, block: "DEPARTMENT" }}
+                  label="Sign for the department"
+                  tone="secondary"
+                  size="xs"
+                  reasonLabel="Anything to note (optional)"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </SectionCard>
 
       {signoffs.length > 0 && (
         <SectionCard
