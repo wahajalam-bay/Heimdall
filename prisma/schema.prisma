@@ -119,6 +119,8 @@ model User {
   workOrdersCreated  WorkOrder[] @relation("WorkOrderCreatedBy")
   workOrdersIssued   WorkOrder[] @relation("WorkOrderIssuedBy")
   workOrdersAudited  WorkOrder[] @relation("WorkOrderAudit")
+  priceCompPrepared  PriceCompetitivenessReview[] @relation("PriceCompPreparedBy")
+  priceCompEmergency PriceCompetitivenessReview[] @relation("PriceCompEmergencyBy")
   @@index([email])
   @@map("users")
 }
@@ -983,6 +985,7 @@ model Comparative {
   savingsRecords SavingsRecord[]
 
   workOrders WorkOrder[]
+  priceCompetitiveness PriceCompetitivenessReview?
   @@index([prId])
   @@map("comparatives")
 }
@@ -4418,4 +4421,102 @@ model WorkOrderItem {
 
   @@unique([workOrderId, lineNo])
   @@map("work_order_items")
+}
+
+/// The Price Competitiveness Policy, per sourcing exercise.
+///
+/// ZAM/PUR/SOP-01 has a named policy with a named procedure, and the system
+/// implemented none of it as a control. Its steps, verbatim:
+///
+/// > Last buying price will be reviewed · For imported items international and
+/// > local market prices will be analyzed through authorized
+/// > suppliers/distributors · **Single sourcing options will be evaluated based
+/// > on the volumes** · Check International Prices (for imported items) · Check
+/// > Prices from Local Vendor/Clients · **Multiple sourcing options will be
+/// > evaluated based on the volumes** · **Minimum of 3 quotations from approved
+/// > vendors** · Cost Analysis Summary · New vendor inductions completing all
+/// > pertinent prerequisites · **For emergency purchases price competitiveness
+/// > may not be considered in detail.**
+///
+/// Three things about that list decide the shape of this model.
+///
+/// **Some steps are conditional on the goods.** The international-price checks
+/// apply "for imported items" and to nothing else. A checklist that demands them
+/// on a local purchase of stationery would be ignored within a week, and an
+/// ignored checklist is worse than none.
+///
+/// **Single and multiple sourcing are both legitimate**, and the SOP says which
+/// applies is "evaluated based on the volumes". So the basis is recorded with the
+/// reasoning, rather than single sourcing being an exception to be justified away.
+/// What the SOP does not permit is silence: a single-sourced award with no volume
+/// rationale is the one case this refuses.
+///
+/// **Emergency relaxes, it does not waive.** "Price competitiveness may not be
+/// considered in detail" is a relaxation of the detailed analysis — the
+/// international and local price studies, and the three-quotation minimum. It is
+/// not permission to skip the last buying price, the cost analysis or the vendor
+/// prerequisites, and it is not permission to skip saying why. So the exemption
+/// is named, approved, and records exactly which steps it excused.
+model PriceCompetitivenessReview {
+  id String @id @default(cuid())
+
+  comparativeId String      @unique
+  comparative   Comparative @relation(fields: [comparativeId], references: [id], onDelete: Cascade)
+  prId          String?
+  entityId      String?
+
+  /// Whether the imported-item branch of the procedure applies at all.
+  imported Boolean @default(false)
+
+  /// SINGLE | MULTIPLE — which sourcing route the volumes point to.
+  sourcingBasis   String  @default("MULTIPLE")
+  /// Why the volumes point that way. Required for a single-sourced award: the
+  /// SOP permits single sourcing on the volumes, not on nothing.
+  volumeRationale String?
+
+  /// "Last buying price will be reviewed."
+  lastBuyingPriceReviewed Boolean @default(false)
+  lastBuyingPrice         Float?
+  lastBuyingPriceSource   String?
+
+  /// "Check International Prices (for imported items)."
+  internationalPricesChecked Boolean @default(false)
+  internationalPriceNote     String?
+
+  /// "Check Prices from Local Vendor/Clients (both for imported and local items)."
+  localPricesChecked Boolean @default(false)
+  localPriceNote     String?
+
+  /// "Minimum of 3 quotations from approved vendors." Held as a snapshot so the
+  /// review says what was true when it was taken, not what is true now.
+  quotationsObtained Int @default(0)
+  minimumRequired    Int @default(3)
+
+  /// "Cost Analysis Summary."
+  costAnalysisAttached Boolean @default(false)
+
+  /// "New vendor inductions completing all pertinent prerequisites." Null where
+  /// no new vendor is involved — which is not the same as unanswered.
+  newVendorInvolved         Boolean @default(false)
+  newVendorPrerequisitesMet Boolean?
+
+  /// The emergency relaxation, and what it excused.
+  emergencyExempt       Boolean   @default(false)
+  emergencyReason       String?
+  emergencyApprovedById String?
+  emergencyApprovedBy   User?     @relation("PriceCompEmergencyBy", fields: [emergencyApprovedById], references: [id])
+  emergencyApprovedAt   DateTime?
+  /// JSON list of the step codes the exemption excused, recorded at the moment
+  /// it was granted. A later change to what emergency relaxes must not rewrite
+  /// what a past award was excused from.
+  emergencyExcused      String    @default("[]")
+
+  preparedById String
+  preparedBy   User   @relation("PriceCompPreparedBy", fields: [preparedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([prId])
+  @@map("price_competitiveness_reviews")
 }

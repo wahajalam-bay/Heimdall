@@ -10,6 +10,7 @@ import { userHasPermission, type SessionUser } from "@/lib/rbac";
 import { VENDOR_SOURCEABLE_STATUSES, type ComplianceLevel } from "@/lib/domain";
 import { round2, variancePercent } from "@/lib/format";
 import { transitionPr, assertRequisitionComplete } from "./pr";
+import { assertPriceCompetitive } from "./price-competitiveness";
 
 /**
  * Sourcing: RFQ issue, vendor invitation, quotation capture, comparative
@@ -988,6 +989,11 @@ export async function recommendVendor(
         eligibility.reason ?? "The selected vendor is not eligible for award.",
       );
     }
+
+    // ZAM/PUR/SOP-01's Price Competitiveness Policy, where the entity has
+    // switched enforcement on. Off by default, because no comparative in flight
+    // has a review recorded and enforcing on day one would block every award.
+    await assertPriceCompetitive(comparative.id, comparative.number, comparative.pr.entityId, tx);
 
     const requireJustification = await getConfigBool(
       CONFIG_KEYS.NON_LOWEST_REQUIRES_JUSTIFICATION,

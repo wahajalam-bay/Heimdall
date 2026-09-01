@@ -26,6 +26,8 @@ export const CONFIG_KEYS = {
   MIN_STOCK_LEAD_DAYS: "inventory.min_stock_lead_days",
   MIN_STOCK_SAFETY_DAYS: "inventory.min_stock_safety_days",
   MIN_STOCK_MIN_MOVEMENTS: "inventory.min_stock_min_movements",
+  // Price Competitiveness Policy — ZAM/PUR/SOP-01.
+  ENFORCE_PRICE_COMPETITIVENESS: "sourcing.enforce_price_competitiveness",
   // Purchase order acknowledgement — ZAM §4.6.
   PO_ACKNOWLEDGEMENT_DAYS: "po.acknowledgement_days",
   // Inventory costing — see server/costing.ts and BD-008.
@@ -1070,6 +1072,16 @@ export const CONFIG_DEFS: ConfigDef[] = [
     group: "Purchase orders",
     valueType: "number",
     default: 3,
+  },
+
+  {
+    key: CONFIG_KEYS.ENFORCE_PRICE_COMPETITIVENESS,
+    label: "Block a recommendation on an incomplete price competitiveness review",
+    description:
+      "ZAM/PUR/SOP-01's Price Competitiveness Policy sets out nine steps before a buying decision. With this on, a comparative cannot be recommended while an applicable step is unanswered — unless the purchase is classified as an emergency, which relaxes the detailed market analysis and the quotation minimum and nothing else. It ships OFF: the review is a new record and no comparative in flight has one, so enforcing on day one would block every award. Switching it on is the go-live step for this control.",
+    group: "Sourcing",
+    valueType: "number",
+    default: 0,
   },
 
   /* ── Inventory costing ───────────────────────────────────────────────── */

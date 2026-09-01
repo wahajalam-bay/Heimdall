@@ -58,7 +58,10 @@ transaction, and the end-to-end acceptance run.
 
 ## Remaining phases
 
-### Phase 3 — Goods vs Services  · *next*
+### Phase 3 — Goods vs Services · **substantially complete**
+
+Everything below is built except controlled PR amendment, which is still free
+editing rather than versioning.
 
 The core model change, and the largest single piece of new work.
 
@@ -69,44 +72,49 @@ The core model change, and the largest single piece of new work.
 - Tax Master, effective-dated and line-level (**BD-005** supplies the rates)
 - GRN control: cumulative accepted quantity may never exceed PO outstanding except through an approved amendment. Partial GRN stays valid
 - Invoice auto-population from PO plus posted GRN for goods, from Service Acceptance for services
-- Annexure 1's seven missing PR elements, and controlled amendment rather than free editing
+- Done · Annexure 1's seven missing PR elements
+- Open · Controlled PR amendment — versioning rather than free editing
 
 **Preserves:** the inventory-first requirement workflow, and the existing PR↔PO
 allocation logic.
 
-### Phase 4 — Inventory and accounting treatment
+### Phase 4 — Inventory and accounting treatment · **substantially complete**
 
-- Contextual asset vs consumable: Item Master default **plus** transaction-level treatment, so the same AC is an office asset or a project consumable (**BD-002** supplies the policy)
-- FIFO cost layers, kept distinct from FEFO physical picking (**BD-008**)
-- Serialised items: `isSerialised` on Item Master, one record per received unit, full custody history, no duplicate active serials
-- Expiry: tracked where the item or category requires it, with near-expiry alerts
-- Inventory ageing, with configurable bands and drilldown to GRN and PO
-- Expense Book: how much was treated as asset, how much as consumable, by item, category, department, office, project, vendor, period — including overrides and mismatches
-- FAR integration boundary. Finance owns the fixed asset register; this links, it does not replace
+Only the FAR boundary is outstanding, and it depends on **BD-004**.
 
-### Phase 5 — Procurement governance
+- Done · Contextual asset vs consumable: Item Master default **plus** transaction-level treatment, so the same AC is an office asset or a project consumable (**BD-002** supplies the policy)
+- Done · FIFO cost layers, kept distinct from FEFO physical picking (**BD-008 — closed**). Layers begin on a stated date; nothing before it is restated, no opening layer is invented, and the method ships `WEIGHTED_AVERAGE` so switching changes what future issues cost rather than what past ones did
+- Done · Serialised items: one record per received unit, full custody history, no duplicate active serials
+- Done · Expiry: tracked where the item or category requires it, with near-expiry alerts
+- Done · Inventory ageing, with configurable bands and drilldown to GRN and PO
+- Done · Expense Book: asset against consumable by item, category, department, office, project, vendor and period, including overrides and mismatches
+- Done · Minimum stock with its SOP basis (§3.3), a consumption-derived suggestion, and the alert the Store Flow requires when the level is reached
+- Open · FAR integration boundary. Finance owns the fixed asset register; this links, it does not replace
 
-- Vendor performance rebuilt as its own instrument, never the pre-qualification sheet (**BD-006**)
-- PQ expiry and requalification — **PCZ-01**, required by meeting requirement 20
-- Temporary blocking with scope, distinct from blacklisting — **PCZ-02**
-- Single Source as a workflow with market evidence and dual approval, not "quotation count = 1"
-- Emergency procurement as an explicit classification with its own evidence
-- RFQ amendment, cancellation, reissue and versioning; tender via print media
-- Negotiation Minutes as a first-class signed record, not negotiation rows
-- PO: authorised signatory, legal terms, vendor acknowledgement with `ACKNOWLEDGED` / `REJECTED` / `NO_RESPONSE` / `DEEMED_ACCEPTED_THROUGH_EXECUTION`, distribution evidence
-- Work Orders as their own document, with the Internal Audit gate for Admin services
-- Contract lifecycle: types, twelve states, expiry alerts
+### Phase 5 — Procurement governance · *in progress*
 
-### Phase 6 — Store and asset operations
+- Open · Vendor performance rebuilt as its own instrument, never the pre-qualification sheet (**BD-006 still open** — the qualifying score and the instrument are undecided)
+- Done · PQ expiry and requalification — **PCZ-01**. Standing, a preview of what any validity would cost before it is set, and a scheduled warning. The switch stays the business's, and can now be flipped with the blast radius on screen
+- Open · Temporary blocking with scope, distinct from blacklisting — **PCZ-02**. Blocked on the *grounds*: ZD names three, no ZAM source names any
+- Open · Single Source as a workflow with market evidence and dual approval, not "quotation count = 1"
+- Open · Emergency procurement as an explicit classification with its own evidence
+- Open · RFQ amendment, cancellation, reissue and versioning; tender via print media
+- Done · Negotiation Minutes as a first-class signed record. Participants as rows on both sides, each of §4.5.1's six bases answered, a required conclusion, frozen and hashed on finalising
+- Done · PO authorised signatory, distribution evidence, and vendor acknowledgement across the four states. The acknowledgement is a **meeting** requirement, not a ZAM one — see **BD-014**
+- Done · Work Orders as their own document, with the Internal Audit gate on Admin services outside CPC's domain
+- Open · Contract lifecycle: types, twelve states, expiry alerts
 
-- Inspection responsibility matrix from the SOP — 21 category × type × owner assignments, replacing one generic `GENERAL` inspection
-- Annexure 4 built to `image17.png`, with both sign-off blocks
-- Failed inspection creating or linking an RTV without re-entry
-- Gate pass auto-populated from the PO; outward passes linked to disposal
-- Stock count and cycle count: sheets, variance, reason, approval, adjustment, audit sign-off
-- Employee return: Store Receiving Note, conditional IT inspection, R&M handoff, custodian clearance
-- Disposal with net book value, Finance valuation gate, witnesses, pictorial evidence, IA conclusion
-- Loss and theft reporting
+### Phase 6 — Store and asset operations · *in progress*
+
+- Done · Inspection responsibility matrix — all 21 chart cells, each check signed separately, and the inspection refused closure while one is blank. The chart covers 6 of 17 system categories — see **BD-013**
+- Done · Annexure 4 built to `image17.png`, with both signature blocks. The department block routes to the requisition's POC and refuses the inspector
+- Done · Failed inspection creating or linking an RTV without re-entry
+- Done · Issuance slip signed by the receiver, or a paper slip recorded and labelled as a transcription
+- Open · Gate pass auto-populated from the PO; outward passes linked to disposal
+- Open · Stock count and cycle count: sheets, variance, reason, approval, adjustment, audit sign-off
+- Open · Employee return: Store Receiving Note, conditional IT inspection, R&M handoff, custodian clearance
+- Open · Disposal with net book value, Finance valuation gate, witnesses, pictorial evidence, IA conclusion
+- Open · Loss and theft reporting
 
 ### Phase 7 — Integration
 

@@ -8,6 +8,8 @@ import { CONFIG_KEYS, getConfigBool, getConfigNumber } from "@/lib/config";
 import { cpcRequirement } from "@/server/cpc";
 import { comparativeReadiness } from "@/server/sourcing";
 import { poReadiness } from "@/server/po";
+import { priceCompetitivenessState } from "@/server/price-competitiveness";
+import { PriceCompetitiveness } from "./PriceCompetitiveness";
 import { AccessDenied } from "@/components/ui/guard";
 import { Breadcrumbs } from "@/components/ui/nav";
 import {
@@ -92,14 +94,22 @@ export default async function ComparativeDetailPage({ params }: { params: Promis
   });
   if (!c) notFound();
 
-  const [readiness, cpcInfo, requireJustification, poReady] = await Promise.all([
+  const [readiness, cpcInfo, requireJustification, poReady, pcState] = await Promise.all([
     comparativeReadiness(c.id),
     cpcRequirement(c.pr.entityId, c.selectedTotal ?? c.lowestTotal ?? c.pr.estimatedValue, c.pr.procurementType),
     getConfigBool(CONFIG_KEYS.NON_LOWEST_REQUIRES_JUSTIFICATION, c.pr.entityId),
     poReadiness(c.prId).catch(() => ({ ready: false, issues: [] as string[], cpcRequired: false, cpcCleared: true })),
+    priceCompetitivenessState(c.id),
   ]);
 
   const canRecommend = userHasPermission(user, P.VENDOR_SELECT);
+  // Relaxing a policy control is exception authority, not sourcing authority.
+  const canClassifyEmergency = userHasPermission(
+    user,
+    P.EXCEPTION_MANAGE,
+    P.CPC_DECIDE,
+    P.INVOICE_EXCEPTION_APPROVE,
+  );
   const canCreatePo = userHasPermission(user, P.PO_CREATE);
   const selected = c.lines.find((l) => l.isSelected);
   const lowest = c.lines.find((l) => l.isLowest);
@@ -431,6 +441,38 @@ export default async function ComparativeDetailPage({ params }: { params: Promis
         </ChartFrame>
 
         <div className="space-y-4">
+          <SectionCard
+            title="Price competitiveness"
+            description="ZAM/PUR/SOP-01's Price Competitiveness Policy — the steps required before a buying decision."
+          >
+            <PriceCompetitiveness
+              comparativeId={c.id}
+              canRecord={canRecommend}
+              canClassify={canClassifyEmergency}
+              state={{
+                items: pcState.items.map((i) => ({
+                  step: i.step,
+                  label: i.label,
+                  applicable: i.applicable,
+                  applicableNote: i.applicableNote,
+                  satisfied: i.satisfied,
+                  detail: i.detail,
+                  excused: i.excused,
+                  blocking: i.blocking,
+                })),
+                complete: pcState.complete,
+                blockers: pcState.blockers,
+                emergency: pcState.emergency,
+                emergencyReason: pcState.emergencyReason,
+                emergencyApprovedByName: pcState.emergencyApprovedByName,
+                sourcingBasis: pcState.sourcingBasis,
+                quotationsObtained: pcState.quotationsObtained,
+                minimumRequired: pcState.minimumRequired,
+                reviewId: pcState.reviewId,
+              }}
+            />
+          </SectionCard>
+
           <SectionCard title="Award decision">
             {selected ? (
               <DefList
