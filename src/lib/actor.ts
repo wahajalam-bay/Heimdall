@@ -52,6 +52,7 @@ export const DOMAIN_ACTIONS = {
   INSPECTION_SCHEDULE: "inspection.schedule",
   INVENTORY_MOVEMENT_POST: "inventory.movementPost",
   POLICY_LAPSE_EXPIRED: "policy.lapseExpired",
+  PQ_EXPIRY_WARN: "prequalification.expiryWarn",
   VENDOR_RETURN_CREATE: "vendorReturn.create",
   PO_FULFILMENT_RECOMPUTE: "po.fulfilmentRecompute",
   PO_ACK_LAPSE: "po.acknowledgementLapse",
@@ -81,7 +82,11 @@ export type SystemPurpose = "SCHEDULER" | "MIGRATION" | "SEED";
  */
 const SYSTEM_GRANTS: Record<SystemPurpose, readonly DomainAction[]> = {
   /** Unattended rollups. `scripts/rollups.ts`. */
-  SCHEDULER: [DOMAIN_ACTIONS.VENDOR_PERFORMANCE_COMPUTE, DOMAIN_ACTIONS.PO_ACK_LAPSE],
+  SCHEDULER: [
+    DOMAIN_ACTIONS.VENDOR_PERFORMANCE_COMPUTE,
+    DOMAIN_ACTIONS.PO_ACK_LAPSE,
+    DOMAIN_ACTIONS.PQ_EXPIRY_WARN,
+  ],
   /** One-off backfills run from `scripts/`, never from a request. */
   MIGRATION: [DOMAIN_ACTIONS.ALLOCATION_BACKFILL],
   /** Demo and fixture loading. Broad by design, and unreachable from the app. */

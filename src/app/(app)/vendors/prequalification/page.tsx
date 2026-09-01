@@ -80,11 +80,16 @@ export default async function PrequalificationPage() {
         title="Pre-qualification queue"
         subtitle={`Scored against ${criteria.length} weighted criteria and scaled to ${configuredMax}. A vendor needs ${passMark} to pass — and an explicit approval decision on top of that.`}
         actions={
-          userHasPermission(user, P.VENDOR_CREATE) && (
-            <Link href="/vendors/new" className="btn btn-primary btn-sm">
-              Register vendor
+          <>
+            <Link href="/vendors/prequalification/validity" className="btn btn-secondary btn-sm">
+              Validity &amp; expiry
             </Link>
-          )
+            {userHasPermission(user, P.VENDOR_CREATE) && (
+              <Link href="/vendors/new" className="btn btn-primary btn-sm">
+                Register vendor
+              </Link>
+            )}
+          </>
         }
       />
 

@@ -59,6 +59,18 @@ Source 2.
 > expire live vendors. The flags and enforcement already exist; only the Zameen
 > Media values change.
 
+**PCZ-01 update.** The half of this that the system could deliver without taking
+the business's decision for it is now built: `/vendors/prequalification/validity`
+shows where every approved vendor stands, and a **preview** of what any proposed
+validity would do *before* it is set — including the list of vendors that would
+become ineligible the instant it was saved. Setting a two-year validity on a
+list that has never had one does not start a clock; it finishes one that has been
+running unobserved. A scheduled job warns as expiry approaches, so
+requalification is triggered by a calendar rather than by a blocked requisition,
+and it stays silent while the control is off. The switch itself is untouched —
+that decision belongs to the business, and it can now be taken with the blast
+radius on screen.
+
 ---
 
 ## Conflicts inside ZAM/PUR/SOP-01
