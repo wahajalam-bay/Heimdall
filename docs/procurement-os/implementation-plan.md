@@ -96,13 +96,13 @@ Only the FAR boundary is outstanding, and it depends on **BD-004**.
 - Open · Vendor performance rebuilt as its own instrument, never the pre-qualification sheet (**BD-006 still open** — the qualifying score and the instrument are undecided)
 - Done · PQ expiry and requalification — **PCZ-01**. Standing, a preview of what any validity would cost before it is set, and a scheduled warning. The switch stays the business's, and can now be flipped with the blast radius on screen
 - Open · Temporary blocking with scope, distinct from blacklisting — **PCZ-02**. Blocked on the *grounds*: ZD names three, no ZAM source names any
-- Open · Single Source as a workflow with market evidence and dual approval, not "quotation count = 1"
-- Open · Emergency procurement as an explicit classification with its own evidence
+- Partly · Single sourcing is recorded as a sourcing *basis* with the volume rationale the SOP grounds it on, and an unexplained one is refused. **Dual approval is not built** — the review is recorded by one person
+- Done · Emergency procurement as an explicit classification needing exception authority and a substantive reason, recording exactly which policy steps it excused. Grounded in ZAM's own words: "for emergency purchases price competitiveness may not be considered in detail"
 - Open · RFQ amendment, cancellation, reissue and versioning; tender via print media
 - Done · Negotiation Minutes as a first-class signed record. Participants as rows on both sides, each of §4.5.1's six bases answered, a required conclusion, frozen and hashed on finalising
 - Done · PO authorised signatory, distribution evidence, and vendor acknowledgement across the four states. The acknowledgement is a **meeting** requirement, not a ZAM one — see **BD-014**
 - Done · Work Orders as their own document, with the Internal Audit gate on Admin services outside CPC's domain
-- Open · Contract lifecycle: types, twelve states, expiry alerts
+- Done · Contract lifecycle: the CPC mandate's types, twelve states, a notice window, and a sweep that never auto-renews
 
 ### Phase 6 — Store and asset operations · *in progress*
 
@@ -111,10 +111,10 @@ Only the FAR boundary is outstanding, and it depends on **BD-004**.
 - Done · Failed inspection creating or linking an RTV without re-entry
 - Done · Issuance slip signed by the receiver, or a paper slip recorded and labelled as a transcription
 - Open · Gate pass auto-populated from the PO; outward passes linked to disposal
-- Open · Stock count and cycle count: sheets, variance, reason, approval, adjustment, audit sign-off
-- Open · Employee return: Store Receiving Note, conditional IT inspection, R&M handoff, custodian clearance
-- Open · Disposal with net book value, Finance valuation gate, witnesses, pictorial evidence, IA conclusion
-- Open · Loss and theft reporting
+- Done · Stock count and cycle count: sheets with a frozen expected quantity, variance with a reason, review by somebody other than the counter, and adjustment through the same ledger as every other movement
+- Done · Employee return: Store Receiving Note, IT-only inspection decided from the category, Repair & Maintenance hand-off with a reference, and only stacked lines going back into stock
+- Done · Disposal: all eight Scrap Material Policy stages with their evidence — inspection report, photographs, Finance's depreciated and residual values, the insignificant-value route naming the head consulted, five named witnesses at the sale, and the FAR hand-off
+- Done · Loss and theft, kept apart from adjustments, with unexplained shortage as its own honest kind and the write-off deliberately separate from the report
 
 ### Phase 7 — Integration
 
@@ -122,25 +122,25 @@ Only the FAR boundary is outstanding, and it depends on **BD-004**.
 - JEFFI — nothing built until defined (**BD-003**)
 - Finance and FAR interfaces
 
-### Phase 8 — Governance platform
+### Phase 8 — Governance platform · *substantially complete*
 
-- Alert engine: persisted records with owner, due date, acknowledgement, escalation, resolution
-- Control calendar for the recurring controls
-- Segregation-of-duties configuration and report, extending what Phase 1 built
-- Conflict of interest, gifts, confidentiality, NDA
-- Delegation and proxy, provable rather than "someone else holds the permission"
-- Policy acknowledgement tied to the exact version
-- Quarterly access review as a decision record
-- Annual compliance audit; system interface testing
-- Attestation engine, replacing scattered signature fields
-- PO splitting detector producing a compliance case, not an alert
+- Done · Alert engine: exceptions gained acknowledgement (separate from resolution) and escalation up the organogram's own reporting line, with un-escalatable cases reported rather than silently marked
+- Done · Control calendar — ten controls, each citing its clause. A run exists for the period, so a control nobody performed is a row with nothing in it
+- Done · Segregation-of-duties report showing who holds both sides of each separation, extending Phase 1's per-transaction enforcement
+- Open · Conflict of interest, gifts, confidentiality, NDA — registers with no ZAM grounding and no operational consequence yet
+- Done · Delegation and proxy: dated, scoped, lent-never-invented, and both names on every act
+- Done · Policy acknowledgement tied to the exact version, with the register resetting on publication
+- Done · Quarterly access review as a decision record, capturing the figures as they stood
+- Open · Annual compliance audit; system interface testing
+- Done · Attestation engine (`server/attestation.ts`), used by inspections, issuance slips, Annexure 4, negotiation minutes and work orders
+- Done · PO splitting detector producing a compliance case, not an alert — and excluding orders already referred to committee or arising from one requisition
 
 ### Phase 9 — Planning and project processes
 
 - MRP: budget revision, BOQ, planned quantity and cost, required period, actual PR/PO/receipt, variance, quarterly revision
 - Demand forecasting from consumption history — suggestions only
 - Requirement consolidation before sourcing
-- Monthly repeat orders producing **draft** requirements, never auto-approved
+- Done · Monthly repeat orders producing **draft** requirements, projected from consumption less stock on hand and quantities already on order, never auto-submitted
 - Build-outs, reusing existing Projects, Sites, Budgets, PRs and POs
 - RNC as its own committee, with regions and its own quorum (**PCZ-10**)
 
