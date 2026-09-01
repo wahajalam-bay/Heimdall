@@ -23,7 +23,7 @@ import { sessionFor } from "./lib/actors";
 import type { SessionUser } from "../src/lib/rbac";
 import { createGrn } from "../src/server/grn";
 import { handoffToFinance, registerInvoice, verifyInvoice } from "../src/server/invoice";
-import { paymentPack, verifyPackItem } from "../src/server/payment-pack";
+import { paymentPack, setApplicability, verifyPackItem } from "../src/server/payment-pack";
 import { attestationBlock } from "../src/server/attestation";
 import { annexure4Signatures } from "../src/server/receiving";
 import { signoffsFor } from "../src/server/inspection-matrix";
@@ -208,6 +208,49 @@ async function main() {
     prisma,
   );
   const verifier = await actor([P.INVOICE_VERIFY], pr.entityId);
+
+  // Annexure A marks three of its seven documents "(if applicable)", and the
+  // pack treats an unanswered condition as biting until somebody says otherwise
+  // — so a conditional document nobody has ruled on blocks. That is deliberate:
+  // the alternative is a checklist that quietly excuses whatever nobody looked
+  // at.
+  //
+  // Answering them is a judgement, and the notes below are the reasoning a buyer
+  // would actually give for a laptop purchase. What the system insists on is
+  // that the reasoning exists and is attributable, not that it be elaborate.
+  const NOT_APPLICABLE: Record<string, string> = {
+    OTHER:
+      "No undertaking is held from this vendor for this order; nothing was supplied against a promise to follow.",
+    "MILL-CERT":
+      "A mill or test certificate belongs to fabricated or bulk material. These are finished branded units, warranted by the manufacturer.",
+    "STRN-CERT":
+      "The supplier's sales tax registration is already on their vendor file and verified; it is not re-supplied per invoice.",
+  };
+  for (const item of pack.items.filter((i) => i.blocking && NOT_APPLICABLE[i.documentTypeCode])) {
+    await setApplicability(
+      verifier,
+      {
+        documentType: "INVOICE",
+        documentId: invoice.id,
+        documentTypeCode: item.documentTypeCode,
+        applicable: false,
+        note: NOT_APPLICABLE[item.documentTypeCode],
+      },
+      prisma,
+    ).catch((e) =>
+      say(`  (applicability ${item.documentTypeCode}: ${e instanceof Error ? e.message.slice(0, 90) : e})`),
+    );
+  }
+  if (pack.items.some((i) => i.blocking && NOT_APPLICABLE[i.documentTypeCode])) {
+    pack = await paymentPack(
+      "INVOICE",
+      invoice.id,
+      { entityId: pr.entityId, transactionType: po.procurementKind },
+      prisma,
+    );
+    say(`  Conditional documents ruled on by ${verifier.name}, each with a stated reason.`);
+  }
+
   for (const item of pack.items.filter((i) => i.present && !i.verified)) {
     await verifyPackItem(
       verifier,
