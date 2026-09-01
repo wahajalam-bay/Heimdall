@@ -33,7 +33,7 @@ const MAX_BYTES = 25 * 1024 * 1024;
 export const LINKED_TYPES = [
   "PR", "RFQ", "QUOTE", "COMPARATIVE", "PO", "GATE_PASS", "DELIVERY",
   "INSPECTION", "GRN", "INVOICE", "VENDOR", "PETTY_CASH", "DISPOSAL",
-  "ASSET", "CPC", "STORE_TRANSFER", "STORE_ISSUE",
+  "ASSET", "CPC", "STORE_TRANSFER", "STORE_ISSUE", "WORK_ORDER",
 ] as const;
 export type LinkedType = (typeof LINKED_TYPES)[number];
 

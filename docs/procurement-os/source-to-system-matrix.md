@@ -405,8 +405,8 @@ captured under a different name in the previous register it is carried across:
 
 | ID | Src | § | Requirement | Entity | Current | Code | Tables | Permission | Status | Test | Required change | Pri |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| PO-004 | BOTH | §4.6 | **Work order issued by the Admin department on the basis of rates negotiated by Procurement** | Zameen Media | **Absent — no work order document type** | — | — | — | **MISSING** | none | First-class Work Order workflow | P1 |
-| CP-015 | BOTH | CPC | **Services acquisition for Admin** not under CPC falls to Admin; **before raising any work order it must be reviewed and approved by Internal Audit** | Zameen Media | **Work orders absent; IA approval absent** | — | — | — | **MISSING** | none | Work Order workflow with IA approval gate | P1 |
+| PO-004 | BOTH | §4.6 | **Work order issued by the Admin department on the basis of rates negotiated by Procurement** | Zameen Media | Work orders are their own document. Admin raises and issues; procurement approves the rate; each line names the negotiation its rate came from. The CPC ToR's Internal Audit gate applies to orders outside the committee's domain, and refuses a reviewer who raised the order | `src/server/work-orders.ts` | — | — | **COMPLETE** | `verify-work-orders.ts` | — | — |
+| CP-015 | BOTH | CPC | **Services acquisition for Admin** not under CPC falls to Admin; **before raising any work order it must be reviewed and approved by Internal Audit** | Zameen Media | Enforced. Whether an order falls outside the committee's domain is asked through `cpcRequirement`, the same function the committee itself uses, so the two cannot drift. The decision is snapshotted on the order, and the review refuses the person who raised it | `src/server/work-orders.ts` | — | — | **COMPLETE** | `verify-work-orders.ts` | — | — |
 
 ## —  ·  3 requirements
 

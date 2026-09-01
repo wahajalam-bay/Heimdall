@@ -24,6 +24,16 @@ export const PERMISSIONS = {
   RETURN_CREATE: "return.create",
   RETURN_AUTHORISE: "return.authorise",
 
+  // Work orders — ZAM/PUR/SOP-01 §4.6. Admin raises them, procurement supplies
+  // the rate, and Internal Audit reviews the ones outside CPC's domain.
+  WORK_ORDER_VIEW: "work_order.view",
+  WORK_ORDER_CREATE: "work_order.create",
+  WORK_ORDER_EDIT: "work_order.edit",
+  WORK_ORDER_AUDIT_REVIEW: "work_order.audit_review",
+  WORK_ORDER_APPROVE: "work_order.approve",
+  WORK_ORDER_ISSUE: "work_order.issue",
+  WORK_ORDER_CLOSE: "work_order.close",
+
   // Masters
   MASTER_VIEW: "masters.view",
   MASTER_MANAGE: "masters.manage",
@@ -199,6 +209,16 @@ export const PERMISSION_META: Record<string, PermMeta> = {
   [PERMISSIONS.RETURN_VIEW]: { group: "Receiving", name: "View vendor returns" },
   [PERMISSIONS.RETURN_CREATE]: { group: "Receiving", name: "Raise a vendor return" },
   [PERMISSIONS.RETURN_AUTHORISE]: { group: "Receiving", name: "Authorise a vendor return" },
+  [PERMISSIONS.WORK_ORDER_VIEW]: { group: "Work orders", name: "View work orders" },
+  [PERMISSIONS.WORK_ORDER_CREATE]: { group: "Work orders", name: "Raise a work order" },
+  [PERMISSIONS.WORK_ORDER_EDIT]: { group: "Work orders", name: "Edit a draft work order" },
+  [PERMISSIONS.WORK_ORDER_AUDIT_REVIEW]: {
+    group: "Work orders",
+    name: "Internal Audit review of a work order",
+  },
+  [PERMISSIONS.WORK_ORDER_APPROVE]: { group: "Work orders", name: "Approve a work order" },
+  [PERMISSIONS.WORK_ORDER_ISSUE]: { group: "Work orders", name: "Issue a work order to the vendor" },
+  [PERMISSIONS.WORK_ORDER_CLOSE]: { group: "Work orders", name: "Complete or close a work order" },
   [PERMISSIONS.MASTER_VIEW]: { group: "Masters", name: "View master data" },
   [PERMISSIONS.MASTER_MANAGE]: { group: "Masters", name: "Maintain master data" },
   [PERMISSIONS.ASSET_INSURANCE_MANAGE]: { group: "Assets", name: "Maintain asset insurance" },
@@ -481,6 +501,8 @@ export const ROLE_DEFINITIONS: Array<{
       P.AUDIT_VIEW,
       P.DISPOSAL_APPROVE,
       P.STORE_TRANSFER_APPROVE,
+      P.WORK_ORDER_VIEW,
+      P.WORK_ORDER_APPROVE,
     ],
   },
   {
@@ -514,6 +536,8 @@ export const ROLE_DEFINITIONS: Array<{
       P.CONFIG_MANAGE,
       P.APPROVAL_RULE_MANAGE,
       P.DOCUMENT_VIEW_RESTRICTED,
+      P.WORK_ORDER_VIEW,
+      P.WORK_ORDER_APPROVE,
     ],
   },
   {
@@ -797,6 +821,14 @@ export const ROLE_DEFINITIONS: Array<{
       P.DISPOSAL_CREATE,
       P.DISPOSAL_VIEW,
       P.EXCEPTION_VIEW,
+      // §4.6: the work order is raised and issued by admin, on procurement's
+      // negotiated rates. Deliberately no audit-review permission here — the
+      // department that raises the order cannot be the one that clears it.
+      P.WORK_ORDER_VIEW,
+      P.WORK_ORDER_CREATE,
+      P.WORK_ORDER_EDIT,
+      P.WORK_ORDER_ISSUE,
+      P.WORK_ORDER_CLOSE,
     ],
   },
   {
@@ -840,6 +872,11 @@ export const ROLE_DEFINITIONS: Array<{
       P.DOCUMENT_VIEW_RESTRICTED,
       P.EXCEPTION_VIEW,
       P.PETTY_CASH_VIEW,
+      // The CPC ToR puts the review of an admin work order outside CPC's domain
+      // with Internal Audit, before the order is finalised. This is the only
+      // role that holds it, and it deliberately cannot raise or issue one.
+      P.WORK_ORDER_VIEW,
+      P.WORK_ORDER_AUDIT_REVIEW,
     ],
   },
   {

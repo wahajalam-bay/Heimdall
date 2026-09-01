@@ -116,6 +116,9 @@ model User {
   minutesPrepared      NegotiationMinute[]      @relation("MinutePreparedBy")
   minuteParticipations NegotiationParticipant[] @relation("MinuteParticipant")
   posSigned PurchaseOrder[] @relation("PoAuthorisedSignatory")
+  workOrdersCreated  WorkOrder[] @relation("WorkOrderCreatedBy")
+  workOrdersIssued   WorkOrder[] @relation("WorkOrderIssuedBy")
+  workOrdersAudited  WorkOrder[] @relation("WorkOrderAudit")
   @@index([email])
   @@map("users")
 }
@@ -224,6 +227,7 @@ model Entity {
   paymentPackRequirements PaymentPackRequirement[]
   inspectionResponsibilities InspectionResponsibility[]
   negotiationMinutes NegotiationMinute[]
+  workOrders WorkOrder[]
   @@map("entities")
 }
 
@@ -726,6 +730,7 @@ model PurchaseRequisition {
   allocations   PrPoAllocation[]
 
   negotiationMinutes NegotiationMinute[]
+  workOrders WorkOrder[]
   @@index([entityId, status])
   @@index([status])
   @@map("purchase_requisitions")
@@ -809,6 +814,7 @@ model Rfq {
   purchaseOrders PurchaseOrder[]
 
   negotiationMinutes NegotiationMinute[]
+  workOrders WorkOrder[]
   @@index([prId])
   @@map("rfqs")
 }
@@ -976,6 +982,7 @@ model Comparative {
   cpcCases       CpcCase[]
   savingsRecords SavingsRecord[]
 
+  workOrders WorkOrder[]
   @@index([prId])
   @@map("comparatives")
 }
@@ -2228,6 +2235,7 @@ model Vendor {
   serialUnits SerialUnit[]
   negotiationMinutes NegotiationMinute[] 
   negotiationAppearances NegotiationParticipant[]
+  workOrders WorkOrder[]
   @@index([status])
   @@map("vendors")
 }
@@ -4296,4 +4304,118 @@ model NegotiationBasisNote {
   @@unique([minuteId, basis, label])
   @@index([minuteId])
   @@map("negotiation_basis_notes")
+}
+
+/// Work Orders.
+///
+/// ZAM/PUR/SOP-01 gives them two clauses, and both matter.
+///
+/// **§4.6** — "Work order is to be issued by the **Admin department** on the
+/// basis of **rates negotiated by Procurement**." Two different departments in
+/// one sentence: procurement gets the rate, admin raises the order. That split
+/// is the control, and it is why a work order is not just a purchase order with
+/// a different name.
+///
+/// **CPC ToR, Services Acquisition for Admin** — "Any acquisition of services
+/// not falling under the domain of Central Purchase Committee (CPC) will fall
+/// under the domain of admin. However, **before raising any work order it needs
+/// to be reviewed and approved by Internal Audit Department before the
+/// finalization of the order.**"
+///
+/// So a work order below the committee threshold has its own gate — Internal
+/// Audit — which nothing else in the system has. Above the threshold the
+/// committee governs and the CPC case is the review; the SOP puts the IA gate on
+/// what falls *outside* CPC, so applying it to both would be inventing a second
+/// review the SOP does not ask for.
+model WorkOrder {
+  id     String @id @default(cuid())
+  number String @unique
+
+  entityId String
+  entity   Entity @relation(fields: [entityId], references: [id])
+
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
+
+  /// Where the rates came from. §4.6 makes procurement's negotiated rate the
+  /// basis of the order, so the order points at it rather than restating it from
+  /// memory.
+  prId                String?
+  pr                  PurchaseRequisition? @relation(fields: [prId], references: [id])
+  rfqId               String?
+  rfq                 Rfq?                 @relation(fields: [rfqId], references: [id])
+  comparativeId       String?
+  comparative         Comparative?         @relation(fields: [comparativeId], references: [id])
+  negotiationMinuteId String?
+
+  title       String
+  scopeOfWork String
+
+  departmentId String?
+  projectId    String?
+  siteId       String?
+
+  currency  String @default("PKR")
+  subtotal  Float  @default(0)
+  taxAmount Float  @default(0)
+  total     Float  @default(0)
+
+  /// DRAFT | PENDING_INTERNAL_AUDIT | PENDING_APPROVAL | APPROVED | ISSUED
+  /// | IN_PROGRESS | COMPLETED | CLOSED | CANCELLED
+  status String @default("DRAFT")
+
+  /// Whether the CPC ToR's Internal Audit review applies to this one, decided
+  /// from the value against the committee threshold at the moment it is raised
+  /// and then held. A threshold change later must not retrospectively make a
+  /// signed order look ungated.
+  internalAuditRequired Boolean @default(false)
+  /// NOT_REQUIRED | PENDING | APPROVED | REJECTED
+  internalAuditStatus   String  @default("NOT_REQUIRED")
+  internalAuditById     String?
+  internalAuditBy       User?     @relation("WorkOrderAudit", fields: [internalAuditById], references: [id])
+  internalAuditAt       DateTime?
+  internalAuditNotes    String?
+
+  /// Admin raises and issues it — §4.6.
+  createdById String
+  createdBy   User      @relation("WorkOrderCreatedBy", fields: [createdById], references: [id])
+  issuedById  String?
+  issuedBy    User?     @relation("WorkOrderIssuedBy", fields: [issuedById], references: [id])
+  issuedAt    DateTime?
+
+  startDate     DateTime?
+  endDate       DateTime?
+  completedAt   DateTime?
+  closedAt      DateTime?
+  cancelledAt   DateTime?
+  closureReason String?
+
+  items WorkOrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([vendorId])
+  @@map("work_orders")
+}
+
+model WorkOrderItem {
+  id          String    @id @default(cuid())
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  lineNo      Int
+  description String
+  quantity    Float  @default(1)
+  unit        String @default("JOB")
+  rate        Float  @default(0)
+  amount      Float  @default(0)
+
+  /// The quotation line or negotiated rate this one came from, so a rate on a
+  /// work order can be traced to the negotiation that produced it.
+  sourceRef String?
+
+  @@unique([workOrderId, lineNo])
+  @@map("work_order_items")
 }
