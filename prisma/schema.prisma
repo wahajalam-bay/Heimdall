@@ -60,6 +60,8 @@ model User {
   approvalsEscalatedTo ApprovalAction[]    @relation("ApprovalEscalatedTo")
   cpcCeoDecisions      CpcCase[]           @relation("CpcCeoDecision")
   cpcRosterSeats       CpcRosterMember[]   @relation("CpcRosterUser")
+  policyReviews        PolicyReview[]      @relation("PolicyReviewedBy")
+  poLogisticsInformed  PurchaseOrder[]     @relation("PoLogisticsInformedBy")
   revisionsCreated     DocumentRevision[]  @relation("RevisionCreatedBy")
   cpcDecisionsCirculated CpcCase[]         @relation("CpcDecisionCirculatedBy")
 
@@ -294,6 +296,7 @@ model Entity {
   cpcRosterMembers CpcRosterMember[]
   rncMembers RncMember[]
   rncCases   RncCase[]
+  policyReviews    PolicyReview[]
 }
 
 model UserEntityAccess {
@@ -332,6 +335,8 @@ model Department {
   @@map("departments")
 
   buildOutTasks BuildOutTask[]
+
+  policyReviews PolicyReview[]
 }
 
 model Project {
@@ -1433,6 +1438,17 @@ model PurchaseOrder {
   distributionChannel String?
   distributedAt       DateTime?
   distributionRef     String?
+
+  /// ── PO-006 · Procurement to Logistics ──────────────────────────────────
+  ///
+  /// "Logistics informed through a copy of the PO regarding shipment in the
+  /// pipeline, to align receipt and storage." Distribution to the vendor was
+  /// tracked; this is the internal leg, and it exists so the store knows what is
+  /// coming and has somewhere to put it.
+  logisticsInformedAt   DateTime?
+  logisticsInformedById String?
+  logisticsInformedBy   User?     @relation("PoLogisticsInformedBy", fields: [logisticsInformedById], references: [id])
+  logisticsNote         String?
 
   /// PENDING — issued, nothing heard.
   /// ACKNOWLEDGED — the vendor confirmed the order.
@@ -5478,6 +5494,13 @@ model PolicyDocument {
   updatedAt DateTime @updatedAt
 
   acknowledgements PolicyAcknowledgement[]
+  reviews          PolicyReview[]
+
+  /// DRAFT | PUBLISHED | SUPERSEDED — mirrors what publishPolicy already sets,
+  /// so a review register can ask for the published version without inferring it
+  /// from dates.
+  status String @default("PUBLISHED")
+  publishedAt DateTime?
 
   @@unique([code, version, entityId])
   @@index([active, effectiveFrom])
@@ -6224,4 +6247,45 @@ model DocumentRevision {
   @@unique([documentType, documentId, version])
   @@index([documentType, documentId])
   @@map("document_revisions")
+}
+
+
+/// AS-014 — a business unit manager's documented review of a policy.
+///
+/// Distinct from an acknowledgement, and deliberately so: a team where everybody
+/// has ticked "read" and nobody has ever discussed the document satisfies the
+/// acknowledgement register and not this clause. The clause asks for a review
+/// *with employees* and documentation that it happened.
+model PolicyReview {
+  id       String         @id @default(cuid())
+  policyId String
+  policy   PolicyDocument @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  /// TEAM_REVIEW | ORIENTATION | PRACTICE_REVIEW — the three separate duties.
+  kind String
+
+  /// The version reviewed. A review of version 2 says nothing about version 3,
+  /// and a register that forgot which was reviewed would report a stale review
+  /// as current.
+  policyVersion String
+
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  entityId     String?
+  entity       Entity?     @relation(fields: [entityId], references: [id])
+
+  attendeeCount Int?
+  attendeeNames String?
+  notes         String
+  /// For a practice review: what it found. "Nothing wanting" is a finding;
+  /// silence is not.
+  findings      String?
+
+  reviewedById String
+  reviewedBy   User     @relation("PolicyReviewedBy", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime @default(now())
+
+  @@index([policyId, kind])
+  @@index([departmentId])
+  @@map("policy_reviews")
 }

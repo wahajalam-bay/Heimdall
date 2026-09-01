@@ -18,6 +18,7 @@ import {
   escalateOverdueExceptions,
 } from "../src/server/controls";
 import { lapsePoAcknowledgements } from "../src/server/po";
+import { logisticsNotInformed } from "../src/server/policy-review";
 import { warnExpiringPrequalifications } from "../src/server/prequalification";
 import { raiseSplitCases } from "../src/server/split-detector";
 import { sweepContractExpiry } from "../src/server/contracts";
@@ -57,6 +58,17 @@ async function main() {
   const escalated = await escalateOverdueExceptions(scheduler, {}, prisma);
   console.log(
     `  exception escalation: ${escalated.escalated} pushed up the line, ${escalated.stuck} with nobody above them, ${escalated.notified} notified`,
+  );
+
+  // PO-006 — orders on their way to a store that was never told they are coming.
+  // Not a sweep that changes anything: it reports, because the remedy is a person
+  // sending the copy the clause asks for.
+  const uninformed = await logisticsNotInformed({}, prisma);
+  console.log(
+    `  logistics not informed: ${uninformed.length} issued order(s) the receiving store has not been told about` +
+      (uninformed.length
+        ? ` — ${uninformed.slice(0, 5).map((o) => o.number).join(", ")}${uninformed.length > 5 ? ", …" : ""}`
+        : ""),
   );
 
   const acks = await lapsePoAcknowledgements(scheduler, prisma);

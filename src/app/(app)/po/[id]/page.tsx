@@ -3,6 +3,8 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { pageContext, first, type SearchParams } from "@/lib/page";
 import { PERMISSIONS as P } from "@/lib/permissions";
+import { ActionButton } from "@/components/ui/forms";
+import { informLogisticsAction } from "../actions";
 import { serviceOutstanding } from "@/server/service-acceptance";
 import { RaiseServiceAcceptanceForm } from "../../service-acceptance/RaiseForm";
 import { userHasPermission } from "@/lib/rbac";
@@ -294,9 +296,24 @@ export default async function PoDetailPage({
 
       <PageHeader
         actions={
-          <Link className="btn btn-secondary btn-sm" href={`/po/${po.id}/document`}>
-            Order document
-          </Link>
+          <>
+            <Link className="btn btn-secondary btn-sm" href={`/po/${po.id}/document`}>
+              Order document
+            </Link>
+            {/* PO-006 — the copy that tells the receiving store what is coming.
+                Shown only while there is a shipment in the pipeline to tell them
+                about, and only once. */}
+            {["ISSUED", "APPROVED", "PARTIALLY_RECEIVED"].includes(po.status) &&
+              !po.logisticsInformedAt &&
+              userHasPermission(user, P.PO_ISSUE, P.PO_EDIT) && (
+                <ActionButton
+                  action={informLogisticsAction}
+                  payload={{ poId: po.id }}
+                  label="Inform Logistics"
+                  reasonLabel="Note for the store (optional)"
+                />
+              )}
+          </>
         }
         eyebrow={`${po.entity.code} · ${po.pr?.department.name ?? "—"}`}
         title={

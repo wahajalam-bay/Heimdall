@@ -21,6 +21,7 @@ import {
   type PoAcknowledgementState,
 } from "@/server/po";
 import { recordSavingsForPo } from "@/server/analytics";
+import { informLogistics } from "@/server/policy-review";
 
 const blank = (v: FormDataEntryValue | null) => {
   const s = typeof v === "string" ? v.trim() : "";
@@ -287,6 +288,30 @@ export async function recordAcknowledgementAction(
       ok: true,
       data: null,
       message: `${po.number} recorded as ${po.acknowledgementStatus.replace(/_/g, " ").toLowerCase()}.`,
+    };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+/**
+ * PO-006 — tells Logistics an order is in the pipeline.
+ *
+ * The internal leg of distribution. Vendor distribution was already tracked;
+ * this is the copy the store needs so there is somewhere to put the goods when
+ * they arrive.
+ */
+export async function informLogisticsAction(formData: FormData): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const poId = String(formData.get("poId") ?? "");
+    const po = await informLogistics(user, { poId, note: blank(formData.get("reason")) });
+    revalidatePath("/po");
+    revalidatePath(`/po/${poId}`);
+    return {
+      ok: true,
+      data: null,
+      message: `Logistics told about ${po.number}. The receiving store can align storage before it arrives.`,
     };
   } catch (e) {
     return toActionError(e);
