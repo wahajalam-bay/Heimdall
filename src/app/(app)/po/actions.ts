@@ -14,8 +14,11 @@ import {
   issuePo,
   poReadiness,
   setAdvanceStatus,
+  recordPoAcknowledgement,
+  recordPoDistribution,
   submitPoForApproval,
   updatePoTerms,
+  type PoAcknowledgementState,
 } from "@/server/po";
 import { recordSavingsForPo } from "@/server/analytics";
 
@@ -238,4 +241,54 @@ export async function poFormOptions(entityId: string) {
     orderBy: [{ kind: "asc" }, { name: "asc" }],
   });
   return { stores };
+}
+
+
+/* ── §4.6 · distribution and acknowledgement ──────────────── */
+
+export async function recordDistributionAction(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const poId = String(formData.get("poId") ?? "");
+    const sent = blank(formData.get("sentAt"));
+    await recordPoDistribution(user, {
+      poId,
+      channel: String(formData.get("channel") ?? "EMAIL") as never,
+      reference: blank(formData.get("reference")),
+      sentAt: sent ? new Date(sent) : null,
+    });
+    revalidatePath(`/po/${poId}`);
+    return { ok: true, data: null, message: "Distribution recorded." };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function recordAcknowledgementAction(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const poId = String(formData.get("poId") ?? "");
+    const at = blank(formData.get("at"));
+    const po = await recordPoAcknowledgement(user, {
+      poId,
+      state: String(formData.get("state") ?? "ACKNOWLEDGED") as PoAcknowledgementState,
+      byName: blank(formData.get("byName")),
+      notes: blank(formData.get("notes")),
+      at: at ? new Date(at) : null,
+    });
+    revalidatePath(`/po/${poId}`);
+    return {
+      ok: true,
+      data: null,
+      message: `${po.number} recorded as ${po.acknowledgementStatus.replace(/_/g, " ").toLowerCase()}.`,
+    };
+  } catch (e) {
+    return toActionError(e);
+  }
 }

@@ -29,6 +29,7 @@ exactly that case.
 | BD-011 | Payment pack for a service invoice | Service payments | **OPEN — Annexure A assumes a GRN** |
 | BD-012 | Undertaking and GD document types | Payment pack accuracy | **OPEN — no exact type exists** |
 | BD-013 | Who inspects construction, MEP, machinery and vehicles | Inspection routing | **OPEN — the chart covers 6 of 17 categories** |
+| BD-014 | Vendor acknowledgement is a meeting requirement, not a ZAM one | PO issuance | **NOTED — built, source recorded** |
 
 ---
 
@@ -442,4 +443,37 @@ column; no code changes.
 construction, MEP, machinery, vehicles and safety equipment? Eleven categories
 times three checks is thirty-three cells the chart does not contain. Each new row
 is a single insert once the answer exists.
+
+---
+
+## BD-014 · Vendor acknowledgement is a meeting requirement, not a ZAM one — **NOTED**
+
+Worth writing down because the next reader will assume otherwise.
+
+**ZAM/PUR/SOP-01 §4.6** requires procurement to issue the order "with the
+signature of Manager Procurement or other authorized signatory to the vendor for
+supplies". It says nothing at all about the vendor confirming receipt.
+
+**ZD/PRO/SOP-01 R-036** does — "obtain written acknowledgement from vendor
+against PO; if not received, execution of PO scope is deemed acceptance" — and
+ZD is reference-only for this phase.
+
+**What puts it in scope** is the approved meeting requirement, which names the
+four states specifically: `ACKNOWLEDGED` / `REJECTED` / `NO_RESPONSE` /
+`DEEMED_ACCEPTED_THROUGH_EXECUTION`. That is test 2 of the overbuild check, so
+it is built.
+
+The distinction is recorded in the code as well as here. The authorised
+signatory cites §4.6; the acknowledgement cites the meeting. If Zameen Media
+later decides it does not want the acknowledgement control, the signatory half
+stays and the window is switched off by setting the acknowledgement days to
+zero — no code changes.
+
+**Two states that are deliberately not merged.** `NO_RESPONSE` is not `PENDING`:
+one is a window still open, the other is a closed window and a fact about the
+vendor that belongs in their performance record. And
+`DEEMED_ACCEPTED_THROUGH_EXECUTION` is not `ACKNOWLEDGED`: the vendor delivered
+without ever confirming. Recording that as an acknowledgement would be recording
+a confirmation that was never given — convenient, and false. The order binds
+either way; the record says which of the two happened.
 

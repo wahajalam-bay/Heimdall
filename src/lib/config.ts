@@ -26,6 +26,8 @@ export const CONFIG_KEYS = {
   MIN_STOCK_LEAD_DAYS: "inventory.min_stock_lead_days",
   MIN_STOCK_SAFETY_DAYS: "inventory.min_stock_safety_days",
   MIN_STOCK_MIN_MOVEMENTS: "inventory.min_stock_min_movements",
+  // Purchase order acknowledgement — ZAM §4.6.
+  PO_ACKNOWLEDGEMENT_DAYS: "po.acknowledgement_days",
   // Inventory costing — see server/costing.ts and BD-008.
   COSTING_METHOD: "inventory.costing_method",
   COST_LAYERS_FROM: "inventory.cost_layers_from",
@@ -1056,6 +1058,16 @@ export const CONFIG_DEFS: ConfigDef[] = [
     description:
       "Below this many issues in the window, no figure is suggested at all. An item issued once has no consumption pattern, and a suggestion drawn from a single movement would look exactly as authoritative as one drawn from a year of them.",
     group: "Stores",
+    valueType: "number",
+    default: 3,
+  },
+
+  {
+    key: CONFIG_KEYS.PO_ACKNOWLEDGEMENT_DAYS,
+    label: "Vendor acknowledgement window (days)",
+    description:
+      "How long a vendor has to acknowledge an issued order before silence is recorded as NO_RESPONSE. Zero switches the window off and orders stay PENDING until somebody records an answer. NO_RESPONSE is deliberately not the same state as PENDING: one is a window still open, the other is a fact about the vendor that belongs in their performance record.",
+    group: "Purchase orders",
     valueType: "number",
     default: 3,
   },

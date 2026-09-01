@@ -6,7 +6,24 @@ import type { SessionUser } from "./rbac";
  * `writeAudit`; nothing in the domain services mutates silently.
  */
 
-export type AuditActor = Pick<SessionUser, "id" | "name" | "roleNames"> | { id: string; name: string; roleNames?: string[] };
+export type AuditActor =
+  | Pick<SessionUser, "id" | "name" | "roleNames">
+  | { id: string; name: string; roleNames?: string[]; system?: string };
+
+/**
+ * System principals carry a synthetic id (`system:scheduler`) that is not a row
+ * in `users`, so writing it to `actorId` violates the foreign key and takes the
+ * whole transaction down with it.
+ *
+ * The audit line still needs to say who acted, and it does — `actorName` keeps
+ * the principal's name either way. What it cannot do is claim the actor is a
+ * user record that does not exist.
+ */
+function actorIdFor(actor: AuditActor | null | undefined): string | null {
+  if (!actor?.id) return null;
+  if ("system" in actor && actor.system) return null;
+  return actor.id.startsWith("system:") ? null : actor.id;
+}
 
 export type AuditInput = {
   entityType: string;
@@ -35,7 +52,7 @@ export async function writeAudit(input: AuditInput, db: DbClient = prisma) {
       oldValue: input.oldValue === undefined ? null : JSON.stringify(input.oldValue),
       newValue: input.newValue === undefined ? null : JSON.stringify(input.newValue),
       reason: input.reason ?? null,
-      actorId: input.actor?.id ?? null,
+      actorId: actorIdFor(input.actor),
       // Automated sweeps have no human actor, but an anonymous audit line is
       // useless — they are attributed to the system explicitly.
       actorName: input.actor?.name ?? "System",

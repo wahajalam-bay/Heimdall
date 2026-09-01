@@ -9,7 +9,7 @@ import { userHasPermission } from "@/lib/rbac";
 import { CONFIG_KEYS, getConfigBool } from "@/lib/config";
 import { canUserActOnApproval, getApprovalTrail } from "@/lib/approvals";
 import { orderSources } from "@/server/allocations";
-import { poBalance } from "@/server/po";
+import { poBalance, PO_ACKNOWLEDGEMENT_LABELS } from "@/server/po";
 import { documentTimeline } from "@/server/timeline";
 import { parseAuditRow } from "@/lib/audit";
 import { AccessDenied } from "@/components/ui/guard";
@@ -36,6 +36,7 @@ import { PO_RAIL, PO_RAIL_LABELS, poRailStage, humanize } from "@/lib/domain";
 import { fmtDate, fmtDateTime, money, percent, qty, round2 } from "@/lib/format";
 import { AuditPanel } from "../../pr/[id]/panels2";
 import { PoActions, type PoCapabilities } from "./PoActions";
+import { VendorAcknowledgement } from "./VendorAcknowledgement";
 import { searchLink } from "@/lib/links";
 
 export const dynamic = "force-dynamic";
@@ -66,6 +67,7 @@ export default async function PoDetailPage({
     include: {
       entity: true,
       vendor: true,
+      authorisedSignatory: { select: { name: true, title: true } },
       pr: {
         select: {
           id: true,
@@ -157,6 +159,11 @@ export default async function PoDetailPage({
       `${postedGrns.length} GRN(s) have been posted — goods are already in inventory. Close the order with a reason instead.`,
     );
   }
+
+  // Not part of PoCapabilities: the acknowledgement panel is not one of the
+  // lifecycle actions, and widening that type to carry it would blur what it is
+  // for. The permission is still checked inside the mutation either way.
+  const canRecordAck = userHasPermission(user, P.PO_ISSUE, P.PO_EDIT);
 
   const caps: PoCapabilities = {
     canSubmit: po.status === "DRAFT" && userHasPermission(user, P.PO_CREATE, P.PO_EDIT),
@@ -490,6 +497,51 @@ export default async function PoDetailPage({
                         { label: "Notes", value: po.collateralNotes ?? "—" },
                       ]}
                     />
+                  </SectionCard>
+                )}
+
+                {["ISSUED", "PARTIALLY_RECEIVED", "FULLY_RECEIVED", "CLOSED", "ON_HOLD"].includes(
+                  po.status,
+                ) && (
+                  <SectionCard
+                    title="Issued to the vendor"
+                    description="ZAM/PUR/SOP-01 §4.6: procurement issues the order to the vendor under an authorised signature."
+                  >
+                    <div className="space-y-3">
+                      <DefList
+                        columns={1}
+                        items={[
+                          {
+                            label: "Authorised signatory",
+                            value: po.authorisedSignatory
+                              ? `${po.authorisedSignatory.name}${po.authorisedSignatory.title ? ` — ${po.authorisedSignatory.title}` : ""}`
+                              : "Not recorded — issued before the signature was captured",
+                          },
+                          { label: "Signed", value: po.signedAt ? fmtDateTime(po.signedAt) : "—" },
+                        ]}
+                      />
+                      <VendorAcknowledgement
+                        poId={po.id}
+                        vendorName={po.vendor.name}
+                        canAct={canRecordAck}
+                        distribution={{
+                          channel: po.distributionChannel,
+                          at: po.distributedAt ? po.distributedAt.toISOString() : null,
+                          reference: po.distributionRef,
+                        }}
+                        acknowledgement={{
+                          status: po.acknowledgementStatus,
+                          label:
+                            PO_ACKNOWLEDGEMENT_LABELS[
+                              po.acknowledgementStatus as keyof typeof PO_ACKNOWLEDGEMENT_LABELS
+                            ] ?? po.acknowledgementStatus,
+                          at: po.acknowledgedAt ? po.acknowledgedAt.toISOString() : null,
+                          byName: po.acknowledgedByName,
+                          notes: po.acknowledgementNotes,
+                          dueAt: po.acknowledgementDueAt ? po.acknowledgementDueAt.toISOString() : null,
+                        }}
+                      />
+                    </div>
                   </SectionCard>
                 )}
 

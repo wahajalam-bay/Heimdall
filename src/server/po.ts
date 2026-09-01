@@ -643,7 +643,30 @@ export async function issuePo(user: SessionUser, poId: string, db: DbClient = pr
     }
   }
 
-  const updated = await transitionPo(user, poId, "ISSUED", {}, db);
+  // §4.6: the order goes to the vendor "with the signature of Manager
+  // Procurement or other authorized signatory". Whoever issues it is that
+  // signatory — the act and the signature are the same act — so it is recorded
+  // rather than left to be reconstructed from the audit log.
+  //
+  // The acknowledgement window starts now. That control is not from §4.6, which
+  // says nothing about a vendor confirming an order; it is from the approved
+  // meeting requirements. Silence past the window becomes NO_RESPONSE, which is
+  // a fact about the vendor; PENDING is merely waiting.
+  const ackDays = await getConfigNumber(CONFIG_KEYS.PO_ACKNOWLEDGEMENT_DAYS, po.entityId, db);
+  const updated = await transitionPo(
+    user,
+    poId,
+    "ISSUED",
+    {
+      extra: {
+        authorisedSignatoryId: user.id,
+        signedAt: new Date(),
+        acknowledgementStatus: "PENDING",
+        acknowledgementDueAt: ackDays > 0 ? new Date(Date.now() + ackDays * 86400000) : null,
+      },
+    },
+    db,
+  );
   await completeTasks("PO", poId, user.id, db);
   if (po.prId) await transitionPr(user, po.prId, "PO_ISSUED", { force: true }, db);
 
@@ -988,4 +1011,272 @@ export async function setAdvanceStatus(
     db,
   );
   return updated;
+}
+
+
+/* ── Distribution and the vendor acknowledgement ──────────── */
+
+/*
+ * Two requirements with two different sources, and they are worth keeping
+ * apart.
+ *
+ *   · The **authorised signatory** and the issuance to the vendor come from
+ *     ZAM/PUR/SOP-01 §4.6, which is authoritative for this phase.
+ *   · The **acknowledgement state machine** does not. Zameen Media's SOP says
+ *     nothing about the vendor confirming an order; ZD/PRO/SOP-01 R-036 does,
+ *     and ZD is reference-only here. What puts it in scope is the approved
+ *     meeting requirement, which names these four states specifically.
+ *
+ * Recording that distinction matters, because somebody reading this later will
+ * otherwise assume §4.6 demands an acknowledgement, and it does not.
+ */
+
+export const PO_ACKNOWLEDGEMENT_STATES = [
+  "PENDING",
+  "ACKNOWLEDGED",
+  "REJECTED",
+  "NO_RESPONSE",
+  "DEEMED_ACCEPTED_THROUGH_EXECUTION",
+] as const;
+export type PoAcknowledgementState = (typeof PO_ACKNOWLEDGEMENT_STATES)[number];
+
+export const PO_ACKNOWLEDGEMENT_LABELS: Record<PoAcknowledgementState, string> = {
+  PENDING: "Awaiting acknowledgement",
+  ACKNOWLEDGED: "Acknowledged by the vendor",
+  REJECTED: "Declined by the vendor",
+  NO_RESPONSE: "No response within the window",
+  DEEMED_ACCEPTED_THROUGH_EXECUTION: "Deemed accepted — delivered without acknowledging",
+};
+
+/**
+ * Records how the order reached the vendor, and the evidence that it did.
+ *
+ * §4.6 has procurement issuing the order "to the vendor for supplies". The
+ * system recorded that the order was issued and nothing about whether anybody
+ * sent it. An order nobody can show was sent is an order the vendor can deny
+ * receiving, and that argument is lost on the day the delivery is late.
+ */
+export async function recordPoDistribution(
+  user: SessionUser,
+  input: {
+    poId: string;
+    channel: "EMAIL" | "PORTAL" | "COURIER" | "HAND" | "WHATSAPP";
+    reference?: string | null;
+    sentAt?: Date | null;
+  },
+  db: DbClient = prisma,
+) {
+  if (!userHasPermission(user, P.PO_ISSUE)) {
+    throw new ForbiddenError("You do not have permission to distribute purchase orders.");
+  }
+  const po = await db.purchaseOrder.findUnique({
+    where: { id: input.poId },
+    select: {
+      id: true,
+      number: true,
+      status: true,
+      entityId: true,
+      pr: { select: { number: true } },
+    },
+  });
+  if (!po) throw new NotFoundError("Purchase order");
+  if (!["ISSUED", "PARTIALLY_RECEIVED", "FULLY_RECEIVED", "CLOSED"].includes(po.status)) {
+    throw new RuleViolationError(
+      `${po.number} is ${po.status.replace(/_/g, " ").toLowerCase()}. An order is sent to the vendor once it has been issued.`,
+    );
+  }
+
+  const updated = await db.purchaseOrder.update({
+    where: { id: po.id },
+    data: {
+      distributionChannel: input.channel,
+      distributedAt: input.sentAt ?? new Date(),
+      distributionRef: input.reference?.trim() || null,
+    },
+  });
+
+  await writeAudit(
+    {
+      entityType: "PurchaseOrder",
+      entityId: po.id,
+      entityRef: po.number,
+      action: "PO_DISTRIBUTED",
+      newValue: { channel: input.channel, reference: input.reference?.trim() ?? null },
+      caseKey: po.pr?.number ?? null,
+      actor: user,
+    },
+    db,
+  );
+  return updated;
+}
+
+/**
+ * Records what the vendor said about the order — including saying nothing.
+ *
+ * The four outcomes are deliberately distinct, and the last two are the ones
+ * that matter:
+ *
+ *   · **NO_RESPONSE** is not the same as PENDING. One is a window still open;
+ *     the other is a closed window and a fact about the vendor, which belongs in
+ *     their performance record.
+ *   · **DEEMED_ACCEPTED_THROUGH_EXECUTION** is not the same as ACKNOWLEDGED. The
+ *     vendor delivered without ever confirming. Writing that down as an
+ *     acknowledgement would record a confirmation that was never given —
+ *     convenient, and false. The order binds either way; the record says which
+ *     of the two happened.
+ */
+export async function recordPoAcknowledgement(
+  user: SessionUser,
+  input: {
+    poId: string;
+    state: PoAcknowledgementState;
+    byName?: string | null;
+    notes?: string | null;
+    at?: Date | null;
+  },
+  db: DbClient = prisma,
+) {
+  if (!userHasPermission(user, P.PO_ISSUE, P.PO_EDIT)) {
+    throw new ForbiddenError("You do not have permission to record a vendor acknowledgement.");
+  }
+  if (!PO_ACKNOWLEDGEMENT_STATES.includes(input.state)) {
+    throw new ValidationError("That is not a recognised acknowledgement state.");
+  }
+  if (input.state === "PENDING") {
+    throw new ValidationError(
+      "Pending is where an issued order starts. Record what the vendor said, or that the window closed in silence.",
+    );
+  }
+  if (input.state === "ACKNOWLEDGED" && !input.byName?.trim()) {
+    throw new ValidationError(
+      "Name the person at the vendor who acknowledged the order. An acknowledgement from nobody is not one.",
+    );
+  }
+  if (input.state === "REJECTED" && !input.notes?.trim()) {
+    throw new ValidationError("Record why the vendor declined the order.");
+  }
+
+  const po = await db.purchaseOrder.findUnique({
+    where: { id: input.poId },
+    select: {
+      id: true,
+      number: true,
+      status: true,
+      acknowledgementStatus: true,
+      entityId: true,
+      vendor: { select: { name: true } },
+      pr: { select: { number: true } },
+    },
+  });
+  if (!po) throw new NotFoundError("Purchase order");
+  if (!["ISSUED", "PARTIALLY_RECEIVED", "FULLY_RECEIVED", "CLOSED", "ON_HOLD"].includes(po.status)) {
+    throw new RuleViolationError(
+      `${po.number} has not been issued, so there is nothing for the vendor to acknowledge.`,
+    );
+  }
+
+  const updated = await db.purchaseOrder.update({
+    where: { id: po.id },
+    data: {
+      acknowledgementStatus: input.state,
+      acknowledgedAt: input.at ?? new Date(),
+      acknowledgedByName: input.byName?.trim() || null,
+      acknowledgementNotes: input.notes?.trim() || null,
+    },
+  });
+
+  await writeAudit(
+    {
+      entityType: "PurchaseOrder",
+      entityId: po.id,
+      entityRef: po.number,
+      action: `PO_ACK_${input.state}`,
+      oldValue: { acknowledgementStatus: po.acknowledgementStatus },
+      newValue: {
+        acknowledgementStatus: input.state,
+        vendor: po.vendor.name,
+        by: input.byName?.trim() ?? null,
+      },
+      reason: input.notes?.trim() ?? null,
+      caseKey: po.pr?.number ?? null,
+      actor: user,
+    },
+    db,
+  );
+
+  if (input.state === "REJECTED") {
+    await notify(
+      {
+        roleCodes: ["PROCUREMENT_OFFICER", "PROCUREMENT_SENIOR_MANAGER", "BUYER"],
+        entityId: po.entityId,
+        type: "GENERAL",
+        priority: "HIGH",
+        title: `${po.vendor.name} has declined ${po.number}`,
+        body: input.notes?.trim() ?? "No reason recorded.",
+        linkType: "PO",
+        linkId: po.id,
+        linkUrl: `/po/${po.id}`,
+      },
+      db,
+    );
+  }
+  return updated;
+}
+
+/**
+ * Closes the acknowledgement window on orders the vendor never answered.
+ *
+ * Run as a job. It moves PENDING to NO_RESPONSE once the window has passed, and
+ * only for orders where nothing has been delivered — where goods have arrived,
+ * the honest state is DEEMED_ACCEPTED_THROUGH_EXECUTION, and that is what it
+ * sets instead. Neither is a guess: both are what the record already shows.
+ */
+export async function lapsePoAcknowledgements(
+  actor: Actor,
+  db: DbClient = prisma,
+): Promise<{ noResponse: number; deemed: number }> {
+  assertAuthority(actor, DOMAIN_ACTIONS.PO_ACK_LAPSE, {
+    permission: [P.PO_ISSUE, P.PO_EDIT],
+  });
+
+  const due = await db.purchaseOrder.findMany({
+    where: {
+      acknowledgementStatus: "PENDING",
+      acknowledgementDueAt: { not: null, lte: new Date() },
+      status: { in: ["ISSUED", "PARTIALLY_RECEIVED", "FULLY_RECEIVED"] },
+    },
+    select: { id: true, number: true, status: true, _count: { select: { grns: true } } },
+    take: 500,
+  });
+
+  let noResponse = 0;
+  let deemed = 0;
+  for (const po of due) {
+    const delivered = po._count.grns > 0 || po.status !== "ISSUED";
+    const state = delivered ? "DEEMED_ACCEPTED_THROUGH_EXECUTION" : "NO_RESPONSE";
+    await db.purchaseOrder.update({
+      where: { id: po.id },
+      data: {
+        acknowledgementStatus: state,
+        acknowledgedAt: new Date(),
+        acknowledgementNotes: delivered
+          ? "The vendor never acknowledged the order but performed against it."
+          : "The acknowledgement window passed with no response from the vendor.",
+      },
+    });
+    await writeAudit(
+      {
+        entityType: "PurchaseOrder",
+        entityId: po.id,
+        entityRef: po.number,
+        action: `PO_ACK_${state}`,
+        newValue: { acknowledgementStatus: state, automatic: true },
+        actor,
+      },
+      db,
+    );
+    if (delivered) deemed += 1;
+    else noResponse += 1;
+  }
+  return { noResponse, deemed };
 }

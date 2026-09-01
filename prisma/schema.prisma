@@ -115,6 +115,7 @@ model User {
   inspectionSignoffs InspectionSignoff[] @relation("InspectionSignoffBy")
   minutesPrepared      NegotiationMinute[]      @relation("MinutePreparedBy")
   minuteParticipations NegotiationParticipant[] @relation("MinuteParticipant")
+  posSigned PurchaseOrder[] @relation("PoAuthorisedSignatory")
   @@index([email])
   @@map("users")
 }
@@ -1230,6 +1231,40 @@ model PurchaseOrder {
   costCenterId    String?
 
   serialUnits SerialUnit[]
+  /// ── §4.6 · issuance and acknowledgement ──────────────────────────────────
+  ///
+  /// "Procurement department will solely be authorized to issue purchase order,
+  /// contract, agreement or any other related documents ... **with the signature
+  /// of Manager Procurement or other authorized signatory** to the vendor."
+  ///
+  /// The order recorded who created it and when it was issued, and nothing about
+  /// who signed it or whether the vendor ever saw it.
+  authorisedSignatoryId String?
+  authorisedSignatory   User?     @relation("PoAuthorisedSignatory", fields: [authorisedSignatoryId], references: [id])
+  signedAt              DateTime?
+
+  /// How the order reached the vendor, and the evidence that it did. An order
+  /// nobody can show was sent is an order the vendor can deny receiving.
+  /// EMAIL | PORTAL | COURIER | HAND | WHATSAPP
+  distributionChannel String?
+  distributedAt       DateTime?
+  distributionRef     String?
+
+  /// PENDING — issued, nothing heard.
+  /// ACKNOWLEDGED — the vendor confirmed the order.
+  /// REJECTED — the vendor declined it.
+  /// NO_RESPONSE — the acknowledgement window passed in silence. Distinct from
+  ///   PENDING: one is waiting, the other is a fact about the vendor.
+  /// DEEMED_ACCEPTED_THROUGH_EXECUTION — no acknowledgement was ever given, but
+  ///   the vendor delivered against it. Recorded honestly rather than
+  ///   backdated into ACKNOWLEDGED, because what happened is that somebody
+  ///   performed without confirming.
+  acknowledgementStatus String    @default("PENDING")
+  acknowledgedAt        DateTime?
+  acknowledgedByName    String?
+  acknowledgementNotes  String?
+  /// When silence becomes NO_RESPONSE.
+  acknowledgementDueAt  DateTime?
   @@index([status])
   @@index([vendorId])
   @@map("purchase_orders")
