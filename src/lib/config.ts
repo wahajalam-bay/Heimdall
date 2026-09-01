@@ -35,6 +35,8 @@ export const CONFIG_KEYS = {
   ENFORCE_PRICE_COMPETITIVENESS: "sourcing.enforce_price_competitiveness",
   // PC-023 CEO approval above the value tier — see server/cpc.ts.
   ENFORCE_CEO_APPROVAL: "policy.enforce_ceo_approval",
+  // CP-006 CPC quorum — see server/cpc-quorum.ts.
+  ENFORCE_CPC_QUORUM: "policy.enforce_cpc_quorum",
   // Purchase order acknowledgement — ZAM §4.6.
   PO_ACKNOWLEDGEMENT_DAYS: "po.acknowledgement_days",
   // Inventory costing — see server/costing.ts and BD-008.
@@ -1096,6 +1098,16 @@ export const CONFIG_DEFS: ConfigDef[] = [
     label: "Hold a committee-approved case above the CEO tier for the Office of the CEO",
     description:
       "PC-023: 'All purchases above PKR 1,500,000 are to be approved by Office of CEO.' The requirement was already computed and printed on screen — and read by nothing, so a case over the tier said the CEO must approve it and then approved without them. With this on, such a case stops at PENDING_CEO after the committee's vote and releases only once the Office of the CEO records a decision. It ships OFF, and the reason is the honest one: no user holds the CEO_OFFICE role, so switching it on before somebody does would stop every purchase above the tier with nobody able to release it. Naming the Office of the CEO is the go-live step for this control.",
+    group: "Policy",
+    valueType: "boolean",
+    default: false,
+  },
+
+  {
+    key: CONFIG_KEYS.ENFORCE_CPC_QUORUM,
+    label: "Refuse a committee decision taken without quorum",
+    description:
+      "CP-006: 'at least 3 permanent committee members present in addition to the Head of the requisitioner department ... failing which the case is deferred to the next CPC.' The quorum was never counted — a case could be approved by one vote from an unconstituted committee. With this on, a non-quorate committee may only defer, which is the clause's own remedy. Observers are excluded from the count (CP-007), and the requisitioner's department head is counted separately from the three because CP-006 requires them in addition to it. It ships OFF: the standing composition is newly seeded and no case in flight has an attendance sheet, so enforcing on day one would stop every decision. The quorum is computed and shown either way.",
     group: "Policy",
     valueType: "boolean",
     default: false,

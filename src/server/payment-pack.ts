@@ -3,6 +3,7 @@ import { NotFoundError, RuleViolationError, ValidationError } from "@/lib/errors
 import { PERMISSIONS as P } from "@/lib/permissions";
 import { userHasPermission, type SessionUser } from "@/lib/rbac";
 import { writeAudit } from "@/lib/audit";
+import { cpcDecisionTrail } from "@/server/cpc-quorum";
 
 /**
  * The payment document pack.
@@ -187,6 +188,15 @@ export async function packRecords(
   });
   if (!invoice) return [];
 
+  // CP-016 makes the committee's circulated decision "attached with the standard
+  // documentation trail required to initiate any payment request through
+  // Finance". So where the purchase went to committee, that circulation is a
+  // payment prerequisite in the same way the order is — and one that is
+  // satisfied by a record, not by a re-uploaded file.
+  const cpcTrail = invoice.po?.pr
+    ? await cpcDecisionTrail(invoice.po.pr.id, db)
+    : { required: false, circulated: false, ref: null, caseNumber: null, caseId: null };
+
   const out: PackRecord[] = [];
 
   if (invoice.po?.pr) {
@@ -222,6 +232,18 @@ export async function packRecords(
     ref: invoice.number,
     href: `/invoices/${invoice.id}`,
   });
+
+  // Only when it has actually been circulated. A committee decision that exists
+  // and was never shared is precisely what CP-016 is written against, so it must
+  // not satisfy the requirement by existing.
+  if (cpcTrail.required && cpcTrail.circulated && cpcTrail.caseId) {
+    out.push({
+      code: "CPC-DECISION",
+      label: "CPC decision circular",
+      ref: cpcTrail.ref ?? cpcTrail.caseNumber ?? "circulated",
+      href: `/cpc/cases/${cpcTrail.caseId}`,
+    });
+  }
 
   return out;
 }

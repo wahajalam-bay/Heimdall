@@ -1,6 +1,7 @@
 import { prisma, withTransaction, type DbClient } from "@/lib/db";
 import { nextNumber, SEQ } from "@/lib/numbering";
 import { CONFIG_KEYS, getConfigArray, getConfigBool, getConfigNumber } from "@/lib/config";
+import { cpcQuorumFor, seedCpcAttendance } from "@/server/cpc-quorum";
 import { ForbiddenError, NotFoundError, RuleViolationError, ValidationError } from "@/lib/errors";
 import { writeAudit } from "@/lib/audit";
 import { notify, createTask, completeTasks } from "@/lib/notify";
@@ -314,6 +315,10 @@ export async function createCpcCase(
       members: { create: members.map((m) => ({ userId: m.userId, roleLabel: m.roleLabel, required: m.required })) },
     },
   });
+
+  // One attendance row per roster seat, so an absence is a recorded fact rather
+  // than a blank the quorum count has to guess at.
+  await seedCpcAttendance(kase.id, db);
 
   if (comparative.pr.status !== "CPC_REVIEW") {
     await transitionPr(user, comparative.prId, "CPC_REVIEW", {}, db);
@@ -641,6 +646,26 @@ export async function resolveCpcCase(
   // Enforcement is a switch, and the reason is honest rather than cautious: no
   // user holds CEO_OFFICE, so turning it on before somebody does would stop
   // every purchase above the tier with nobody able to release it.
+  // CP-006 · quorum.
+  //
+  // The committee's decision is the most consequential act in the system, and
+  // until now nothing checked whether the committee was properly constituted to
+  // take it. The clause's own remedy for a short committee is deferral, so that
+  // is the only outcome a non-quorate committee is offered.
+  //
+  // Enforcement is a switch for the same reason as every other new gate: the
+  // standing composition is newly seeded, no case in flight has an attendance
+  // sheet, and turning it on before those are filled in would stop every
+  // committee decision. The quorum is computed and shown either way.
+  const enforceQuorum = await getConfigBool(CONFIG_KEYS.ENFORCE_CPC_QUORUM, kase.pr.entityId, db);
+  const quorum = await cpcQuorumFor(caseId, db);
+  if (enforceQuorum && outcome !== "DEFERRED" && !quorum.quorate) {
+    throw new RuleViolationError(
+      `${kase.number} cannot be decided: the committee is not quorate. ${quorum.reason} ` +
+        "CP-006's own remedy is to defer the case to the next CPC.",
+    );
+  }
+
   const enforceCeo = await getConfigBool(CONFIG_KEYS.ENFORCE_CEO_APPROVAL, kase.pr.entityId, db);
   const awaitsCeo =
     outcome === "APPROVED" && enforceCeo && kase.ceoApprovalRequired && !kase.ceoDecidedAt;
@@ -655,6 +680,12 @@ export async function resolveCpcCase(
         // A case waiting on the CEO is not decided, so it carries no decision
         // date. Stamping one would make every ageing report call it closed.
         decidedAt: outcome === "DEFERRED" || awaitsCeo ? null : new Date(),
+        // Snapshotted, because the roster moves and whether *this* case was
+        // quorate has to stay answerable.
+        quorumRequired: quorum.required,
+        quorumPresent: quorum.present,
+        requisitionerHeadPresent: quorum.requisitionerHeadPresent,
+        deferredReason: outcome === "DEFERRED" ? (comment ?? quorum.reason) : null,
       },
     });
     await completeTasks("CPC_CASE", caseId, user.id, tx);

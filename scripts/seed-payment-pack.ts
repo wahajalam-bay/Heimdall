@@ -70,6 +70,28 @@ const ANNEXURE_A: Row[] = [
     sequence: 70,
     source: "ZAM/PUR/SOP-01 Annexure A — 'Exemptions (if applicable)'",
   },
+  {
+    code: "CPC-DECISION",
+    requirement: "CONDITIONAL",
+    condition:
+      "The purchase went to the committee. CP-016 attaches the circulated decision to the documentation trail Finance pays against, so where a case exists the circular is required — and satisfied by the record, not by a re-uploaded file.",
+    sequence: 45,
+    source:
+      "ZAM/PUR/SOP-01 CPC § decision mechanism (CP-016) — 'This approval email is attached with the standard documentation trail required to initiate any payment request through Finance'",
+  },
+];
+
+/**
+ * Document types Annexure A does not itself list, which the pack still needs.
+ *
+ * CP-016 puts the committee's circulated decision into the same payment trail
+ * without naming it as an Annexure A line, so the type is created here rather
+ * than mapped onto a near neighbour — there is no near neighbour, and folding it
+ * into OTHER would make the pack unable to tell a committee circular from an
+ * undertaking.
+ */
+const EXTRA_TYPES: Array<{ code: string; name: string; category: string }> = [
+  { code: "CPC-DECISION", name: "CPC Decision Circular", category: "Approval" },
 ];
 
 /**
@@ -90,6 +112,16 @@ const IMPERFECT = new Set(["OTHER", "MILL-CERT"]);
 async function main() {
   const zam = await prisma.entity.findFirst({ where: { code: ENTITY_CODES.ZM } });
   if (!zam) throw new Error("Zameen Media entity not found. Run the seed first.");
+
+  for (const extra of EXTRA_TYPES) {
+    const held = await prisma.documentType.findUnique({ where: { code: extra.code } });
+    if (!held) {
+      await prisma.documentType.create({
+        data: { code: extra.code, name: extra.name, category: extra.category, required: false },
+      });
+      console.log(`  + document type ${extra.code} — ${extra.name}`);
+    }
+  }
 
   const types = await prisma.documentType.findMany({ select: { id: true, code: true, name: true } });
   const byCode = new Map(types.map((t) => [t.code, t]));

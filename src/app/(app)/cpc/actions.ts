@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { requirePermission, requireUser } from "@/lib/auth";
 import { ForbiddenError, toActionError, ValidationError, type ActionResult } from "@/lib/errors";
+import { circulateCpcDecision, recordCpcAttendance } from "@/server/cpc-quorum";
 import {
   castCpcDecision,
   recordCeoDecision,
@@ -233,6 +234,62 @@ export async function recordCeoDecisionAction(
         decision === "APPROVED"
           ? `${kase.number} approved by the Office of the CEO — the requisition has moved to PO preparation.`
           : `${kase.number} declined by the Office of the CEO and returned to procurement.`,
+    };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+/**
+ * CP-006 attendance, and CP-016 circulation.
+ *
+ * Both are recorded rather than performed by the system: it does not run the
+ * meeting and does not own the mailbox. What it can do is count the quorum from
+ * what was recorded, and refuse to call a decision circulated when the people
+ * the clause names were not on it.
+ */
+export async function setCpcAttendanceAction(formData: FormData): Promise<ActionResult> {
+  try {
+    const user = await requirePermission(P.CPC_DECIDE);
+    const caseId = String(formData.get("caseId") ?? "");
+    const memberId = String(formData.get("memberId") ?? "");
+    const attendance = String(formData.get("attendance") ?? "ABSENT") as "PRESENT" | "PROXY" | "ABSENT";
+    const quorum = await recordCpcAttendance(user, {
+      caseId,
+      rows: [{ memberId, attendance, proxyName: blank(formData.get("reason")) }],
+    });
+    touch(caseId);
+    return {
+      ok: true,
+      data: null,
+      message: quorum.quorate
+        ? `Recorded. The committee is quorate — ${quorum.present} of ${quorum.required} permanent members besides the requisitioner's head.`
+        : `Recorded. Not yet quorate: ${quorum.reason}`,
+    };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function circulateCpcDecisionAction(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const user = await requirePermission(P.CPC_DECIDE);
+    const caseId = String(formData.get("caseId") ?? "");
+    await circulateCpcDecision(user, {
+      caseId,
+      circularRef: String(formData.get("circularRef") ?? ""),
+      ceoOfficeCopied: formData.get("ceoOfficeCopied") === "on",
+    });
+    touch(caseId);
+    revalidatePath("/invoices");
+    return {
+      ok: true,
+      data: null,
+      message:
+        "Circulated. The decision is now part of the documentation trail Finance pays against, and shows on the payment pack of any invoice against this requisition.",
     };
   } catch (e) {
     return toActionError(e);

@@ -59,6 +59,8 @@ model User {
   approvalActions    ApprovalAction[]
   approvalsEscalatedTo ApprovalAction[]    @relation("ApprovalEscalatedTo")
   cpcCeoDecisions      CpcCase[]           @relation("CpcCeoDecision")
+  cpcRosterSeats       CpcRosterMember[]   @relation("CpcRosterUser")
+  cpcDecisionsCirculated CpcCase[]         @relation("CpcDecisionCirculatedBy")
 
   // Build-outs and the RNC.
   buildOutsCreated        BuildOut[]            @relation("BuildOutCreatedBy")
@@ -286,8 +288,9 @@ model Entity {
   lossReports LossReport[]
   @@map("entities")
 
-  buildOuts  BuildOut[]
-  cfcMembers CfcMember[]
+  buildOuts       BuildOut[]
+  cfcMembers      CfcMember[]
+  cpcRosterMembers CpcRosterMember[]
   rncMembers RncMember[]
   rncCases   RncCase[]
 }
@@ -1216,8 +1219,33 @@ model CpcCase {
   ceoDecidedAt         DateTime?
   ceoComment           String?
 
-  members   CpcCaseMember[]
-  decisions CpcDecision[]
+  /// ── CP-006 · quorum, snapshotted at the decision ────────────────────────
+  ///
+  /// "At least 3 permanent committee members present in addition to the Head of
+  /// the requisitioner department." The roster moves; whether *this* case was
+  /// quorate must stay answerable, so the figures are written onto the case.
+  quorumRequired          Int?
+  quorumPresent           Int?
+  requisitionerHeadPresent Boolean @default(false)
+  deferredReason          String?
+
+  /// ── CP-016 · the decision mechanism ─────────────────────────────────────
+  ///
+  /// "Once quorum finalises a decision, HOD Procurement shares it." The vote is
+  /// not the end of it — the decision has to reach the people who act on it, and
+  /// a committee decision nobody was told of cannot be acted on.
+  decisionCircularRef    String?
+  decisionCirculatedAt   DateTime?
+  /// CP-016 names the Office of the CEO on copy, exactly as RN-010 does for the
+  /// rental committee. Held as its own fact because "circulated" and "circulated
+  /// to the people the clause names" are different claims.
+  decisionCeoOfficeCopied Boolean @default(false)
+  decisionCirculatedById String?
+  decisionCirculatedBy   User?     @relation("CpcDecisionCirculatedBy", fields: [decisionCirculatedById], references: [id])
+
+  members    CpcCaseMember[]
+  decisions  CpcDecision[]
+  attendance CpcAttendance[]
 
   @@index([status])
   @@map("cpc_cases")
@@ -5978,4 +6006,62 @@ model RncVote {
 
   @@unique([caseId, memberId])
   @@map("rnc_votes")
+}
+
+
+/* ─────────────────────────────────────────────────────────────────────────
+   CPC standing composition, attendance and quorum
+   CP-003 · CP-006 · CP-007 · CP-016
+
+   Case membership was resolved per case from roles, which answers "who should
+   look at this" and not "is this committee properly constituted". CP-003 names
+   a standing composition of nine seats with designations and types; CP-006 sets
+   a quorum to count; CP-007 says observers neither vote nor count. None of that
+   is derivable from a role lookup, so the roster is its own record — the same
+   shape as the RNC's, because the two clauses are written the same way.
+   ───────────────────────────────────────────────────────────────────────── */
+
+model CpcRosterMember {
+  id       String @id @default(cuid())
+  entityId String
+  entity   Entity @relation(fields: [entityId], references: [id])
+
+  userId String?
+  user   User?   @relation("CpcRosterUser", fields: [userId], references: [id])
+  /// The document names people who may not have accounts.
+  memberName  String
+  designation String?
+
+  /// PERMANENT_MANDATORY | PERMANENT | OBSERVER — CP-007 makes the last one
+  /// present but non-counting, so the arithmetic needs the distinction.
+  memberType String  @default("PERMANENT")
+  /// The committee's own chair, distinct from the requisitioner's department
+  /// head that CP-006 requires in addition to the three.
+  isChair    Boolean @default(false)
+
+  active   Boolean @default(true)
+  sequence Int     @default(0)
+
+  attendance CpcAttendance[]
+
+  @@unique([entityId, memberName])
+  @@map("cpc_roster_members")
+}
+
+model CpcAttendance {
+  id     String  @id @default(cuid())
+  caseId String
+  case   CpcCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  memberId String
+  member   CpcRosterMember @relation(fields: [memberId], references: [id])
+
+  /// PRESENT | PROXY | ABSENT
+  attendance String  @default("ABSENT")
+  /// CP-006 admits a nominated proxy, so who stood in is recorded.
+  proxyName  String?
+  note       String?
+
+  @@unique([caseId, memberId])
+  @@map("cpc_attendance")
 }

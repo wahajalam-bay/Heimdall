@@ -134,6 +134,7 @@ export const NAV: NavGroup[] = [
     items: [
       { label: "CPC Dashboard", href: "/cpc", icon: "committee", perms: [P.CPC_VIEW], exact: true },
       { label: "Cases", href: "/cpc/cases", icon: "case", perms: [P.CPC_VIEW], badge: "cpcPending" },
+      { label: "Composition", href: "/cpc/roster", icon: "committee", perms: [P.CPC_VIEW] },
       { label: "Meetings", href: "/cpc/meetings", icon: "calendar", perms: [P.CPC_VIEW] },
       { label: "Decisions", href: "/cpc/decisions", icon: "decision", perms: [P.CPC_VIEW] },
     ],

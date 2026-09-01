@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { pageContext } from "@/lib/page";
 import { PERMISSIONS as P } from "@/lib/permissions";
 import { userHasPermission } from "@/lib/rbac";
-import { CONFIG_KEYS, getConfigNumber } from "@/lib/config";
+import { CONFIG_KEYS, getConfigBool, getConfigNumber } from "@/lib/config";
 import { documentTimeline } from "@/server/timeline";
 import { vendorHistory } from "@/server/vendors";
 import { AccessDenied } from "@/components/ui/guard";
@@ -28,6 +28,8 @@ import { DocumentsPanel } from "@/components/domain/DocumentsPanel";
 import { humanize } from "@/lib/domain";
 import { fmtDate, fmtDateTime, money, percent, qty, round2 } from "@/lib/format";
 import { CastVoteForm, CeoDecisionForm, ResolveCaseForm } from "../../CpcForms";
+import { QuorumPanel } from "./QuorumPanel";
+import { cpcQuorumFor, seedCpcAttendance } from "@/server/cpc-quorum";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +103,25 @@ export default async function CpcCaseDetailPage({ params }: { params: Promise<{ 
   const negotiations = (kase.comparative?.lines ?? []).flatMap((l) =>
     l.quote.negotiations.map((n) => ({ ...n, vendorName: l.vendor.name })),
   );
+
+  // The attendance sheet is created lazily for cases raised before the roster
+  // existed, so an older case still shows a countable quorum rather than a blank.
+  await seedCpcAttendance(kase.id).catch(() => undefined);
+  const [quorum, attendanceRows, enforcingQuorum] = await Promise.all([
+    cpcQuorumFor(kase.id),
+    prisma.cpcAttendance.findMany({
+      where: { caseId: kase.id },
+      orderBy: [{ member: { sequence: "asc" } }],
+      include: { member: { include: { user: { select: { name: true } } } } },
+    }),
+    getConfigBool(CONFIG_KEYS.ENFORCE_CPC_QUORUM, kase.pr.entityId),
+  ]);
+  const circulatedBy = kase.decisionCirculatedById
+    ? await prisma.user.findUnique({
+        where: { id: kase.decisionCirculatedById },
+        select: { name: true },
+      })
+    : null;
 
   const canDecide = userHasPermission(user, P.CPC_DECIDE);
   const canManage = userHasPermission(user, P.CPC_MANAGE);
@@ -260,6 +281,31 @@ export default async function CpcCaseDetailPage({ params }: { params: Promise<{ 
           }
         />
       </div>
+
+      <QuorumPanel
+        caseId={kase.id}
+        status={kase.status}
+        quorum={quorum}
+        attendance={attendanceRows.map((a) => ({
+          id: a.id,
+          memberId: a.memberId,
+          memberName: a.member.memberName,
+          designation: a.member.designation,
+          memberType: a.member.memberType,
+          isChair: a.member.isChair,
+          vacant: !a.member.userId,
+          attendance: a.attendance,
+          proxyName: a.proxyName,
+        }))}
+        circulation={{
+          ref: kase.decisionCircularRef,
+          at: kase.decisionCirculatedAt,
+          by: circulatedBy?.name ?? null,
+          ceoOfficeCopied: kase.decisionCeoOfficeCopied,
+        }}
+        enforcing={enforcingQuorum}
+        canManage={canManage || canDecide}
+      />
 
       <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
         <div className="space-y-4">
