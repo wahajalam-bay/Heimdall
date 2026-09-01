@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { pageContext } from "@/lib/page";
@@ -25,12 +26,15 @@ import { DocumentsPanel } from "@/components/domain/DocumentsPanel";
 import { humanize } from "@/lib/domain";
 import { fmtDate, fmtDateTime, money, qty, round2 } from "@/lib/format";
 import {
+  acknowledgeIssueAction,
   closeRequisitionAction,
   decideIssueAction,
   issueStockAction,
   resubmitRequisitionAction,
   returnRequisitionAction,
 } from "@/app/(app)/stores/actions";
+import { issueAttestations } from "@/server/stores";
+import { PaperSlipForm } from "./PaperSlipForm";
 
 export const dynamic = "force-dynamic";
 
@@ -98,7 +102,7 @@ export default async function IssueDetailPage({ params }: { params: Promise<{ id
   });
   if (!issue) notFound();
 
-  const [events, department, project, recipientUser, assets, storeManager] = await Promise.all([
+  const [events, department, project, recipientUser, assets, storeManager, signatures] = await Promise.all([
     documentTimeline("StoreIssue", issue.id),
     issue.departmentId
       ? prisma.department.findUnique({ where: { id: issue.departmentId }, select: { name: true, code: true } })
@@ -116,7 +120,9 @@ export default async function IssueDetailPage({ params }: { params: Promise<{ id
     issue.store.managerId
       ? prisma.user.findUnique({ where: { id: issue.store.managerId }, select: { name: true } })
       : Promise.resolve(null),
+    issueAttestations(issue.id),
   ]);
+  const acknowledgement = signatures.find((a) => a.attestationType === "ACKNOWLEDGED");
   const assetById = new Map(assets.map((a) => [a.id, a]));
 
   // Live availability, so an approver sees whether the store can actually deliver.
@@ -286,6 +292,52 @@ export default async function IssueDetailPage({ params }: { params: Promise<{ id
               `${li.item.name}: ${qty(Math.max(0, (li.approvedQty ?? li.requestedQty) - li.issuedQty), li.unit)} still to release but only ${qty(availability.get(li.itemId) ?? 0, li.unit)} free at ${issue.store.name}.`,
           )}
         />
+      )}
+
+      {["PARTIALLY_ISSUED", "ISSUED", "CLOSED"].includes(issue.status) && (
+        <SectionCard
+          title="Receiver's signature"
+          description="ZAM/PUR/SOP-01 Store Flow: issuance is against an Issuance Slip signed by the receiver. Until that signature exists, the record says only where the storekeeper says the goods went."
+          actions={
+            <Link className="btn btn-secondary btn-sm" href={`/issuance/${issue.id}/slip`}>
+              Issuance slip
+            </Link>
+          }
+        >
+          {acknowledgement ? (
+            <DefList
+              items={[
+                { label: "Acknowledged by", value: acknowledgement.signedBy?.name ?? "—" },
+                { label: "Office at signing", value: acknowledgement.designation ?? acknowledgement.roleAtSigning ?? "—" },
+                { label: "Signed", value: fmtDateTime(acknowledgement.signedAt) },
+                ...(acknowledgement.stampRef ? [{ label: "Slip reference", value: acknowledgement.stampRef }] : []),
+                ...(acknowledgement.comment ? [{ label: "Note", value: acknowledgement.comment }] : []),
+              ]}
+            />
+          ) : (
+            <div className="space-y-3">
+              <InlineAlert tone="warning">
+                Nobody has signed for these goods. {issue.recipientName} is named as the recipient
+                {recipientUser ? " and can acknowledge it here" : ", who is not a system user, so the paper slip is the only route"}.
+              </InlineAlert>
+
+              {recipientUser?.id === user.id && (
+                <ActionButton
+                  action={acknowledgeIssueAction}
+                  payload={{ issueId: issue.id }}
+                  label="I received these goods"
+                  tone="primary"
+                  reasonLabel="Anything to note (optional)"
+                  confirm={`Acknowledge receipt of ${qty(issuedTotal)} against ${issue.number}? Your name and office go on the record.`}
+                />
+              )}
+
+              {canIssue && (
+                <PaperSlipForm issueId={issue.id} recipientName={issue.recipientName} />
+              )}
+            </div>
+          )}
+        </SectionCard>
       )}
 
       <LifecycleRail steps={rail} title="Issue lifecycle" />

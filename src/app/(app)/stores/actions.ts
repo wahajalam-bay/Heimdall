@@ -16,6 +16,8 @@ import {
   closeStoreRequisition,
   resubmitStoreRequisition,
   returnStoreRequisition,
+  acknowledgeIssue,
+  recordPaperAcknowledgement,
 } from "@/server/stores";
 import { availableQuantity } from "@/server/inventory";
 
@@ -161,6 +163,49 @@ export async function issueStockAction(formData: FormData): Promise<ActionResult
       data: null,
       message: `${issue.number} issued. Inventory has been reduced and any asset custody transferred.`,
     };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+/* ── The receiver's signature ─────────────────────────────── */
+
+export async function acknowledgeIssueAction(formData: FormData): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const issueId = String(formData.get("issueId") ?? "");
+    // ActionButton posts its free-text field as `reason`; the modal form uses
+    // `comment`. Either is the same note, so both are accepted.
+    const note = blank(formData.get("reason")) ?? blank(formData.get("comment"));
+    await acknowledgeIssue(user, { issueId, comment: note });
+    revalidatePath(`/issuance/${issueId}`);
+    return {
+      ok: true,
+      data: null,
+      message: "Receipt acknowledged. The issue now carries the receiver's signature.",
+    };
+  } catch (e) {
+    return toActionError(e);
+  }
+}
+
+export async function recordPaperSlipAction(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const issueId = String(formData.get("issueId") ?? "");
+    const signedOn = blank(formData.get("signedOn"));
+    await recordPaperAcknowledgement(user, {
+      issueId,
+      signatoryName: String(formData.get("signatoryName") ?? ""),
+      signedOn: signedOn ? new Date(signedOn) : null,
+      slipRef: blank(formData.get("slipRef")),
+      comment: blank(formData.get("comment")),
+    });
+    revalidatePath(`/issuance/${issueId}`);
+    return { ok: true, data: null, message: "Signed slip recorded." };
   } catch (e) {
     return toActionError(e);
   }

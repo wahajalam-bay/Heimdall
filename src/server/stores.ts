@@ -10,6 +10,7 @@ import { availableQuantity, postMovement, requireStore, stockUnitCost } from "./
 import { CONFIG_KEYS, getConfigBool, getConfigNumber } from "@/lib/config";
 import { consumeReservation, releaseFor } from "./reservations";
 import { alertBelowMinimum } from "./replenishment";
+import { attest, attestations } from "./attestation";
 
 /**
  * Store issuance, inter-store transfers and stock adjustments.
@@ -1089,4 +1090,156 @@ export async function storeSummaries(entityIds: string[] | null, db: DbClient = 
     });
   }
   return results;
+}
+
+/* ── Issuance slip and the receiver's signature ──────────────── */
+
+/**
+ * The receiver's acknowledgement of what they actually took.
+ *
+ * ZAM/PUR/SOP-01 Store Flow (b): issuance is against an **Issuance Slip signed
+ * by the receiver (user department)**. The system recorded who the storekeeper
+ * said the goods went to and nothing from the person who took them — which is
+ * the one signature that makes an issue evidence rather than an assertion.
+ *
+ * Only the named recipient can give it. A storekeeper acknowledging their own
+ * issue on the recipient's behalf is the signature signing itself, and the
+ * control is worth nothing.
+ */
+export async function acknowledgeIssue(
+  user: SessionUser,
+  input: { issueId: string; comment?: string | null },
+  db: DbClient = prisma,
+) {
+  return withTransaction(db, async (tx) => {
+    const issue = await tx.storeIssue.findUnique({
+      where: { id: input.issueId },
+      include: { items: { select: { lineNo: true, itemId: true, issuedQty: true, unit: true } } },
+    });
+    if (!issue) throw new NotFoundError("Store issue");
+    if (!["PARTIALLY_ISSUED", "ISSUED", "CLOSED"].includes(issue.status)) {
+      throw new RuleViolationError(
+        `${issue.number} has not been issued yet. There is nothing for the receiver to acknowledge.`,
+      );
+    }
+    if (!issue.recipientUserId) {
+      throw new RuleViolationError(
+        `${issue.number} names "${issue.recipientName}" as the recipient but not a system user, so they cannot sign here. ` +
+          "Record the signed paper slip instead.",
+      );
+    }
+    if (issue.recipientUserId !== user.id) {
+      throw new ForbiddenError(
+        `Only ${issue.recipientName}, the named recipient, can acknowledge this issue. ` +
+          "If they signed on paper, record that instead — a signature somebody else gives is not the receiver's.",
+      );
+    }
+
+    const existing = await tx.attestation.findFirst({
+      where: { documentType: "STORE_ISSUE", documentId: issue.id, attestationType: "ACKNOWLEDGED" },
+    });
+    if (existing) throw new RuleViolationError(`${issue.number} has already been acknowledged.`);
+
+    const signed = await attest(
+      user,
+      {
+        documentType: "STORE_ISSUE",
+        documentId: issue.id,
+        documentRef: issue.number,
+        attestationType: "ACKNOWLEDGED",
+        decision: "NOTED",
+        comment: input.comment ?? null,
+        // Hash what was actually collected, so a later edit to the quantities is
+        // detectable rather than merely improbable.
+        signedContent: issue.items.map((i) => ({ lineNo: i.lineNo, itemId: i.itemId, issuedQty: i.issuedQty })),
+      },
+      tx,
+    );
+
+    await writeAudit(
+      {
+        entityType: "StoreIssue",
+        entityId: issue.id,
+        entityRef: issue.number,
+        action: "STORE_ISSUE_ACKNOWLEDGED",
+        newValue: { by: user.name },
+        reason: input.comment ?? null,
+        actor: user,
+      },
+      tx,
+    );
+    return signed;
+  });
+}
+
+/**
+ * Records a slip that was signed on paper.
+ *
+ * Most receivers are not system users, and refusing to record their signature
+ * would mean the control only ever applies to the minority who are. But a
+ * second-hand record is not the same thing as a signature, so it says so: the
+ * signatory is named, the storekeeper who transcribed it is the signer of
+ * record, and `stampRef` carries whatever the paper bore.
+ */
+export async function recordPaperAcknowledgement(
+  user: SessionUser,
+  input: { issueId: string; signatoryName: string; signedOn?: Date | null; slipRef?: string | null; comment?: string | null },
+  db: DbClient = prisma,
+) {
+  return withTransaction(db, async (tx) => {
+    if (!userHasPermission(user, P.STORE_ISSUE, P.SR_ISSUE)) {
+      throw new ForbiddenError("You do not have permission to record an issuance slip.");
+    }
+    if (!input.signatoryName?.trim()) {
+      throw new ValidationError("Name the person who signed the slip. An unsigned slip is not a slip.");
+    }
+
+    const issue = await tx.storeIssue.findUnique({ where: { id: input.issueId } });
+    if (!issue) throw new NotFoundError("Store issue");
+    if (!["PARTIALLY_ISSUED", "ISSUED", "CLOSED"].includes(issue.status)) {
+      throw new RuleViolationError(`${issue.number} has not been issued yet.`);
+    }
+
+    const existing = await tx.attestation.findFirst({
+      where: { documentType: "STORE_ISSUE", documentId: issue.id, attestationType: "ACKNOWLEDGED" },
+    });
+    if (existing) throw new RuleViolationError(`${issue.number} has already been acknowledged.`);
+
+    const signed = await attest(
+      user,
+      {
+        documentType: "STORE_ISSUE",
+        documentId: issue.id,
+        documentRef: issue.number,
+        attestationType: "ACKNOWLEDGED",
+        decision: "NOTED",
+        stampRef: input.slipRef?.trim() || null,
+        comment:
+          `Paper slip signed by ${input.signatoryName.trim()}` +
+          (input.signedOn ? ` on ${input.signedOn.toISOString().slice(0, 10)}` : "") +
+          `, transcribed by ${user.name}.` +
+          (input.comment?.trim() ? ` ${input.comment.trim()}` : ""),
+      },
+      tx,
+    );
+
+    await writeAudit(
+      {
+        entityType: "StoreIssue",
+        entityId: issue.id,
+        entityRef: issue.number,
+        action: "STORE_ISSUE_SLIP_RECORDED",
+        newValue: { signatory: input.signatoryName.trim(), transcribedBy: user.name },
+        reason: input.comment ?? null,
+        actor: user,
+      },
+      tx,
+    );
+    return signed;
+  });
+}
+
+/** The signatures on one issue, for the slip and the detail screen. */
+export async function issueAttestations(issueId: string, db: DbClient = prisma) {
+  return attestations("STORE_ISSUE", issueId, db);
 }
