@@ -105,6 +105,7 @@ export const NAV: NavGroup[] = [
       { label: "Replenishment", href: "/inventory/replenishment", icon: "inventory", perms: [P.INVENTORY_VIEW] },
       { label: "Stock counts", href: "/inventory/counts", icon: "verified", perms: [P.INVENTORY_VIEW] },
       { label: "Employee returns", href: "/inventory/returns", icon: "return", perms: [P.INVENTORY_VIEW] },
+      { label: "Loss & theft", href: "/inventory/losses", icon: "blocked", perms: [P.INVENTORY_VIEW, P.AUDIT_VIEW] },
       { label: "Transfers", href: "/transfers", icon: "transfer", perms: [P.INVENTORY_VIEW, P.STORE_TRANSFER] },
     ],
   },

@@ -147,6 +147,9 @@ model User {
   delegationUses      DelegationUse[]  @relation("DelegationUsedBy")
   policiesCreated     PolicyDocument[] @relation("PolicyCreatedBy")
   policyAcks          PolicyAcknowledgement[] @relation("PolicyAcknowledgedBy")
+  lossesReported     LossReport[] @relation("LossReportedBy")
+  lossesInvestigated LossReport[] @relation("LossInvestigator")
+  lossesConcluded    LossReport[] @relation("LossConcludedBy")
   @@index([email])
   @@map("users")
 }
@@ -262,6 +265,7 @@ model Entity {
   contracts Contract[]
   delegations    Delegation[]
   policyDocuments PolicyDocument[]
+  lossReports LossReport[]
   @@map("entities")
 }
 
@@ -385,6 +389,7 @@ model Store {
   costLayers CostLayer[]
   stockCounts StockCount[]
   employeeReturns EmployeeReturn[]
+  lossReports LossReport[]
   @@map("stores")
 }
 
@@ -506,6 +511,7 @@ model Item {
   costLayers CostLayer[]
   stockCountLines StockCountLine[]
   employeeReturnLines EmployeeReturnItem[]
+  lossReportLines LossReportItem[]
   @@index([categoryId])
   @@map("items")
 }
@@ -2540,6 +2546,7 @@ model Asset {
 
   serialUnits SerialUnit[]
   employeeReturnLines EmployeeReturnItem[]
+  lossReportLines LossReportItem[]
   @@index([status])
   @@map("assets")
 }
@@ -5316,4 +5323,135 @@ model PolicyAcknowledgement {
   @@unique([policyId, userId])
   @@index([userId])
   @@map("policy_acknowledgements")
+}
+
+/// A loss, theft or unexplained shortage.
+///
+/// The meeting requirements ask for loss and theft reporting. The system had one
+/// route for stock that is not there: a manual adjustment with a reason, which
+/// makes a shortage look like a correction and buries a theft in the same list
+/// as a mis-keyed count.
+///
+/// The difference matters for three reasons. A theft needs an investigation and
+/// possibly a police report; an adjustment does not. A loss has a value that
+/// belongs in a monthly figure somebody is accountable for; an adjustment's does
+/// not. And a pattern of losses in one store is a finding, which is impossible
+/// to see when each one is a line in the adjustment ledger.
+///
+/// ## What it does not do
+///
+/// It does not move stock. The ledger correction is a separate, authorised
+/// adjustment, and it happens once the case has been reviewed — a report that
+/// silently wrote off the stock would let anybody make an inconvenient quantity
+/// disappear by filing a form.
+model LossReport {
+  id     String @id @default(cuid())
+  number String @unique
+
+  entityId String
+  entity   Entity @relation(fields: [entityId], references: [id])
+
+  storeId String?
+  store   Store?  @relation(fields: [storeId], references: [id])
+
+  /// THEFT | LOSS | DAMAGE | SHORTAGE_UNEXPLAINED | MISPLACED
+  ///
+  /// SHORTAGE_UNEXPLAINED is deliberately its own kind. Most shortages are not
+  /// known to be theft and calling them so is an accusation; calling them a
+  /// loss implies somebody knows what happened. "We cannot account for it" is
+  /// the honest third answer and the most common one.
+  lossType String @default("SHORTAGE_UNEXPLAINED")
+
+  title       String
+  description String
+
+  /// When it is believed to have happened, which is rarely when it was found.
+  occurredOn   DateTime?
+  discoveredOn DateTime
+
+  /// How it came to light — a count, a customer complaint, a locked cupboard
+  /// found open. The route to discovery is often the most useful fact in the file.
+  discoveryRoute String?
+
+  /// Where the shortage was measured, when it came from a count.
+  stockCountId String?
+
+  /// DRAFT | REPORTED | UNDER_INVESTIGATION | SUBSTANTIATED | UNSUBSTANTIATED
+  /// | WRITTEN_OFF | RECOVERED | CLOSED | CANCELLED
+  status String @default("DRAFT")
+
+  estimatedValue Float @default(0)
+  /// What was actually recovered, where anything was.
+  recoveredValue Float @default(0)
+  /// The value written off, once the ledger has been corrected.
+  writtenOffValue Float?
+
+  /// Whether the police were involved, and the reference if so. A theft reported
+  /// internally and never to anybody outside is a different fact from one that
+  /// was, and the register should be able to tell them apart.
+  policeReported  Boolean @default(false)
+  policeReference String?
+
+  /// Whether anybody is suspected. Held as a note rather than a user link on
+  /// purpose: naming a person in a structured field turns a suspicion into a
+  /// record about them, and the system should not do that on a form entry.
+  suspicionNote String?
+
+  reportedById String
+  reportedBy   User   @relation("LossReportedBy", fields: [reportedById], references: [id])
+  reportedAt   DateTime @default(now())
+
+  investigatorId String?
+  investigator   User?     @relation("LossInvestigator", fields: [investigatorId], references: [id])
+  investigationStartedAt DateTime?
+  findings               String?
+  concludedById          String?
+  concludedBy            User?     @relation("LossConcludedBy", fields: [concludedById], references: [id])
+  concludedAt            DateTime?
+
+  /// The adjustment that took the stock off the ledger, once one was authorised.
+  adjustmentTxnIds String @default("[]")
+  writtenOffAt     DateTime?
+
+  closedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items LossReportItem[]
+
+  @@index([status, discoveredOn])
+  @@index([storeId])
+  @@map("loss_reports")
+}
+
+model LossReportItem {
+  id       String     @id @default(cuid())
+  reportId String
+  report   LossReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  lineNo Int
+
+  itemId  String?
+  item    Item?   @relation(fields: [itemId], references: [id])
+  assetId String?
+  asset   Asset?  @relation(fields: [assetId], references: [id])
+
+  description  String
+  quantity     Float  @default(1)
+  unit         String @default("EA")
+  serialNumber String?
+  batchNumber  String?
+
+  unitValue Float @default(0)
+  lineValue Float @default(0)
+
+  /// The movement that removed it from the ledger, once one was posted.
+  adjustmentTxnId String?
+
+  notes String?
+
+  @@unique([reportId, lineNo])
+  @@index([reportId])
+  @@map("loss_report_items")
 }
