@@ -72,7 +72,9 @@ The core model change, and the largest single piece of new work.
 - Tax Master, effective-dated and line-level (**BD-005** supplies the rates)
 - GRN control: cumulative accepted quantity may never exceed PO outstanding except through an approved amendment. Partial GRN stays valid
 - Invoice auto-population from PO plus posted GRN for goods, from Service Acceptance for services
-- Done · Annexure 1's seven missing PR elements
+- Done · Annexure 1's seven missing PR elements, and the form itself — every field printing from the requisition, with the compulsory sign / stamp / date / time taken from the approval attestation rather than the status change
+- Done · **The SOP's forms as forms, populated from the chain**: Annexure 1 (requisition), Annexure 2 (petty cash, both approvals and the quotation channel), Annexure 3 (cost analysis), Annexure 4 (inspection note), Annexure 6 (vendor selection), the purchase order as the document that goes to the vendor, the goods receipt note with its whole receiving chain named, and the issuance slip
+- Done · **Annexure A stops asking for documents the system wrote.** The pack walks the chain behind an invoice — its order, that order's requisition, the receipts it matched — counts each as held and links its printable form. Holding a document and having checked it stay separate facts. Enforcement (`invoice.enforce_payment_document_pack`) is still off; the three conditional documents need an answer per invoice first
 - Open · Controlled PR amendment — versioning rather than free editing
 
 **Preserves:** the inventory-first requirement workflow, and the existing PR↔PO
