@@ -50,6 +50,11 @@ export type VendorInput = {
   categories?: string | null;
   sourceChannel?: string;
   sourceNotes?: string | null;
+  /** Annexure 6 — who referred the vendor, and the designation they held then. */
+  referredByName?: string | null;
+  referredByDesignation?: string | null;
+  /** Annexure 6's related-party question. */
+  relatedCompanies?: string | null;
   isTrader?: boolean;
   minimumOrderValue?: number | null;
   entityIds?: string[];
@@ -110,6 +115,9 @@ export async function createVendor(user: SessionUser, input: VendorInput, db: Db
       categories: input.categories ?? null,
       sourceChannel: input.sourceChannel ?? "MARKET",
       sourceNotes: input.sourceNotes ?? null,
+      referredByName: input.referredByName ?? null,
+      referredByDesignation: input.referredByDesignation ?? null,
+      relatedCompanies: input.relatedCompanies ?? null,
       isTrader: Boolean(input.isTrader),
       minimumOrderValue: input.minimumOrderValue ?? null,
       status: "PROSPECT",

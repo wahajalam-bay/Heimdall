@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { pageContext } from "@/lib/page";
@@ -22,6 +23,7 @@ import {
 import { ActionButton } from "@/components/ui/forms";
 import { LifecycleRail, Timeline, buildRail } from "@/components/ui/workflow";
 import { DocumentsPanel } from "@/components/domain/DocumentsPanel";
+import { PaymentPackPanel } from "@/components/domain/PaymentPackPanel";
 import { ExceptionsPanel } from "@/components/domain/ExceptionsPanel";
 import { PETTY_CASH_LIFECYCLE, STORE_ENTRY_DISPOSITIONS, humanize } from "@/lib/domain";
 import { fmtDate, fmtDateTime, money, qty, round2 } from "@/lib/format";
@@ -192,6 +194,9 @@ export default async function PettyCashDetailPage({ params }: { params: Promise<
         }
         actions={
           <>
+            <Link className="btn btn-secondary btn-sm" href={`/petty-cash/${pc.id}/annexure-2`}>
+              Annexure 2 form
+            </Link>
             {pc.status === "DRAFT" && (isRequester || canEvaluate) && (
               <ActionButton
                 action={submitPettyCashAction}
@@ -610,6 +615,14 @@ export default async function PettyCashDetailPage({ params }: { params: Promise<
           <ExceptionsPanel where={{ caseKey: pc.number }} title="Exceptions on this request" />
         </div>
       </div>
+
+      <PaymentPackPanel
+        user={user}
+        documentType="PETTY_CASH"
+        documentId={pc.id}
+        entityId={pc.entityId}
+        description="The petty cash route ends at Accounts rather than at a vendor payment, so the set is shorter — but the form itself is a document the system generates, and it is counted as held rather than asked for again."
+      />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <DocumentsPanel

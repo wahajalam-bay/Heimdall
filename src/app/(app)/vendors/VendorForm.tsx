@@ -45,6 +45,9 @@ export type VendorFormValues = {
   categories: string | null;
   sourceChannel: string;
   sourceNotes: string | null;
+  referredByName: string | null;
+  referredByDesignation: string | null;
+  relatedCompanies: string | null;
   isTrader: boolean;
   minimumOrderValue: number | null;
   entityIds: string[];
@@ -176,6 +179,27 @@ export function VendorForm({
         </Field>
         <Field label="Source notes" name="sourceNotes">
           <TextInput name="sourceNotes" defaultValue={initial?.sourceNotes ?? ""} />
+        </Field>
+        <Field
+          label="Referred by"
+          name="referredByName"
+          hint="Annexure 6 asks who referred the vendor, and the Internal Reference criterion scores by the referrer's designation."
+        >
+          <TextInput name="referredByName" defaultValue={initial?.referredByName ?? ""} />
+        </Field>
+        <Field label="Referrer's designation" name="referredByDesignation">
+          <TextInput
+            name="referredByDesignation"
+            defaultValue={initial?.referredByDesignation ?? ""}
+            placeholder="Manager, Senior Manager, Director"
+          />
+        </Field>
+        <Field
+          label="Any other company owned by the same owner"
+          name="relatedCompanies"
+          hint="Annexure 6's related-party question. Two names with one owner on the same comparative is not a comparison — say none explicitly rather than leaving it blank."
+        >
+          <TextInput name="relatedCompanies" defaultValue={initial?.relatedCompanies ?? ""} />
         </Field>
       </FormSection>
 

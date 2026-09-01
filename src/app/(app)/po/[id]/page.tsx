@@ -293,6 +293,11 @@ export default async function PoDetailPage({
       />
 
       <PageHeader
+        actions={
+          <Link className="btn btn-secondary btn-sm" href={`/po/${po.id}/document`}>
+            Order document
+          </Link>
+        }
         eyebrow={`${po.entity.code} · ${po.pr?.department.name ?? "—"}`}
         title={
           <span className="flex flex-wrap items-baseline gap-2.5">

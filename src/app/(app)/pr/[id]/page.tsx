@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { pageContext, first, type SearchParams } from "@/lib/page";
@@ -208,6 +209,11 @@ export default async function ProcurementCasePage({
             <span className="mono text-[1rem] text-muted">{pr.number}</span>
             <span>{pr.title}</span>
           </span>
+        }
+        actions={
+          <Link className="btn btn-secondary btn-sm" href={`/pr/${pr.id}/annexure-1`}>
+            Annexure 1 form
+          </Link>
         }
         meta={
           <>

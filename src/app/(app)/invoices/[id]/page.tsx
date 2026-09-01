@@ -27,6 +27,7 @@ import {
 import { ActionButton } from "@/components/ui/forms";
 import { ApprovalTrailView, LifecycleRail, Timeline, buildRail } from "@/components/ui/workflow";
 import { DocumentsPanel } from "@/components/domain/DocumentsPanel";
+import { PaymentPackPanel } from "@/components/domain/PaymentPackPanel";
 import { ExceptionsPanel } from "@/components/domain/ExceptionsPanel";
 import { humanize } from "@/lib/domain";
 import { fmtDate, fmtDateTime, money, percent, qty, round2 } from "@/lib/format";
@@ -83,6 +84,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
           total: true,
           entityId: true,
           status: true,
+          procurementKind: true,
           entity: { select: { code: true, name: true } },
           pr: { select: { id: true, number: true, title: true } },
           items: {
@@ -728,6 +730,14 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
           </SectionCard>
         </div>
       </div>
+
+      <PaymentPackPanel
+        user={user}
+        documentType="INVOICE"
+        documentId={invoice.id}
+        entityId={invoice.po.entityId}
+        transactionType={invoice.po.procurementKind}
+      />
 
       <DocumentsPanel
         user={user}

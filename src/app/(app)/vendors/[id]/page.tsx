@@ -155,6 +155,9 @@ export default async function VendorDetailPage({
         }
         actions={
           <>
+            <Link className="btn btn-secondary btn-sm" href={`/vendors/${vendor.id}/annexure-6`}>
+              Annexure 6 form
+            </Link>
             {canEvaluate && (
               <EvaluateVendorForm
                 vendorId={vendor.id}

@@ -2233,6 +2233,25 @@ model Vendor {
   sourceChannel String  @default("MARKET")
   sourceNotes   String?
 
+  /// Annexure 6 "Vendor Referred By".
+  ///
+  /// `sourceChannel` says a vendor came by reference; it cannot say by whose.
+  /// The form asks, and the Internal Reference criterion scores points by the
+  /// referrer's *designation* — so the designation is held here as it stood when
+  /// the vendor was introduced, not looked up later from an office that may have
+  /// changed.
+  referredByName        String?
+  referredByDesignation String?
+
+  /// Annexure 6: "Any other company owned by same owner".
+  ///
+  /// A related-party question, and the one field on the form with real teeth:
+  /// two names quoting against each other on the same comparative is not a
+  /// comparison. Free text because the answer is a list of companies, and a
+  /// vendor link would only capture the ones already registered — which is
+  /// precisely not the case worth catching.
+  relatedCompanies String?
+
   /// PROSPECT | UNDER_EVALUATION | PENDING_APPROVAL | APPROVED | CONDITIONAL | SUSPENDED | BLACKLISTED | INACTIVE
   status            String    @default("PROSPECT")
   statusReason      String?
@@ -2317,7 +2336,15 @@ model VendorDocument {
   vendor     Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   documentId String?
 
-  /// NTN_CERTIFICATE | STRN_CERTIFICATE | COMPANY_PROFILE | BANK_LETTER | INCORPORATION | REFERENCE_LETTER | ISO | OTHER
+  /// NTN_CERTIFICATE | STRN_CERTIFICATE | COMPANY_PROFILE | BANK_LETTER |
+  /// INCORPORATION | REFERENCE_LETTER | ISO | OTHER |
+  /// FBR_ONLINE_STATUS | JOB_COMPLETION_CERTIFICATE
+  ///
+  /// The last two are Annexure 6's mandatory documents, and neither had a home.
+  /// FBR online status is a filer-status verification, which is not the NTN
+  /// certificate; a job completion certificate from a client is not a reference
+  /// letter. Folding either into its near neighbour would make the form's
+  /// mandatory check pass on the wrong document.
   docType      String
   name         String
   expiryDate   DateTime?

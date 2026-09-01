@@ -132,6 +132,9 @@ export default async function GrnDetailPage({ params }: { params: Promise<{ id: 
         }
         actions={
           <>
+            <Link className="btn btn-secondary btn-sm" href={`/grn/${g.id}/document`}>
+              Receipt note
+            </Link>
             {canPost && (
               <ActionButton
                 action={postGrnAction}

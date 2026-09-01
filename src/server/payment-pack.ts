@@ -32,6 +32,29 @@ import { writeAudit } from "@/lib/audit";
  * with a reason, or the control is decorative.
  */
 
+/**
+ * A document the system itself holds, rather than a file somebody uploaded.
+ *
+ * Annexure A's first three entries are the requisition, the order and the goods
+ * receipt — all three of which this system generates. Demanding a scan of a
+ * document the system produced would be theatre: the requirement is that the
+ * paper is *available* with the payment, and a record that prints on demand is
+ * more available than a PDF in a folder.
+ *
+ * So a record satisfies its requirement, and says which record and where the
+ * form is, so whoever checks the pack can open it rather than take it on trust.
+ */
+export type PackRecord = {
+  /** The document type code this record answers for. */
+  code: string;
+  /** What it is, in the words the form uses. */
+  label: string;
+  /** Its own number, so the pack names the document rather than gesturing at it. */
+  ref: string;
+  /** The printable form. */
+  href: string;
+};
+
 export type PackItemState = {
   documentTypeCode: string;
   documentTypeName: string;
@@ -41,6 +64,15 @@ export type PackItemState = {
   applicableNote: string | null;
   present: boolean;
   attachedDocumentId: string | null;
+  /**
+   * How the requirement is met. `RECORD` is a document the system generates and
+   * can print; `ATTACHMENT` is a file somebody supplied. Kept apart because the
+   * two are different kinds of evidence and a checker should be able to see
+   * which one they are looking at.
+   */
+  satisfiedBy: "RECORD" | "ATTACHMENT" | null;
+  /** The system records answering this requirement, in document order. */
+  records: PackRecord[];
   verified: boolean;
   verifiedByName: string | null;
   verifiedAt: Date | null;
@@ -56,7 +88,109 @@ export type PackState = {
   blockers: string[];
   /** Mandatory documents released by a named exception rather than supplied. */
   waived: string[];
+  /**
+   * Requirements met by a system record that nobody has yet looked at. Not a
+   * blocker — the document exists — but the distinction between "we have it"
+   * and "somebody checked it" is the whole point of the pack.
+   */
+  unverified: string[];
 };
+
+/**
+ * The documents in the chain behind an invoice, mapped to what they answer for.
+ *
+ * Walks outwards from the invoice: its order, the requisition that order came
+ * from, and the goods receipts the invoice was matched against. Every one of
+ * these is a record the system already holds, so the pack can populate itself
+ * instead of asking somebody to upload four documents it generated.
+ *
+ * A petty cash request has no order and no receipt — it *is* the requisition,
+ * and the SOP routes it to Accounts on its own form. So it answers for the
+ * requisition entry and nothing else, and the pack for petty cash carries only
+ * the requirements a petty cash transaction can actually meet.
+ *
+ * The mapping is deliberately by document-type code rather than by name: the
+ * codes come from the seeded Annexure A set, so a re-seed or a rename cannot
+ * quietly break the population.
+ */
+export async function packRecords(
+  documentType: "INVOICE" | "PETTY_CASH",
+  documentId: string,
+  db: DbClient = prisma,
+): Promise<PackRecord[]> {
+  if (documentType === "PETTY_CASH") {
+    const pc = await db.pettyCashRequest.findUnique({
+      where: { id: documentId },
+      select: { id: true, number: true },
+    });
+    if (!pc) return [];
+    return [
+      {
+        code: "PR-FORM",
+        label: "Petty cash request",
+        ref: pc.number,
+        href: `/petty-cash/${pc.id}/annexure-2`,
+      },
+    ];
+  }
+
+  const invoice = await db.invoice.findUnique({
+    where: { id: documentId },
+    select: {
+      id: true,
+      number: true,
+      po: {
+        select: {
+          id: true,
+          number: true,
+          pr: { select: { id: true, number: true } },
+        },
+      },
+      grnLinks: {
+        select: { grn: { select: { id: true, number: true } } },
+      },
+    },
+  });
+  if (!invoice) return [];
+
+  const out: PackRecord[] = [];
+
+  if (invoice.po?.pr) {
+    out.push({
+      code: "PR-FORM",
+      label: "Purchase requisition",
+      ref: invoice.po.pr.number,
+      href: `/pr/${invoice.po.pr.id}/annexure-1`,
+    });
+  }
+  if (invoice.po) {
+    out.push({
+      code: "PO-DOC",
+      label: "Purchase order",
+      ref: invoice.po.number,
+      href: `/po/${invoice.po.id}/document`,
+    });
+  }
+  // Several receipts can sit behind one invoice — a part delivery followed by the
+  // rest. All of them are listed, because the requirement is the receipt for what
+  // is being paid for and one of two is not that.
+  for (const link of invoice.grnLinks) {
+    out.push({
+      code: "GRN-DOC",
+      label: "Goods receipt note",
+      ref: link.grn.number,
+      href: `/grn/${link.grn.id}/document`,
+    });
+  }
+  out.push({
+    code: "INVOICE-DOC",
+    label: "Vendor invoice",
+    ref: invoice.number,
+    href: `/invoices/${invoice.id}`,
+  });
+
+  return out;
+}
 
 /**
  * The pack for one invoice or petty cash request, as it stands.
@@ -90,7 +224,7 @@ export async function paymentPack(
     if (!held || (r.entityId && !held.entityId)) chosen.set(r.documentType.code, r);
   }
 
-  const [items, attached] = await Promise.all([
+  const [items, attached, records] = await Promise.all([
     db.paymentPackItem.findMany({
       where: { documentType, documentId },
       include: {
@@ -102,12 +236,19 @@ export async function paymentPack(
       where: { linkedType: documentType, linkedId: documentId, archived: false, isCurrent: true },
       select: { id: true, documentType: { select: { code: true } } },
     }),
+    packRecords(documentType, documentId, db),
   ]);
 
   const itemByCode = new Map(items.map((i) => [i.documentTypeCode, i]));
   const attachedByCode = new Map(
     attached.filter((a) => a.documentType?.code).map((a) => [a.documentType!.code, a.id]),
   );
+  const recordsByCode = new Map<string, PackRecord[]>();
+  for (const r of records) {
+    const held = recordsByCode.get(r.code);
+    if (held) held.push(r);
+    else recordsByCode.set(r.code, [r]);
+  }
 
   const state: PackItemState[] = [...chosen.values()].map((r) => {
     const saved = itemByCode.get(r.documentType.code);
@@ -116,7 +257,16 @@ export async function paymentPack(
     // unanswered condition should not quietly excuse the document.
     const applicable = saved ? saved.applicable : kind !== "OPTIONAL";
     const attachedId = saved?.attachedDocumentId ?? attachedByCode.get(r.documentType.code) ?? null;
-    const present = Boolean(attachedId);
+    const own = recordsByCode.get(r.documentType.code) ?? [];
+    // An attachment is the stronger evidence where both exist — somebody chose to
+    // put that file here, and it may be the signed and stamped copy rather than
+    // the system's rendering of the same document.
+    const satisfiedBy: PackItemState["satisfiedBy"] = attachedId
+      ? "ATTACHMENT"
+      : own.length
+        ? "RECORD"
+        : null;
+    const present = satisfiedBy !== null;
     const verified = Boolean(saved?.verifiedAt);
     const waived = Boolean(saved?.exceptionReason && saved?.exceptionApprovedById);
 
@@ -129,6 +279,8 @@ export async function paymentPack(
       applicableNote: saved?.applicableNote ?? null,
       present,
       attachedDocumentId: attachedId,
+      satisfiedBy,
+      records: own,
       verified,
       verifiedByName: saved?.verifiedBy?.name ?? null,
       verifiedAt: saved?.verifiedAt ?? null,
@@ -144,6 +296,9 @@ export async function paymentPack(
     blockers: state.filter((i) => i.blocking).map((i) => i.documentTypeName),
     waived: state
       .filter((i) => i.exceptionReason && i.exceptionApprovedByName)
+      .map((i) => i.documentTypeName),
+    unverified: state
+      .filter((i) => i.applicable && i.present && !i.verified)
       .map((i) => i.documentTypeName),
   };
 }
@@ -246,7 +401,27 @@ export async function verifyPackItem(
     throw new RuleViolationError("You do not have permission to verify payment documents.");
   }
   return withTransaction(db, async (tx) => {
-    const item = await tx.paymentPackItem.findUnique({
+    // Read the pack rather than the stored row. A requirement met by a system
+    // record — the requisition, the order, the receipt — has no stored row until
+    // somebody acts on it, and it is exactly those three that most need
+    // verifying. Demanding a row first meant the four documents Annexure A
+    // always requires were the four that could never be marked checked.
+    const pack = await paymentPack(input.documentType, input.documentId, {}, tx);
+    const state = pack.items.find((i) => i.documentTypeCode === input.documentTypeCode);
+    if (!state) throw new NotFoundError("Payment pack item");
+    if (!state.present) {
+      throw new RuleViolationError(
+        `${state.documentTypeName} is not held yet, so there is nothing to verify.`,
+      );
+    }
+
+    const req = await tx.paymentPackRequirement.findFirst({
+      where: { documentType: { code: input.documentTypeCode }, active: true },
+      select: { id: true },
+    });
+    if (!req) throw new NotFoundError("Payment pack requirement");
+
+    const row = await tx.paymentPackItem.upsert({
       where: {
         documentType_documentId_documentTypeCode: {
           documentType: input.documentType,
@@ -254,24 +429,31 @@ export async function verifyPackItem(
           documentTypeCode: input.documentTypeCode,
         },
       },
-    });
-    if (!item) throw new NotFoundError("Payment pack item");
-    if (!item.attachedDocumentId) {
-      throw new RuleViolationError(
-        `${item.documentTypeName} is not attached yet, so there is nothing to verify.`,
-      );
-    }
-
-    const row = await tx.paymentPackItem.update({
-      where: { id: item.id },
-      data: { verifiedById: user.id, verifiedAt: new Date() },
+      create: {
+        documentType: input.documentType,
+        documentId: input.documentId,
+        requirementId: req.id,
+        documentTypeCode: state.documentTypeCode,
+        documentTypeName: state.documentTypeName,
+        applicable: state.applicable,
+        attachedDocumentId: state.attachedDocumentId,
+        verifiedById: user.id,
+        verifiedAt: new Date(),
+      },
+      update: { verifiedById: user.id, verifiedAt: new Date() },
     });
     await writeAudit(
       {
         entityType: input.documentType,
         entityId: input.documentId,
         action: "PACK_ITEM_VERIFIED",
-        newValue: { document: item.documentTypeName },
+        newValue: {
+          document: state.documentTypeName,
+          // Which kind of evidence was checked, because "verified" against a
+          // system record and against an uploaded scan are not the same claim.
+          satisfiedBy: state.satisfiedBy,
+          records: state.records.map((r) => r.ref),
+        },
         actor: user,
       },
       tx,
