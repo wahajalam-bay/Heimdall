@@ -19,6 +19,12 @@
  *
  * This ages a pending approval past its deadline so the sweep has something real
  * to find, and reports what actually happened rather than asserting it.
+ *
+ * Everything it changes, it changes back. Ageing a row is how the sweep is given
+ * something to see; *leaving* it aged would put a false deadline on a live
+ * document and make it look overdue in every report that reads one. The restore
+ * runs in a `finally`, so a failure part-way through does not strand the debris
+ * either.
  */
 import { writeSync } from "node:fs";
 import { prisma } from "../src/lib/db";
@@ -43,6 +49,9 @@ async function actorWith(code: string) {
   if (!held) throw new Error(`No active user holds ${code}.`);
   return sessionFor(held.email);
 }
+
+/** What this run altered, so it can be put back exactly. */
+const undo: Array<() => Promise<unknown>> = [];
 
 async function main() {
   say("\nEscalation — both ladders, on real rows\n");
@@ -76,6 +85,22 @@ async function main() {
 
     // Age it four days past its deadline. The sweep's own grace period is a day,
     // and a demonstration that skipped the grace would not be testing the rule.
+    const stepId = step.id;
+    const originalDueAt = step.dueAt;
+    const originalLevel = step.escalationLevel;
+    const originalEscalatedTo = step.escalatedToId;
+    const originalEscalatedAt = step.escalatedAt;
+    undo.push(() =>
+      prisma.approvalAction.update({
+        where: { id: stepId },
+        data: {
+          dueAt: originalDueAt,
+          escalationLevel: originalLevel,
+          escalatedToId: originalEscalatedTo,
+          escalatedAt: originalEscalatedAt,
+        },
+      }),
+    );
     await prisma.approvalAction.update({
       where: { id: step.id },
       data: { dueAt: new Date(Date.now() - 4 * 86_400_000) },
@@ -144,6 +169,15 @@ async function main() {
     }
 
     // Age them so the sweep sees them, then climb.
+    for (const ex of open) {
+      const { id, dueAt, escalationLevel, escalatedToId, escalatedAt, escalationNote } = ex;
+      undo.push(() =>
+        prisma.exception.update({
+          where: { id },
+          data: { dueAt, escalationLevel, escalatedToId, escalatedAt, escalationNote },
+        }),
+      );
+    }
     await prisma.exception.updateMany({
       where: { id: { in: open.map((e) => e.id) } },
       data: { dueAt: new Date(Date.now() - 2 * 86_400_000) },
@@ -176,4 +210,18 @@ main()
     say(`\nFailed: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}\n`);
     process.exitCode = 1;
   })
-  .finally(() => prisma.$disconnect());
+  .finally(async () => {
+    // In a `finally`, and in reverse, so a run that failed half way through still
+    // puts back what it had already changed.
+    let restored = 0;
+    for (const step of undo.reverse()) {
+      try {
+        await step();
+        restored += 1;
+      } catch (e) {
+        say(`  (restore failed: ${e instanceof Error ? e.message.slice(0, 90) : e})`);
+      }
+    }
+    if (restored) say(`  ${restored} row(s) put back as they were.`);
+    await prisma.$disconnect();
+  });
