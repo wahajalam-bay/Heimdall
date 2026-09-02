@@ -12,7 +12,7 @@ import { prisma, type DbClient } from "./db";
  *
  * Configure with:
  *   MAIL_TRANSPORT   logger (default) | http | none
- *   MAIL_FROM        "Heimdall <procurement@example.com>"
+ *   MAIL_FROM        "ProcurementOS <procurement@example.com>"
  *   MAIL_ENDPOINT    HTTPS endpoint for the http transport
  *   MAIL_TOKEN       bearer token for that endpoint
  *   MAIL_SPOOL_DIR   where the logger transport writes (default ./storage/mail)
@@ -35,7 +35,7 @@ export type MailTransport = {
   send(email: OutgoingEmail): Promise<SendResult>;
 };
 
-const FROM = process.env.MAIL_FROM ?? "Heimdall <no-reply@heimdall.local>";
+const FROM = process.env.MAIL_FROM ?? "ProcurementOS <no-reply@procurementos.local>";
 
 /**
  * Writes each message to a spool directory. This is the default because a
@@ -172,10 +172,10 @@ export function renderNotificationEmail(input: {
     "",
     input.title,
     ...(input.body ? ["", input.body] : []),
-    ...(input.linkUrl ? ["", `Open it in Heimdall: ${APP_URL}${input.linkUrl}`] : []),
+    ...(input.linkUrl ? ["", `Open it in ProcurementOS: ${APP_URL}${input.linkUrl}`] : []),
     "",
     "You are receiving this because email notifications are switched on for your account.",
-    "Turn them off under Settings in Heimdall.",
+    "Turn them off under Settings in ProcurementOS.",
   ];
   return lines.join("\n");
 }

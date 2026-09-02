@@ -156,7 +156,7 @@ async function discoverRoutes(): Promise<string[]> {
 
 async function main() {
   const { token, user } = await mintSession(EMAIL);
-  const cookie = `heimdall_session=${token}`;
+  const cookie = `procurementos_session=${token}`;
   const routes = [...STATIC_ROUTES, ...(await discoverRoutes())];
 
   const failures: string[] = [];

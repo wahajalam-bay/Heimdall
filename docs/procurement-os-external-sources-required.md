@@ -239,8 +239,8 @@ while any row below is outstanding.
 |---|---|
 | Referenced at | See PC-014 for the full conflict. ZD names Sage and SAP for PR/PO; ZAM names Sage 300 for item groups; §4.7 names an unnamed "ERP System" for GRN; Store Process Flow names "the ERP" for RTV. |
 | What depends on it | Whether this system is the book of record or a feeder. ZD §2.6.2 ii additionally requires "**System interfaces shall be tested annually**" — implying interfaces exist and must be evidenced. |
-| What the system does now | Heimdall is standalone. No integration. The annual interface test control has nothing to test. |
-| Risk of proceeding without it | **High architecturally.** If Sage remains the book of record, every PR and PO in Heimdall is a duplicate. |
+| What the system does now | ProcurementOS is standalone. No integration. The annual interface test control has nothing to test. |
+| Risk of proceeding without it | **High architecturally.** If Sage remains the book of record, every PR and PO in ProcurementOS is a duplicate. |
 | What I need | The system-of-record decision and, if integration is in scope, the interface specification. |
 | Status | `NOT SUPPLIED` |
 

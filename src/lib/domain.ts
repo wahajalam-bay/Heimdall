@@ -1,5 +1,5 @@
 /**
- * Domain vocabulary for Heimdall.
+ * Domain vocabulary for ProcurementOS.
  * SQLite has no native enums, so statuses live here as const unions and every
  * write path validates against these lists.
  */

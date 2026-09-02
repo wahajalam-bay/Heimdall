@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────────────────────
-   Heimdall — HeroUI v3 design system
+   ProcurementOS — HeroUI v3 design system
 
    llms.txt (the HeroUI v3 documentation) is the source of truth for this
    application's visual language, and this file is the only place it is
@@ -942,7 +942,7 @@
   .skeleton {
     @apply rounded-md;
     background: color-mix(in oklab, var(--surface) 88%, var(--foreground) 12%);
-    animation: heimdall-shimmer 1.6s ease-in-out infinite;
+    animation: procurementos-shimmer 1.6s ease-in-out infinite;
   }
 
   /* ── Utility surfaces ────────────────────────────────────── */
@@ -983,7 +983,7 @@
   }
 }
 
-@keyframes heimdall-shimmer {
+@keyframes procurementos-shimmer {
   0%,
   100% {
     opacity: 1;

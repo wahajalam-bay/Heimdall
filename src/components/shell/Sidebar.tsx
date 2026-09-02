@@ -12,7 +12,7 @@ import { NavIcon } from "./NavIcon";
 
 export type BadgeCounts = Partial<Record<string, number>>;
 
-const GROUPS_KEY = "heimdall.nav.groups";
+const GROUPS_KEY = "procurementos.nav.groups";
 const ONE_YEAR = 60 * 60 * 24 * 365;
 
 const DANGER_BADGES = new Set(["invoiceMismatch", "exceptions"]);
@@ -183,7 +183,7 @@ export function Sidebar({
         <Link
           href="/"
           className="flex min-w-0 items-center gap-2 rounded-lg outline-offset-2"
-          title={railMode ? `Heimdall · ${entityLabel}` : undefined}
+          title={railMode ? `ProcurementOS · ${entityLabel}` : undefined}
         >
           <span
             className="flex size-6 shrink-0 items-center justify-center rounded-lg text-[0.6875rem] font-700"
@@ -194,7 +194,7 @@ export function Sidebar({
           </span>
           {!railMode && (
             <span className="min-w-0">
-              <span className="block truncate text-[0.8125rem] font-600 leading-4 text-[var(--c-nav-text)]">Heimdall</span>
+              <span className="block truncate text-[0.8125rem] font-600 leading-4 text-[var(--c-nav-text)]">ProcurementOS</span>
               <span className="block truncate text-2xs leading-3.5 text-[var(--c-nav-text-dim)]">
                 {entityLabel}
               </span>

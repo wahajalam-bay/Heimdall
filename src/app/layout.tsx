@@ -5,8 +5,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "Heimdall",
-    template: "%s · Heimdall",
+    default: "ProcurementOS",
+    template: "%s · ProcurementOS",
   },
   description:
     "Internal procurement operating system — requisitions, sourcing, CPC, purchase orders, receiving, GRN, inventory, invoicing and vendor governance.",

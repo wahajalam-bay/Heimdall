@@ -307,10 +307,10 @@ embedded annexure image describe two different instruments.
 | Source C | ZAM `image18.png` — "Item Groups – Planned for **sage 300**" |
 | Source D | ZAM/ZD §4.7 — GRN prepared "through **ERP System**" (unnamed); Store Process Flow — "RTV document will be lodged … within the **ERP**" |
 | Entity | ZD contains both Sage and SAP; ZAM names Sage 300 |
-| Current system behaviour | Heimdall is the system of record. No external ERP integration exists. |
-| Risk | If Sage/SAP remains the book of record for PR/PO, Heimdall is either the master or a parallel system, and duplicate entry or divergence follows. This is an architecture question, not a feature. |
+| Current system behaviour | ProcurementOS is the system of record. No external ERP integration exists. |
+| Risk | If Sage/SAP remains the book of record for PR/PO, ProcurementOS is either the master or a parallel system, and duplicate entry or divergence follows. This is an architecture question, not a feature. |
 | Recommended resolution | Do not build an integration on an ambiguous reference. Record the system-of-record per entity and per document type as configuration, and log this for management decision. |
-| Management decision required | **Yes** — is Heimdall the system of record, or does it feed Sage/SAP? |
+| Management decision required | **Yes** — is ProcurementOS the system of record, or does it feed Sage/SAP? |
 | Status | `DECISION REQUIRED` |
 
 ---

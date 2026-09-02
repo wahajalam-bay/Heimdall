@@ -1,5 +1,5 @@
 /**
- * Populates Heimdall end to end.
+ * Populates ProcurementOS end to end.
  *
  * Everything below is written through the same service functions the
  * application calls, so approvals, inventory, exceptions, savings, tasks,
@@ -1377,7 +1377,7 @@ async function driveDocumentAccess() {
 /* ── Main ─────────────────────────────────────────────────── */
 
 async function main() {
-  console.log("\nPopulating Heimdall end to end\n");
+  console.log("\nPopulating ProcurementOS end to end\n");
 
   section("Procurement cases");
   for (const spec of CASES) {

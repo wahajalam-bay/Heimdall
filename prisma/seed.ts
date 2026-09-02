@@ -1,5 +1,5 @@
 /**
- * Heimdall seed.
+ * ProcurementOS seed.
  *
  * Master data is written directly; every transactional flow is driven through
  * the real domain services so statuses, approvals, inventory, audit trail,
@@ -1055,7 +1055,7 @@ export { prisma, users, entityId, departmentId, projectId, siteId, storeId, loca
 // Main
 // ─────────────────────────────────────────────────────────────
 async function main() {
-  process.stdout.write("\nSeeding Heimdall\n\n");
+  process.stdout.write("\nSeeding ProcurementOS\n\n");
   await reset();
   await seedRbac();
   await seedOrg();

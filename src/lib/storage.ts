@@ -14,7 +14,7 @@ import path from "node:path";
  *   UPLOAD_DIR                   local driver root (default ./storage/uploads)
  *   SUPABASE_URL                 https://<project>.supabase.co
  *   SUPABASE_SERVICE_ROLE_KEY    server-side key; never exposed to the browser
- *   SUPABASE_STORAGE_BUCKET      bucket name (default heimdall-documents)
+ *   SUPABASE_STORAGE_BUCKET      bucket name (default procurementos-documents)
  *
  * Object keys are the relative paths already stored on each document row, so
  * switching drivers does not invalidate the register — only where the bytes live.
@@ -27,7 +27,7 @@ export function activeDriver(): StorageDriver {
 }
 
 const LOCAL_ROOT = () => path.resolve(process.env.UPLOAD_DIR ?? "./storage/uploads");
-const BUCKET = () => process.env.SUPABASE_STORAGE_BUCKET ?? "heimdall-documents";
+const BUCKET = () => process.env.SUPABASE_STORAGE_BUCKET ?? "procurementos-documents";
 
 function supabaseConfig() {
   const url = process.env.SUPABASE_URL?.replace(/\/+$/, "");

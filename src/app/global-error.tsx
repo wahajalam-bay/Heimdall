@@ -44,7 +44,7 @@ export default function GlobalError({
           >
             H
           </div>
-          <h1 style={{ fontSize: "1.125rem", fontWeight: 600, margin: 0 }}>Heimdall could not start</h1>
+          <h1 style={{ fontSize: "1.125rem", fontWeight: 600, margin: 0 }}>ProcurementOS could not start</h1>
           <p style={{ margin: "0.5rem 0 1.25rem", color: "#5a6172", fontSize: "0.875rem" }}>
             Nothing was changed. Reload to try again, and quote{" "}
             <code style={{ fontFamily: "ui-monospace, monospace" }}>{error.digest ?? "no reference"}</code> if

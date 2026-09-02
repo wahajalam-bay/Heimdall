@@ -35,7 +35,7 @@ async function mintSession(email: string) {
       expiresAt: new Date(Date.now() + 3600_000),
     },
   });
-  return { cookie: `heimdall_session=${token}`, user };
+  return { cookie: `procurementos_session=${token}`, user };
 }
 
 async function get(path: string, cookie: string) {

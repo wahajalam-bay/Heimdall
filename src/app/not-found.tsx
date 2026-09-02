@@ -24,7 +24,7 @@ export default function NotFound() {
         </p>
         <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
           <Link href="/" className="btn btn-primary btn-sm">
-            Go to Heimdall
+            Go to ProcurementOS
           </Link>
           <Link href="/login" className="btn btn-secondary btn-sm">
             Sign in

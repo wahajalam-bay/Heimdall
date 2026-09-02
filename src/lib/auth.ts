@@ -24,7 +24,7 @@ export {
 };
 export type { SessionUser };
 
-export const SESSION_COOKIE = "heimdall_session";
+export const SESSION_COOKIE = "procurementos_session";
 const SESSION_TTL_HOURS = 12;
 
 

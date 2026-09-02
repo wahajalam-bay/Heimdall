@@ -4,10 +4,10 @@
  * A cookie rather than local storage, so the server renders the sidebar at the
  * width the user chose instead of correcting it after hydration.
  */
-export const NAV_COOKIE = "heimdall_nav";
+export const NAV_COOKIE = "procurementos_nav";
 
 /** Row height. Same reasoning as the navigation width: the server needs to know. */
-export const DENSITY_COOKIE = "heimdall_density";
+export const DENSITY_COOKIE = "procurementos_density";
 
 export type Density = "comfortable" | "compact";
 

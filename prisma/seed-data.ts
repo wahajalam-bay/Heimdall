@@ -1,5 +1,5 @@
 /**
- * Static master data for the Heimdall seed.
+ * Static master data for the ProcurementOS seed.
  * Kept separate from the orchestration so the shapes stay readable.
  */
 

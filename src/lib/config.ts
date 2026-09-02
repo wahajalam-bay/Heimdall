@@ -958,15 +958,15 @@ export const CONFIG_DEFS: ConfigDef[] = [
     key: CONFIG_KEYS.POLICY_SYSTEM_OF_RECORD,
     label: "System of record by document type",
     description:
-      'PC-014. JSON, e.g. [{"documentType":"PR","system":"HEIMDALL"}]. ZD names Sage in its text and SAP in its own annexure flow; ZAM names Sage 300. No integration is built on an ambiguous reference — this records the intent so it is visible. DECISION REQUIRED: is this system the book of record, or does it feed Sage/SAP?',
+      'PC-014. JSON, e.g. [{"documentType":"PR","system":"PROCUREMENTOS"}]. ZD names Sage in its text and SAP in its own annexure flow; ZAM names Sage 300. No integration is built on an ambiguous reference — this records the intent so it is visible. DECISION REQUIRED: is this system the book of record, or does it feed Sage/SAP?',
     group: "Policy · Platform",
     valueType: "json",
     default: [
-      { documentType: "PR", system: "HEIMDALL" },
-      { documentType: "PO", system: "HEIMDALL" },
-      { documentType: "GRN", system: "HEIMDALL" },
-      { documentType: "INVOICE", system: "HEIMDALL" },
-      { documentType: "PAYMENT", system: "HEIMDALL" },
+      { documentType: "PR", system: "PROCUREMENTOS" },
+      { documentType: "PO", system: "PROCUREMENTOS" },
+      { documentType: "GRN", system: "PROCUREMENTOS" },
+      { documentType: "INVOICE", system: "PROCUREMENTOS" },
+      { documentType: "PAYMENT", system: "PROCUREMENTOS" },
     ],
   },
   {

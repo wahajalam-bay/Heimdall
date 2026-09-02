@@ -55,7 +55,7 @@ export default async function LoginPage() {
               H
             </span>
             <div>
-              <p className="text-[0.9375rem] font-600 leading-5">Heimdall</p>
+              <p className="text-[0.9375rem] font-600 leading-5">ProcurementOS</p>
               <p className="text-xs text-[var(--c-text-tertiary)]">Supply Chain Operating System</p>
             </div>
           </div>

@@ -690,7 +690,7 @@ location and test file recorded.
 Three items are configuration or decisions, not development, and block real work:
 
 1. **`SUPABASE_SERVICE_ROLE_KEY`** must be set on Vercel and the private
-   `heimdall-documents` bucket created. Until then every document feature stores
+   `procurementos-documents` bucket created. Until then every document feature stores
    metadata for files that vanish on the next deploy — including the Payment Pack
    built in Phase 4.
 2. **The 14 `DECISION REQUIRED` conflicts** — particularly PC-002 (which vendor
