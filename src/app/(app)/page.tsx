@@ -61,7 +61,7 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-8">
       <PageHeader
-        eyebrow="Home"
+        eyebrow="ProcurementOS"
         title="Executive dashboard"
         subtitle={
           ctx.entityName
